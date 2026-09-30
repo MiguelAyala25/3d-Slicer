@@ -4,12 +4,13 @@
 > Alcance: cargar → rebanar → visualizar → exportar. Sin features extra.
 
 > [!NOTE]
-> **Revisión v2** — Este plan incorpora correcciones de dos auditorías técnicas:
+> **Revisión v2** — Este plan incorpora correcciones de tres auditorías técnicas y configuración inicial:
+> - Fase 0: Repositorio GitHub con política de commits y push por cada hito/cambio
 > - Pre-escalado del mesh antes de cortar (los polígonos salen directo en mm)
 > - Bounding box global en el exportador (preserva alineación entre placas)
-> - Marcas de alineación para ensamblaje físico
-> - Fallback robusto en `path2d_to_shapely` + orientación forzada
-> - Corrección de `fill-rule` en SVG con `<g>` contenedor
+> - Marcas de alineación con dos puntos para fijar rotación en ensamble físico
+> - Fallback robusto en `path2d_to_shapely` con nesting de huecos y orientación forzada
+> - Rotación de ejes corregida para mantener orden intuitivo de placas (+eje → +Z)
 > - Invalidación de estado en la UI al cambiar parámetros o cargar nuevo modelo
 > - Detección heurística de unidades del modelo
 
@@ -71,6 +72,77 @@ sculpture/
 - **Idioma de mensajes de error:** español, claros y accionables.
 - **Sin globals mutables:** los parámetros viajan como argumentos entre funciones, no como estado global.
 - **Sin logging framework:** `print()` para debug en consola durante desarrollo; en producción, los errores van a `QMessageBox`.
+
+---
+
+## Fase 0 — Repositorio GitHub y Control de Versiones
+
+**Objetivo:** Inicializar el repositorio local, configurar `.gitignore`, vincular con GitHub y establecer la política de commits y push continuos por cada hito/cambio implementado.  
+**Archivos involucrados:** `.gitignore`, `README.md`, `requirements.txt`
+
+### 1. Configuración de `.gitignore`
+Crear un archivo `.gitignore` robusto para entorno Python/Qt:
+```gitignore
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# IDEs y OS
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+
+# Archivos temporales de test o exports
+test_*.obj
+test_*.stl
+*.dxf
+*.svg
+!samples/
+```
+
+### 2. Creación del repositorio remoto y vinculación
+1. Inicializar localmente:
+   ```bash
+   git init -b main
+   ```
+2. Crear `requirements.txt` y `README.md` base.
+3. Crear el repositorio en GitHub (vía GitHub CLI `gh repo create` o web) y enlazarlo:
+   ```bash
+   git remote add origin https://github.com/<usuario>/sculpture.git
+   git add .
+   git commit -m "chore: setup inicial del proyecto, gitignore y plan v2"
+   git push -u origin main
+   ```
+
+### 3. Política estricta de commits y push ("Push por cada cambio")
+- **Regla:** Ningún avance o módulo queda solo en local. Cada fase completada o ajuste verificado debe commitearse y pushearse inmediatamente.
+- **Convención de commits:**
+  - `chore: ...` (setup inicial, dependencias)
+  - `feat(validator): ...` (validaciones de archivo y mesh)
+  - `feat(slicer): ...` (corte headless, pre-escalado en mm, nesting de huecos)
+  - `feat(exporter): ...` (generación DXF/SVG con bbox global y pines de ensamble)
+  - `feat(viewer): ...` (renderizado OpenGL de placas extruidas)
+  - `feat(ui): ...` (panel de control PySide6 e invalidación de estado)
+  - `feat(app): ...` (ensamble en main.py y UX de errores)
+  - `fix: ...` (correcciones de bugs)
+- **Flujo en cada paso:**
+  ```bash
+  git add .
+  git commit -m "mensaje descriptivo"
+  git push
+  ```
 
 ---
 
@@ -1224,6 +1296,12 @@ UI             → label en panel + deshabilitar botones → guía al usuario
 
 ## Checklist de Criterios de Éxito Global
 
+### Fase 0 — Repositorio y Git Workflow
+- [ ] Repositorio inicializado en local (`git init -b main`)
+- [ ] Archivo `.gitignore` creado y cubriendo Python, IDEs y temporales
+- [ ] Repositorio creado en GitHub y vinculado al remoto `origin`
+- [ ] Primer commit y push exitoso (`chore: setup inicial del proyecto, gitignore y plan v2`)
+
 ### Fase 1 — Slicing headless
 - [ ] L-block asimétrico → Valida que las coordenadas 2D preservan posición relativa (centroides diferentes entre placas)
 - [ ] L-block → Los contornos NO están espejados respecto al modelo 3D (probar ejes X, Y, Z)
@@ -1242,7 +1320,7 @@ UI             → label en panel + deshabilitar botones → guía al usuario
 - [ ] SVG abre en Inkscape con contornos cerrados
 - [ ] Polígono con hueco → DXF con dos lwpolyline por placa, SVG con path evenodd
 - [ ] **NUEVO:** Modelo asimétrico → las placas en el DXF/SVG preservan su posición relativa (bounding box global)
-- [ ] **NUEVO:** Marcas de alineación presentes y en la misma posición relativa en cada slot
+- [ ] **NUEVO:** Marcas de alineación presentes (dos pines asimétricos para fijar rotación) en cada slot
 - [ ] **NUEVO:** Huecos en SVG se ven correctamente en Inkscape (fill-rule evenodd en `<g>`)
 
 ### Fase 3 — UI y Visor
@@ -1267,25 +1345,40 @@ UI             → label en panel + deshabilitar botones → guía al usuario
 ## Orden de Ejecución Sugerido
 
 ```
-0. Inicializar git: `git init`, agregar `.gitignore` y hacer commit inicial.
-1. Instalar dependencias (requirements.txt)
+0. FASE 0: 
+   - git init -b main
+   - Crear .gitignore y requirements.txt
+   - Crear repo en GitHub y enlazar (git remote add origin ...)
+   - git add . && git commit -m "chore: setup inicial y plan v2" && git push -u origin main
+1. Instalar dependencias del proyecto (pip install -r requirements.txt)
 2. Implementar validator.py completo
-3. Implementar slicer.py completo
-4. Ejecutar test_slice.py con cubo, esfera y L-block asimétrico
-   -> Verificar que los polígonos están en mm y que la posición relativa se preserva
-   -> Hacer commit de Fase 1
-5. Implementar exporter.py completo
-6. Verificar DXF y SVG manualmente en Inkscape
-   -> Confirmar bounding box global, marcas de alineación, y huecos con evenodd
-   -> Hacer commit de Fase 2
-7. Implementar viewer.py
-8. Implementar ui.py
-9. Implementar main.py (conectar todo)
+3. Implementar slicer.py completo (con pre-escalado en mm, centrado y rotación corregida)
+4. Ejecutar test_slice.py con cubo, esfera y L-block asimétrico:
+   -> Verificar polígonos en mm y preservación de posición relativa
+   -> Commit & Push Fase 1:
+      git add validator.py slicer.py test_slice.py
+      git commit -m "feat(slicer): nucleo headless con pre-escalado en mm y nesting de huecos"
+      git push
+5. Implementar exporter.py completo (layout global, dos pines de alineación, DXF/SVG)
+6. Verificar DXF y SVG manualmente en Inkscape:
+   -> Confirmar bbox global, marcas asimétricas y huecos
+   -> Commit & Push Fase 2:
+      git add exporter.py
+      git commit -m "feat(exporter): exportacion DXF y SVG con layout global y marcas de alineacion"
+      git push
+7. Implementar viewer.py (con extrusión y fallback wireframe)
+8. Implementar ui.py (panel de control e invalidación de estado al editar parámetros)
+9. Implementar main.py (orquestación y validaciones de arranque)
 10. Prueba de integración completa: cargar → rebanar → ver → exportar
-   -> Hacer commit de Fase 3
-11. Prueba de casos de error (archivos inválidos, parámetros fuera de rango)
-   -> Probar invalidación de estado (cambiar parámetros, cargar nuevo modelo)
-   -> Hacer commit de Fase 4 (versión final)
+   -> Commit & Push Fase 3:
+      git add viewer.py ui.py main.py
+      git commit -m "feat(ui): integracion completa de interfaz PySide6 y visor 3D OpenGL"
+      git push
+11. Prueba de casos de error (archivos corruptos, fuera de rango, invalidación de estado)
+   -> Commit & Push Fase 4 (versión final):
+      git add .
+      git commit -m "fix(ux): manejo robusto de errores y validaciones finales"
+      git push
 ```
 
 ---

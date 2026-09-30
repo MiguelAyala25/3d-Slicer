@@ -1,10 +1,27 @@
-﻿__pycache__
-*.pyc
-*.pyo
-.venv
-venv
-env
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+dist/
+*.egg-info/
+
+# IDEs y OS
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+
+# Archivos temporales de test o exports
+test_*.obj
+test_*.stl
 *.dxf
 *.svg
-.vscode/
-.idea/
+!samples/
