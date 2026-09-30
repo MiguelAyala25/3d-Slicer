@@ -41,7 +41,7 @@ shapely>=2.0.0
 ezdxf>=1.0.0
 svgwrite>=1.4.0
 PySide6>=6.5.0
-pyqtgraph>=0.13.0
+pyqtgraph>=0.13.1
 PyOpenGL>=3.1.0
 ```
 
@@ -135,6 +135,8 @@ def validate_mesh(mesh) -> tuple[bool, str, bool]:
 **Responsabilidad:** toda la matemática de corte.
 
 ```python
+from dataclasses import dataclass
+
 # Estructura de datos de salida
 @dataclass
 class SliceResult:
@@ -349,7 +351,8 @@ def path2d_to_shapely(path2d) -> list:
 **Paso 5 — Generar advertencias**
 ```
 Si len(empty_plates) > 0:
-    warnings.append(f"Placas {empty_plates} están vacías o demasiado pequeñas (área < {min_area_mm2} mm²). Serán omitidas en la exportación.")
+    shown = empty_plates[:5] + ['...'] + empty_plates[-3:] if len(empty_plates) > 10 else empty_plates
+    warnings.append(f"Placas {shown} están vacías o demasiado pequeñas (área < {min_area_mm2} mm²). Serán omitidas en la exportación.")
 
 Si len(empty_plates) == plates:
     # Error fatal — ningún corte produjo geometría
@@ -484,7 +487,31 @@ slot_width = global_max_x - global_min_x    # mismo ancho para cada slot
 slot_height = global_max_y - global_min_y    # mismo alto para cada slot
 ```
 
-**Paso 2 — Escribir geometría con offset global**
+**Paso 2 — Crear documento (doc/dwg)**
+
+```python
+n_valid = len(valid_plates)
+total_width = (n_valid * slot_width) + ((n_valid + 1) * margin_mm)
+total_height = slot_height + (margin_mm * 2)
+
+if formato == 'svg':
+    dwg = svgwrite.Drawing(output_path, size=(f"{total_width}mm", f"{total_height}mm"))
+    dwg.viewbox(0, 0, total_width, total_height)
+    
+    # Configuración de fill-rule
+    group = dwg.g(style="fill-rule:evenodd; fill:none; stroke:black; stroke-width:0.1mm;")
+    dwg.add(group)
+    
+    align_group = dwg.g(id="alignment-marks")
+    dwg.add(align_group)
+
+elif formato == 'dxf':
+    doc = ezdxf.new('R2010')
+    msp = doc.modelspace()
+    doc.layers.add("ALINEACION", color=1)
+```
+
+**Paso 3 — Escribir geometría con offset global**
 
 ```python
 x_offset = margin_mm
@@ -496,19 +523,13 @@ for i, plist in enumerate(result.polygons):
     layer_name = f"PLACA_{i+1:02d}"
     
     for polygon in plist:
-        # Extraer coordenadas — NO se escala (ya están en mm)
-        # Solo se traslada: restar el mínimo GLOBAL + offset de layout
-        def transform_coords(coords, formato):
+        def transform_coords(coords, form):
             res = []
             for x, y in coords:
-                # 1. Restar mínimo GLOBAL (no individual) → preserva alineación
-                # 2. Sumar offset horizontal acumulado
-                # 3. En SVG: invertir eje Y
                 tx = (x - global_min_x) + x_offset
                 ty = (y - global_min_y)
-                
-                if formato == 'svg':
-                    ty = slot_height - ty  # Invertir eje Y para SVG
+                if form == 'svg':
+                    ty = slot_height - ty
                 res.append((tx, ty))
             return res
             
@@ -520,83 +541,41 @@ for i, plist in enumerate(result.polygons):
             for interior in interiors:
                 msp.add_lwpolyline(interior, close=True, dxfattribs={"layer": layer_name})
         elif formato == 'svg':
-            # Combinar exterior + interiors en un solo path con regla evenodd
             path_d = _coords_to_svg_path(exterior)
             for interior in interiors:
                 path_d += " " + _coords_to_svg_path(interior)
             group.add(dwg.path(d=path_d))
     
-    # --- Marcas de alineación (DOS agujeros para fijar posición + rotación) ---
-    # Un solo agujero centrado permite rotación de 180°.
-    # Con dos agujeros en posiciones asimétricas, la orientación queda fija.
     if add_alignment_marks:
-        pin_radius = 1.5  # mm (para pin/dowel de 3mm de diámetro)
-        
-        # Agujero A: desplazado a la izquierda del centro, centrado en Y
+        pin_radius = 1.5
         ax = (slot_width * 0.25) + x_offset
         ay_base = slot_height / 2.0
         ay = ay_base if formato == 'dxf' else (slot_height - ay_base)
-        
-        # Agujero B: desplazado a la derecha del centro y ARRIBA
-        # (asimétrico en ambos ejes para eliminar ambigüedad de rotación)
         bx = (slot_width * 0.75) + x_offset
         by_base = slot_height * 0.75
         by = by_base if formato == 'dxf' else (slot_height - by_base)
         
         if formato == 'dxf':
-            msp.add_circle((ax, ay), radius=pin_radius,
-                          dxfattribs={"layer": "ALINEACION"})
-            msp.add_circle((bx, by), radius=pin_radius,
-                          dxfattribs={"layer": "ALINEACION"})
+            msp.add_circle((ax, ay), radius=pin_radius, dxfattribs={"layer": "ALINEACION"})
+            msp.add_circle((bx, by), radius=pin_radius, dxfattribs={"layer": "ALINEACION"})
         elif formato == 'svg':
-            align_group.add(dwg.circle(
-                center=(ax, ay), r=pin_radius,
-                stroke="red", fill="none", stroke_width="0.2mm"))
-            align_group.add(dwg.circle(
-                center=(bx, by), r=pin_radius,
-                stroke="red", fill="none", stroke_width="0.2mm"))
+            align_group.add(dwg.circle(center=(ax, ay), r=pin_radius, stroke="red", fill="none", stroke_width="0.2mm"))
+            align_group.add(dwg.circle(center=(bx, by), r=pin_radius, stroke="red", fill="none", stroke_width="0.2mm"))
     
-    # Avanzar x_offset por el ancho del slot GLOBAL (igual para todas las placas)
     x_offset += slot_width + margin_mm
 ```
 
-**Paso 3 — Configuración SVG correcta**
-
-> [!WARNING]
-> `dwg['fill-rule'] = 'evenodd'` no funciona de forma confiable en svgwrite.
-> Se debe aplicar a un `<g>` contenedor, no al elemento `<svg>` raíz.
+**Paso 4 — Guardar archivo (con manejo de errores)**
 
 ```python
-if formato == 'svg':
-    total_width = x_offset
-    total_height = slot_height + (margin_mm * 2)
-    
-    dwg = svgwrite.Drawing(output_path, size=(f"{total_width}mm", f"{total_height}mm"))
-    dwg.viewbox(0, 0, total_width, total_height)
-    
-    # Grupo principal de contornos
-    # NOTA: fill-rule:evenodd es técnicamente irrelevante cuando fill:none (corte láser
-    # solo necesita los strokes). Se incluye para que si alguien abre el SVG en Inkscape
-    # y agrega un fill para previsualizar, los huecos se rendericen correctamente.
-    group = dwg.g(style="fill-rule:evenodd; fill:none; stroke:black; stroke-width:0.1mm;")
-    dwg.add(group)
-    
-    # Grupo separado para marcas de alineación (color rojo, sin fill-rule)
-    align_group = dwg.g(id="alignment-marks")
-    dwg.add(align_group)
-    
-    # ... (iterar placas y agregar paths a group) ...
-    
-    dwg.save()
-    
-elif formato == 'dxf':
-    doc = ezdxf.new('R2010')
-    msp = doc.modelspace()
-    doc.layers.add("ALINEACION", color=1)  # rojo en DXF
-    
-    # ... (iterar placas y agregar lwpolylines a msp) ...
-    
-    doc.saveas(output_path)
+try:
+    if formato == 'svg':
+        dwg.save()
+    elif formato == 'dxf':
+        doc.saveas(output_path)
+    return True, output_path
+except Exception as e:
+    return False, f"Error al guardar: {e}"
 ```
 
 **Función auxiliar para paths SVG:**
@@ -643,6 +622,7 @@ import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import GLViewWidget, GLMeshItem, GLLinePlotItem
 from PySide6.QtWidgets import QWidget, QHBoxLayout
 import trimesh
+from slicer import SliceResult
 
 def _hue_to_rgb(h: float) -> list[float]:
     """Convierte un valor de tono (0-1) a RGB (0-1) usando hsv_to_rgb."""
@@ -813,6 +793,10 @@ def _extrude_polygon(polygon, thickness, position) -> trimesh.Trimesh | None:
 **Responsabilidad:** controles del usuario. Sin lógica de negocio.
 
 ```python
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QLabel, QPushButton, QSpinBox, QDoubleSpinBox, QComboBox, QFileDialog, QMessageBox, QScrollArea)
+from PySide6.QtCore import Signal, Qt
+from slicer import SliceResult
+
 class ControlPanel(QWidget):
     """
     Panel lateral con todos los controles.
@@ -829,7 +813,16 @@ class ControlPanel(QWidget):
         self._build_ui()
     
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        
+        container = QWidget()
+        layout = QVBoxLayout(container)
         layout.setAlignment(Qt.AlignTop)
         
         # --- Sección: Cargar archivo ---
@@ -917,6 +910,9 @@ class ControlPanel(QWidget):
         self.spin_gap.valueChanged.connect(self._invalidate_result)
         self.spin_thickness.valueChanged.connect(self._invalidate_result)
         self.combo_axis.currentIndexChanged.connect(self._invalidate_result)
+        
+        scroll.setWidget(container)
+        outer_layout.addWidget(scroll)
     
     def _on_load_clicked(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -1028,6 +1024,7 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(central)
         
         self.panel = ControlPanel()
+        self.panel.setMinimumWidth(280)
         self.viewer = SculptureViewer()
         
         layout.addWidget(self.panel, stretch=0)  # panel fijo ~300px
