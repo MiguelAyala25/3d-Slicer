@@ -65,8 +65,17 @@ class MainWindow(QMainWindow):
         # 2. Cargar mesh
         try:
             mesh = trimesh.load(path, force='mesh')
-        except Exception as e:
-            self.panel.show_error(f"No se pudo cargar el archivo:\n{e}")
+            if isinstance(mesh, trimesh.Scene):
+                if len(mesh.geometry) == 0:
+                    self.panel.show_error("El modelo cargado no tiene geometría (0 vértices).")
+                    return
+                mesh = trimesh.util.concatenate(list(mesh.geometry.values()))
+        except Exception:
+            self.panel.show_error("No se pudo leer el archivo. Verificá que sea un OBJ o STL válido.")
+            return
+
+        if mesh is None or not isinstance(mesh, trimesh.Trimesh):
+            self.panel.show_error("No se pudo leer el archivo. Verificá que sea un OBJ o STL válido.")
             return
 
         # 3. Validar mesh
@@ -106,11 +115,19 @@ class MainWindow(QMainWindow):
         # 4. Guardar y mostrar en el visor
         self._mesh = mesh
 
-        combined_warning = msg if (repaired or "advertencia" in msg.lower()) else ""
+        warnings_to_show = []
+        if not repaired and msg:
+            warnings_to_show.append(msg)
+            self.panel.show_warning(msg)
+
         if unit_warning:
-            combined_warning += ("\n" if combined_warning else "") + unit_warning
+            warnings_to_show.append(unit_warning)
+            self.panel.show_warning(unit_warning)
+
         if multi_obj_warning:
-            combined_warning += ("\n" if combined_warning else "") + multi_obj_warning
+            warnings_to_show.append(multi_obj_warning)
+
+        combined_warning = "\n".join(warnings_to_show)
 
         self.panel.set_file_label(
             os.path.basename(path),
@@ -142,8 +159,8 @@ class MainWindow(QMainWindow):
         except ValueError as e:
             self.panel.show_error(str(e))
             return
-        except Exception as e:
-            self.panel.show_error(f"Error inesperado durante el corte:\n{e}")
+        except Exception:
+            self.panel.show_error("Error inesperado durante el corte. Verificá los parámetros y la geometría del modelo.")
             return
 
         # Guardar resultado y actualizar UI
@@ -186,7 +203,7 @@ class MainWindow(QMainWindow):
         if ok:
             QMessageBox.information(self, "Exportación exitosa", f"Archivo guardado en:\n{msg}")
         else:
-            self.panel.show_error(f"Error al exportar:\n{msg}")
+            self.panel.show_error(msg)
 
 
 def main():

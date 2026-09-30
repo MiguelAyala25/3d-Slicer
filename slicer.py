@@ -190,11 +190,11 @@ def slice_mesh(
     if len(empty_plates) > 0:
         shown = empty_plates[:5] + ['...'] + empty_plates[-3:] if len(empty_plates) > 10 else empty_plates
         warnings.append(
-            f"Placas {shown} están vacías o demasiado pequeñas (área < {min_area_mm2} mm²). Serán omitidas en la exportación."
+            f"Las placas {shown} están vacías y serán omitidas."
         )
 
     if len(empty_plates) == plates:
-        raise ValueError("Ningún plano de corte produjo geometría. Verificá el eje de corte seleccionado.")
+        raise ValueError("Ningún plano de corte produjo geometría. Probá con otro eje de corte.")
 
     return SliceResult(
         polygons=polygons,
