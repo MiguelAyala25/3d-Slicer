@@ -3,6 +3,16 @@
 > Herramienta Python para generar esculturas de planos seriados a partir de modelos 3D.  
 > Alcance: cargar → rebanar → visualizar → exportar. Sin features extra.
 
+> [!NOTE]
+> **Revisión v2** — Este plan incorpora correcciones de dos auditorías técnicas:
+> - Pre-escalado del mesh antes de cortar (los polígonos salen directo en mm)
+> - Bounding box global en el exportador (preserva alineación entre placas)
+> - Marcas de alineación para ensamblaje físico
+> - Fallback robusto en `path2d_to_shapely` + orientación forzada
+> - Corrección de `fill-rule` en SVG con `<g>` contenedor
+> - Invalidación de estado en la UI al cambiar parámetros o cargar nuevo modelo
+> - Detección heurística de unidades del modelo
+
 ---
 
 ## Stack de Librerías
@@ -56,7 +66,7 @@ sculpture/
 
 ## Convenciones Generales
 
-- **Unidades internas:** todo se maneja en las unidades del archivo fuente. La escala a mm se aplica solo al exportar.
+- **Unidades internas:** el slicer pre-escala el mesh a milímetros antes de cortar. Los polígonos 2D resultantes ya están en mm. Ni el visor ni el exportador necesitan aplicar escala adicional.
 - **Eje de corte por defecto:** Z. El usuario puede cambiarlo en la UI (X / Y / Z).
 - **Idioma de mensajes de error:** español, claros y accionables.
 - **Sin globals mutables:** los parámetros viajan como argumentos entre funciones, no como estado global.
@@ -80,8 +90,8 @@ sculpture/
 # Firma pública del módulo
 def validate_file(path: str) -> tuple[bool, str]:
     """
-    Verifica que el archivo existe, tiene extensión OBJ o STL,
-    y que trimesh puede abrirlo sin errores.
+    Verifica que el archivo existe y tiene extensión OBJ o STL.
+    (La carga real con trimesh se hace después para evitar doble trabajo).
     Retorna (True, "") si todo OK, o (False, "mensaje de error") si falla.
     """
 
@@ -99,6 +109,11 @@ def validate_mesh(mesh) -> tuple[bool, str, bool]:
     Recibe un objeto trimesh.Trimesh ya cargado.
     Verifica que no esté vacío (vértices > 0, caras > 0).
     Intenta reparación automática si no es watertight.
+    
+    IMPORTANTE: esta función MUTA el mesh recibido (fill_holes, fix_normals).
+    El caller debe ser consciente de que el mesh original se modifica.
+    Esto es intencional: queremos que slice_mesh trabaje con la versión reparada.
+    
     Retorna (es_válido: bool, mensaje: str, fue_reparado: bool).
     """
 ```
@@ -123,127 +138,230 @@ def validate_mesh(mesh) -> tuple[bool, str, bool]:
 # Estructura de datos de salida
 @dataclass
 class SliceResult:
-    polygons: list           # lista de shapely.Polygon (uno por placa)
+    polygons: list           # lista de listas de shapely.Polygon (una lista por placa)
+                             # COORDENADAS EN MM — el mesh fue pre-escalado antes de cortar
     empty_plates: list[int]  # índices de placas que resultaron vacías o triviales
-    original_bounds: tuple   # (min_axis, max_axis) en el eje de corte
+    original_bounds: tuple   # (min_axis, max_axis) en el eje de corte, ANTES de escalar
     assembled_height: float  # altura total ensamblada = (n_plates * thickness) + ((n_plates-1) * gap)
-    auto_scale: float        # escala calculada para mantener proporción visual
+    auto_scale: float        # escala calculada (informativo — ya aplicada al mesh)
     warnings: list[str]      # advertencias no fatales
 
 # Firma pública del módulo
 def slice_mesh(
     mesh,           # trimesh.Trimesh ya validado
     plates: int,    # número de cortes
-    gap: float,     # separación entre placas (en unidades físicas)
-    thickness: float, # grosor físico de cada placa (en unidades físicas)
+    gap: float,     # separación entre placas (mm)
+    thickness: float, # grosor físico de cada placa (mm)
     axis: str,      # 'x', 'y' o 'z'
-    min_area: float = 1.0 # umbral mínimo de área para considerar una placa válida
+    min_area_mm2: float = 1.0 # umbral mínimo de área en mm² para considerar una placa válida
 ) -> SliceResult:
 ```
 
 **Lógica de `slice_mesh` paso a paso:**
 
-**Paso 1 — Calcular posiciones de corte**
-```
-# Obtener rango del modelo en el eje elegido
-axis_index = {'x': 0, 'y': 1, 'z': 2}[axis]
-bounds = mesh.bounds  # shape (2, 3): [[min_x, min_y, min_z], [max_x, max_y, max_z]]
-min_val = bounds[0][axis_index]
-max_val = bounds[1][axis_index]
-total_length = max_val - min_val
+**Paso 1 — Copiar, rotar, centrar y pre-escalar el modelo**
 
-# Distribuir los cortes uniformemente dentro del rango
-# El primer corte va a min + step/2, el último a max - step/2
-# Esto evita cortar exactamente en los extremos (resultado potencialmente vacío)
-step = total_length / plates
-cut_positions = [min_val + step * (i + 0.5) for i in range(plates)]
+> [!IMPORTANT]
+> El mesh se escala **antes** de cortar. Esto garantiza que XY y Z escalan por el
+> mismo factor, preservando la proporción exacta del modelo original.
+> Los polígonos 2D resultantes salen directamente en mm — ni el visor ni el
+> exportador necesitan aplicar escala adicional.
+
+```python
+import numpy as np
+import trimesh.transformations as tx
+
+# IMPORTANTE: Copiar el mesh para no modificar el modelo original guardado en estado
+mesh = mesh.copy()
+
+# Rotar el modelo una sola vez para que el eje elegido se convierta en Z
+# Esto permite usar section_multiplane y simplifica el visor y exportación
+# NOTA: los signos se eligen para que el eje positivo original apunte a +Z,
+# así la placa 1 corresponde al inicio del eje y la última al final.
+if axis == 'x':
+    # Rotar para que +X mire hacia +Z (rot -π/2 alrededor de Y)
+    rot = tx.rotation_matrix(-np.pi/2, [0, 1, 0])
+    mesh.apply_transform(rot)
+elif axis == 'y':
+    # Rotar para que +Y mire hacia +Z (rot +π/2 alrededor de X)
+    rot = tx.rotation_matrix(np.pi/2, [1, 0, 0])
+    mesh.apply_transform(rot)
+
+# --- NUEVO: Centrar el mesh en el origen ---
+# Esto evita edge-cases de trimesh con coordenadas muy grandes/negativas
+# y simplifica el cálculo de posiciones de corte.
+mesh.vertices -= mesh.bounds.mean(axis=0)
+
+# Calcular dimensiones y escala ANTES de escalar
+bounds = mesh.bounds  # [[min_x, min_y, min_z], [max_x, max_y, max_z]]
+min_z = bounds[0][2]
+max_z = bounds[1][2]
+total_length = max_z - min_z
+original_bounds = (min_z, max_z)  # guardar para info
+
+assembled_height = (plates * thickness) + ((plates - 1) * gap)
+auto_scale = assembled_height / total_length if total_length > 0 else 1.0
+
+# --- NUEVO: Pre-escalar el mesh a mm ---
+# Después de esto, TODAS las coordenadas del mesh están en mm.
+# Los polígonos 2D que salgan de section_multiplane ya estarán en mm.
+mesh.apply_scale(auto_scale)
+
+# Recalcular bounds post-escalado (ahora en mm)
+bounds_mm = mesh.bounds
+min_z_mm = bounds_mm[0][2]
+# max_z_mm ≈ min_z_mm + assembled_height (por definición de auto_scale)
 ```
 
-**Paso 2 — Para cada posición, calcular la sección transversal**
+**Paso 2 — Calcular posiciones de corte (ahora directamente en mm)**
+```python
+# Como el mesh ya está en mm, las posiciones de corte son directas:
+# el centro físico de cada placa, mapeado al espacio del mesh escalado.
+cut_positions = []
+for i in range(plates):
+    # Centro físico de la placa i (en mm desde la base de la escultura)
+    physical_center = i * (thickness + gap) + (thickness / 2.0)
+    # Trasladado al espacio del mesh (que ahora empieza en min_z_mm)
+    pos_in_mesh = min_z_mm + physical_center
+    cut_positions.append(pos_in_mesh)
 ```
-plane_normal = [0, 0, 0]
-plane_normal[axis_index] = 1  # normal perpendicular al eje
 
-for i, position in enumerate(cut_positions):
-    plane_origin = [0, 0, 0]
-    plane_origin[axis_index] = position
-    
-    # trimesh retorna Path3D con las líneas de intersección
-    section = mesh.section(
-        plane_origin=plane_origin,
-        plane_normal=plane_normal
-    )
-    
-    if section is None:
-        # No hay intersección en este plano (puede ocurrir con modelos complejos)
+**Paso 3 — Cortar con `section_multiplane`**
+```python
+# El mesh está centrado y escalado. plane_origin=[0,0,0] es seguro.
+# heights son coordenadas absolutas Z (offsets desde origin en dirección del normal).
+sections_2d = mesh.section_multiplane(
+    plane_origin=[0, 0, 0],
+    plane_normal=[0, 0, 1],
+    heights=cut_positions
+)
+
+for i, section_2d in enumerate(sections_2d):
+    if section_2d is None:
         empty_plates.append(i)
         polygons.append(None)
         continue
     
-    # Proyectar a 2D — trimesh tiene método built-in
-    section_2d, transform = section.to_planar()
+    # Convertir Path2D de trimesh a una lista de shapely Polygons simples
+    poly_list = path2d_to_shapely(section_2d)
     
-    # Convertir Path2D de trimesh a shapely Polygon(s)
-    polygon = path2d_to_shapely(section_2d)
+    # Filtrar por área mínima — los polígonos YA están en mm, no hace falta escalar
+    valid_polys_for_plate = [p for p in poly_list if p.area >= min_area_mm2]
     
-    # Validar área mínima
-    if polygon is None or polygon.area < min_area:
+    if not valid_polys_for_plate:
         empty_plates.append(i)
         polygons.append(None)
     else:
-        polygons.append(polygon)
+        polygons.append(valid_polys_for_plate)
 ```
 
-**Paso 3 — `path2d_to_shapely()` (función interna)**
+**Paso 4 — `path2d_to_shapely()` (función interna)**
 
-Esta es la parte más delicada del slicing. `trimesh.Path2D` puede contener múltiples entidades (líneas, arcos). Necesitamos polígonos cerrados.
+Para evitar problemas en el visor y la exportación (como usar `.exterior` en un `MultiPolygon`), esta función explota cualquier `MultiPolygon` o `GeometryCollection` en polígonos simples, fuerza orientación CCW en exteriores, e incluye un fallback cuando `polygons_full` falla silenciosamente.
 
 ```python
-def path2d_to_shapely(path2d) -> shapely.Polygon | shapely.MultiPolygon | None:
+def path2d_to_shapely(path2d) -> list:
     """
-    Convierte un trimesh.Path2D en un shapely Polygon.
-    Maneja el caso de múltiples contornos (polígono con huecos).
-    Garantiza que la topología resultante sea válida (sin auto-intersecciones).
+    Convierte un trimesh.Path2D en una lista de polígonos simples (shapely.Polygon).
+    Resuelve huecos, fuerza orientación CCW y descarta geometrías inválidas.
+    Incluye fallback si polygons_full retorna vacío a pesar de tener vértices.
     """
     import shapely
+    from shapely.geometry import Polygon, MultiPolygon, GeometryCollection
+    from shapely.geometry.polygon import orient
     
-    # trimesh.Path2D tiene un método .polygons_full que ya resuelve
-    # la jerarquía exterior/interior y retorna shapely Polygons
-    polygons = path2d.polygons_full
+    # --- Ruta principal: usar polygons_full de trimesh ---
+    try:
+        polys_full = path2d.polygons_full
+    except Exception:
+        polys_full = []
     
-    if not polygons:
-        return None
+    # --- Fallback: si polygons_full falló pero hay vértices, reconstruir ---
+    # IMPORTANTE: el fallback con discrete pierde la distinción exterior/hueco.
+    # Se necesita lógica de nesting para reconstruir la jerarquía.
+    if not polys_full and hasattr(path2d, 'discrete') and len(path2d.discrete) > 0:
+        try:
+            raw_polys = []
+            for contour in path2d.discrete:
+                if len(contour) >= 3:
+                    candidate = Polygon(contour)
+                    if not candidate.is_valid:
+                        candidate = shapely.make_valid(candidate)
+                    if isinstance(candidate, Polygon) and not candidate.is_empty:
+                        raw_polys.append(candidate)
+            
+            # --- Nesting: reconstruir jerarquía exterior/hueco ---
+            # Ordenar por área descendente (los más grandes son exteriores)
+            raw_polys.sort(key=lambda p: p.area, reverse=True)
+            used = set()
+            nested_polys = []
+            
+            for i, outer in enumerate(raw_polys):
+                if i in used:
+                    continue
+                # Buscar polígonos contenidos dentro de este (son huecos)
+                holes = []
+                for j, inner in enumerate(raw_polys):
+                    if j <= i or j in used:
+                        continue
+                    if outer.contains(inner):
+                        holes.append(inner.exterior.coords)
+                        used.add(j)
+                
+                # Reconstruir polígono con huecos
+                if holes:
+                    nested = Polygon(outer.exterior.coords, holes)
+                    if nested.is_valid and not nested.is_empty:
+                        nested_polys.append(nested)
+                    else:
+                        nested_polys.append(outer)  # fallback sin huecos
+                else:
+                    nested_polys.append(outer)
+            
+            polys_full = nested_polys
+        except Exception:
+            return []
     
-    # Limpiar geometría (auto-intersecciones comunes en slices de modelos no perfectos)
-    valid_polygons = [shapely.make_valid(p) for p in polygons]
+    if not polys_full:
+        return []
     
-    if len(valid_polygons) == 1:
-        return valid_polygons[0]
+    result = []
+    for p in polys_full:
+        valid_p = shapely.make_valid(p)
+        
+        # Extraer solo los Polygon simples y forzar orientación CCW
+        # orient(sign=1.0) → exterior CCW, interiors CW (convención estándar)
+        if isinstance(valid_p, Polygon):
+            if not valid_p.is_empty:
+                result.append(orient(valid_p, sign=1.0))
+        elif isinstance(valid_p, MultiPolygon):
+            for geom in valid_p.geoms:
+                if not geom.is_empty:
+                    result.append(orient(geom, sign=1.0))
+        elif isinstance(valid_p, GeometryCollection):
+            for geom in valid_p.geoms:
+                if isinstance(geom, Polygon) and not geom.is_empty:
+                    result.append(orient(geom, sign=1.0))
     
-    # Múltiples polígonos en el mismo corte (modelo con partes separadas)
-    # shapely.MultiPolygon los agrupa
-    return shapely.MultiPolygon(valid_polygons)
-```
-
-> [!IMPORTANT]
-> `path2d.polygons_full` es el método correcto de trimesh para obtener polígonos cerrados con huecos resueltos. Usar `path2d.entities` directamente da segmentos sin ensamblar.
-
-**Paso 4 — Calcular metadata del resultado**
-```python
-assembled_height = (plates * thickness) + ((plates - 1) * gap)
-# La escala automática garantiza que el modelo exportado tenga la misma proporción física que el digital
-auto_scale = assembled_height / total_length if total_length > 0 else 1.0
+    return result
 ```
 
 **Paso 5 — Generar advertencias**
 ```
 Si len(empty_plates) > 0:
-    warnings.append(f"Placas {empty_plates} están vacías o demasiado pequeñas (área < {min_area}). Serán omitidas en la exportación.")
+    warnings.append(f"Placas {empty_plates} están vacías o demasiado pequeñas (área < {min_area_mm2} mm²). Serán omitidas en la exportación.")
 
 Si len(empty_plates) == plates:
     # Error fatal — ningún corte produjo geometría
     raise ValueError("Ningún plano de corte produjo geometría. Verificá el eje de corte seleccionado.")
 ```
+
+> [!TIP]
+> **Verificación de orientación:** Al implementar, crear un test con un modelo
+> asimétrico en forma de "L". Las rotaciones usan `-π/2` para eje X y `+π/2` para
+> eje Y, elegidos para que `+eje → +Z` (placa 1 = inicio del eje original).
+> Verificar que: (a) los contornos 2D no están espejados, y (b) la placa 1
+> corresponde al extremo esperado del modelo.
 
 ---
 
@@ -257,11 +375,12 @@ import trimesh
 from validator import validate_file, validate_params, validate_mesh
 from slicer import slice_mesh
 
-# Test 1: cubo simple (debería ser watertight)
-ok, msg = validate_file("test_cube.obj")
+# Test 1: L-block asimétrico (para validar alineación y espejado)
+ok, msg = validate_file("test_l_block.obj")
 print(f"Archivo válido: {ok} — {msg}")
 
-mesh = trimesh.load("test_cube.obj")
+# La carga con trimesh se hace aquí porque validate_file ya no lo hace
+mesh = trimesh.load("test_l_block.obj", force='mesh')
 ok, msg, repaired = validate_mesh(mesh)
 print(f"Mesh válido: {ok}, reparado: {repaired} — {msg}")
 
@@ -274,13 +393,31 @@ print(f"Placas vacías: {result.empty_plates}")
 print(f"Altura ensamblada: {result.assembled_height}")
 print(f"Escala auto-calculada: {result.auto_scale}")
 print(f"Advertencias: {result.warnings}")
+
+# Test 2: Verificar que los polígonos ya están en mm
+if result.polygons[2] is not None:
+    poly = result.polygons[2][0]
+    minx, miny, maxx, maxy = poly.bounds
+    print(f"Placa 2 bounds: ({minx:.1f}, {miny:.1f}) → ({maxx:.1f}, {maxy:.1f}) mm")
+    print(f"(Deben ser valores razonables en mm, no en unidades del modelo)")
+
+# Test 3: Verificar que la posición relativa se preserva entre placas
+# Las placas de un L-block deben tener centroides desplazados, no todos en (0,0)
+for i, plist in enumerate(result.polygons):
+    if plist is None:
+        continue
+    centroid = plist[0].centroid
+    print(f"Placa {i}: centroide en ({centroid.x:.1f}, {centroid.y:.1f}) mm")
 ```
 
 **Criterio de éxito de Fase 1:**
+- [ ] L-block asimétrico → Las coordenadas 2D de los polígonos preservan la posición relativa entre placas (centroides NO todos iguales si el modelo es asimétrico)
+- [ ] L-block → Los contornos NO están espejados respecto al modelo 3D
 - [ ] Cubo → 5 polígonos rectangulares, 0 vacíos, sin advertencias
 - [ ] Esfera → 5 polígonos elípticos, los extremos pueden ser pequeños pero no vacíos
 - [ ] Archivo inválido → mensaje claro, sin traceback
 - [ ] plates=1 → mensaje claro `"Se necesitan al menos 2 placas"`
+- [ ] Los polígonos tienen coordenadas en mm (verificar con bounds razonables)
 
 ---
 
@@ -298,136 +435,180 @@ print(f"Advertencias: {result.warnings}")
 def export_dxf(
     result: SliceResult,
     output_path: str,
-    scale: float = 1.0
+    add_alignment_marks: bool = True
 ) -> tuple[bool, str]:
     """
     Escribe un archivo DXF con cada placa en su propio layer (PLACA_01, PLACA_02...).
+    Los polígonos ya vienen en mm desde el slicer — no se aplica escala adicional.
     Retorna (True, ruta) o (False, mensaje_error).
     """
 
 def export_svg(
     result: SliceResult,
     output_path: str,
-    scale: float = 1.0,
-    margin_mm: float = 10.0
+    margin_mm: float = 10.0,
+    add_alignment_marks: bool = True
 ) -> tuple[bool, str]:
     """
     Escribe un archivo SVG con todas las placas distribuidas en fila.
+    Los polígonos ya vienen en mm desde el slicer — no se aplica escala adicional.
     Retorna (True, ruta) o (False, mensaje_error).
     """
 ```
 
 ---
 
-### Lógica de `export_dxf` paso a paso
+### Lógica de exportación paso a paso
 
-**Paso 1 — Crear documento DXF**
-```python
-doc = ezdxf.new(dxfversion='R2010')
-msp = doc.modelspace()
-```
+> [!IMPORTANT]
+> **Bounding box GLOBAL, no individual.** Para preservar la alineación relativa entre
+> placas (crítico para que la escultura se ensamble correctamente), todas las placas
+> se posicionan usando un bounding box global. Cada "slot" tiene el mismo ancho/alto,
+> y las placas más pequeñas simplemente tienen más espacio vacío alrededor.
 
-**Paso 2 — Para cada placa, crear un layer y escribir el polígono**
-```python
-for i, polygon in enumerate(result.polygons):
-    if polygon is None:
-        continue  # placa vacía, omitir
-    
-    layer_name = f"PLACA_{i+1:02d}"
-    doc.layers.add(name=layer_name, color=i % 7 + 1)  # colores DXF 1-7
-    
-    # Escribir contorno exterior
-    exterior_coords = list(polygon.exterior.coords)
-    exterior_scaled = [(x * scale, y * scale) for x, y in exterior_coords]
-    msp.add_lwpolyline(exterior_scaled, close=True, dxfattribs={"layer": layer_name})
-    
-    # Escribir huecos interiores (si existen)
-    for interior in polygon.interiors:
-        interior_coords = list(interior.coords)
-        interior_scaled = [(x * scale, y * scale) for x, y in interior_coords]
-        msp.add_lwpolyline(interior_scaled, close=True, dxfattribs={"layer": layer_name})
-```
-
-**Paso 3 — Manejar MultiPolygon**
-```python
-# Si el polígono es un MultiPolygon, iterar sobre sus partes
-from shapely.geometry import MultiPolygon
-if isinstance(polygon, MultiPolygon):
-    for part in polygon.geoms:
-        # misma lógica de escritura de exterior + interiors
-```
-
-**Paso 4 — Guardar**
-```python
-doc.saveas(output_path)
-```
-
----
-
-### Lógica de `export_svg` paso a paso
-
-**Paso 1 — Calcular bounding box global y layout**
-
-Las placas se distribuyen en fila horizontal con un margen entre ellas. Esto permite ver todos los contornos en un solo archivo.
+**Paso 1 — Calcular bounding box global**
 
 ```python
-# Calcular tamaño de cada placa (bounding box individual)
-# Distribuir horizontalmente: placa_1 | margen | placa_2 | margen | ...
+valid_plates = [plist for plist in result.polygons if plist is not None]
+if not valid_plates:
+    return False, "No hay placas válidas para exportar."
 
-max_height = max(p.bounds[3] - p.bounds[1] for p in valid_polygons) * scale
-total_width = sum((p.bounds[2] - p.bounds[0]) * scale for p in valid_polygons) + margin_mm * (n_valid - 1)
+# Bounding box GLOBAL — igual para TODAS las placas
+# Esto preserva la posición relativa de los contornos entre placas
+global_min_x = min(min(p.bounds[0] for p in plist) for plist in valid_plates)
+global_min_y = min(min(p.bounds[1] for p in plist) for plist in valid_plates)
+global_max_x = max(max(p.bounds[2] for p in plist) for plist in valid_plates)
+global_max_y = max(max(p.bounds[3] for p in plist) for plist in valid_plates)
 
-dwg = svgwrite.Drawing(
-    output_path,
-    size=(f"{total_width + 2*margin_mm}mm", f"{max_height + 2*margin_mm}mm"),
-    viewBox=f"0 0 {total_width + 2*margin_mm} {max_height + 2*margin_mm}"
-)
+slot_width = global_max_x - global_min_x    # mismo ancho para cada slot
+slot_height = global_max_y - global_min_y    # mismo alto para cada slot
 ```
 
-**Paso 2 — Para cada placa, crear un grupo `<g>` y escribir el path**
+**Paso 2 — Escribir geometría con offset global**
+
 ```python
 x_offset = margin_mm
-for i, polygon in enumerate(result.polygons):
-    if polygon is None:
+
+for i, plist in enumerate(result.polygons):
+    if plist is None:
         continue
+        
+    layer_name = f"PLACA_{i+1:02d}"
     
-    group = dwg.g(id=f"placa_{i+1:02d}", stroke="black", fill="none", stroke_width=0.1)
+    for polygon in plist:
+        # Extraer coordenadas — NO se escala (ya están en mm)
+        # Solo se traslada: restar el mínimo GLOBAL + offset de layout
+        def transform_coords(coords, formato):
+            res = []
+            for x, y in coords:
+                # 1. Restar mínimo GLOBAL (no individual) → preserva alineación
+                # 2. Sumar offset horizontal acumulado
+                # 3. En SVG: invertir eje Y
+                tx = (x - global_min_x) + x_offset
+                ty = (y - global_min_y)
+                
+                if formato == 'svg':
+                    ty = slot_height - ty  # Invertir eje Y para SVG
+                res.append((tx, ty))
+            return res
+            
+        exterior = transform_coords(polygon.exterior.coords, formato)
+        interiors = [transform_coords(h.coords, formato) for h in polygon.interiors]
+        
+        if formato == 'dxf':
+            msp.add_lwpolyline(exterior, close=True, dxfattribs={"layer": layer_name})
+            for interior in interiors:
+                msp.add_lwpolyline(interior, close=True, dxfattribs={"layer": layer_name})
+        elif formato == 'svg':
+            # Combinar exterior + interiors en un solo path con regla evenodd
+            path_d = _coords_to_svg_path(exterior)
+            for interior in interiors:
+                path_d += " " + _coords_to_svg_path(interior)
+            group.add(dwg.path(d=path_d))
     
-    path_data = polygon_to_svg_path(polygon, scale, x_offset, margin_mm)
-    group.add(dwg.path(d=path_data))
+    # --- Marcas de alineación (DOS agujeros para fijar posición + rotación) ---
+    # Un solo agujero centrado permite rotación de 180°.
+    # Con dos agujeros en posiciones asimétricas, la orientación queda fija.
+    if add_alignment_marks:
+        pin_radius = 1.5  # mm (para pin/dowel de 3mm de diámetro)
+        
+        # Agujero A: desplazado a la izquierda del centro, centrado en Y
+        ax = (slot_width * 0.25) + x_offset
+        ay_base = slot_height / 2.0
+        ay = ay_base if formato == 'dxf' else (slot_height - ay_base)
+        
+        # Agujero B: desplazado a la derecha del centro y ARRIBA
+        # (asimétrico en ambos ejes para eliminar ambigüedad de rotación)
+        bx = (slot_width * 0.75) + x_offset
+        by_base = slot_height * 0.75
+        by = by_base if formato == 'dxf' else (slot_height - by_base)
+        
+        if formato == 'dxf':
+            msp.add_circle((ax, ay), radius=pin_radius,
+                          dxfattribs={"layer": "ALINEACION"})
+            msp.add_circle((bx, by), radius=pin_radius,
+                          dxfattribs={"layer": "ALINEACION"})
+        elif formato == 'svg':
+            align_group.add(dwg.circle(
+                center=(ax, ay), r=pin_radius,
+                stroke="red", fill="none", stroke_width="0.2mm"))
+            align_group.add(dwg.circle(
+                center=(bx, by), r=pin_radius,
+                stroke="red", fill="none", stroke_width="0.2mm"))
+    
+    # Avanzar x_offset por el ancho del slot GLOBAL (igual para todas las placas)
+    x_offset += slot_width + margin_mm
+```
+
+**Paso 3 — Configuración SVG correcta**
+
+> [!WARNING]
+> `dwg['fill-rule'] = 'evenodd'` no funciona de forma confiable en svgwrite.
+> Se debe aplicar a un `<g>` contenedor, no al elemento `<svg>` raíz.
+
+```python
+if formato == 'svg':
+    total_width = x_offset
+    total_height = slot_height + (margin_mm * 2)
+    
+    dwg = svgwrite.Drawing(output_path, size=(f"{total_width}mm", f"{total_height}mm"))
+    dwg.viewbox(0, 0, total_width, total_height)
+    
+    # Grupo principal de contornos
+    # NOTA: fill-rule:evenodd es técnicamente irrelevante cuando fill:none (corte láser
+    # solo necesita los strokes). Se incluye para que si alguien abre el SVG en Inkscape
+    # y agrega un fill para previsualizar, los huecos se rendericen correctamente.
+    group = dwg.g(style="fill-rule:evenodd; fill:none; stroke:black; stroke-width:0.1mm;")
     dwg.add(group)
     
-    # Avanzar el offset horizontal
-    x_offset += (polygon.bounds[2] - polygon.bounds[0]) * scale + margin_mm
+    # Grupo separado para marcas de alineación (color rojo, sin fill-rule)
+    align_group = dwg.g(id="alignment-marks")
+    dwg.add(align_group)
+    
+    # ... (iterar placas y agregar paths a group) ...
+    
+    dwg.save()
+    
+elif formato == 'dxf':
+    doc = ezdxf.new('R2010')
+    msp = doc.modelspace()
+    doc.layers.add("ALINEACION", color=1)  # rojo en DXF
+    
+    # ... (iterar placas y agregar lwpolylines a msp) ...
+    
+    doc.saveas(output_path)
 ```
 
-**Paso 3 — `polygon_to_svg_path()` (función interna)**
+**Función auxiliar para paths SVG:**
 ```python
-def polygon_to_svg_path(polygon, scale, x_offset, y_offset) -> str:
-    """
-    Convierte un shapely Polygon a un string de path SVG.
-    Usa la regla evenodd para que los huecos se rendericen correctamente.
-    """
-    # Exterior: M x,y L x,y L x,y ... Z
-    exterior = list(polygon.exterior.coords)
-    d = f"M {(exterior[0][0]*scale)+x_offset},{(exterior[0][1]*scale)+y_offset} "
-    d += " ".join(f"L {(x*scale)+x_offset},{(y*scale)+y_offset}" for x, y in exterior[1:])
-    d += " Z"
-    
-    # Huecos interiores: append al mismo path con "M" nuevo
-    for interior in polygon.interiors:
-        coords = list(interior.coords)
-        d += f" M {(coords[0][0]*scale)+x_offset},{(coords[0][1]*scale)+y_offset} "
-        d += " ".join(f"L {(x*scale)+x_offset},{(y*scale)+y_offset}" for x, y in coords[1:])
-        d += " Z"
-    
-    return d
-```
-
-**Paso 4 — Escribir el archivo**
-```python
-dwg['fill-rule'] = 'evenodd'  # Para que los huecos sean transparentes
-dwg.save()
+def _coords_to_svg_path(coords) -> str:
+    """Convierte una lista de (x, y) a un string de path SVG: 'M x,y L x,y ... Z'"""
+    parts = []
+    for j, (x, y) in enumerate(coords):
+        prefix = "M" if j == 0 else "L"
+        parts.append(f"{prefix} {x:.3f},{y:.3f}")
+    parts.append("Z")
+    return " ".join(parts)
 ```
 
 ---
@@ -438,6 +619,9 @@ dwg.save()
 - [ ] SVG se abre en Inkscape con todos los contornos cerrados
 - [ ] Polígonos con huecos (ej: modelo en forma de dona) exportan correctamente el hueco
 - [ ] MultiPolygon (modelo con partes separadas) exporta todas las partes
+- [ ] **NUEVO:** Las placas de un modelo asimétrico mantienen su posición relativa (los contornos NO están todos centrados en su propio slot)
+- [ ] **NUEVO:** Las marcas de alineación aparecen en la misma posición en cada slot
+- [ ] **NUEVO:** Los huecos se ven correctamente en Inkscape (fill-rule evenodd funciona)
 
 ---
 
@@ -453,9 +637,17 @@ dwg.save()
 **Responsabilidad:** renderizar la geometría en OpenGL sin lógica de negocio.
 
 ```python
-from pyqtgraph.opengl import GLViewWidget, GLMeshItem, GLLinePlotItem
-import pyqtgraph.opengl as gl
 import numpy as np
+import pyqtgraph as pg
+import pyqtgraph.opengl as gl
+from pyqtgraph.opengl import GLViewWidget, GLMeshItem, GLLinePlotItem
+from PySide6.QtWidgets import QWidget, QHBoxLayout
+import trimesh
+
+def _hue_to_rgb(h: float) -> list[float]:
+    """Convierte un valor de tono (0-1) a RGB (0-1) usando hsv_to_rgb."""
+    import colorsys
+    return list(colorsys.hsv_to_rgb(h, 0.8, 0.9))
 
 class SculptureViewer(QWidget):
     """
@@ -501,68 +693,64 @@ class SculptureViewer(QWidget):
             faceColors=colors,
             smooth=True,
             drawEdges=True,
-            edgeColor=(0.3, 0.5, 0.8, 1.0)
+            edgeColor=(0.3, 0.5, 0.8, 1.0),
+            glOptions='translucent'
         )
         self.view_original.addItem(mesh_item)
         self._fit_camera(self.view_original, mesh.bounding_box)
     
-    def show_sliced_result(self, result: SliceResult, axis: str, thickness: float, gap: float):
+    def show_sliced_result(self, result: SliceResult, thickness: float, gap: float):
         """
         Renderiza las placas como cajas planas separadas por el gap.
         Cada placa es un sólido extruido con el grosor indicado.
+        
+        Los polígonos en result.polygons ya están en mm (pre-escalados por el slicer).
+        No se aplica escala adicional.
         """
         self.view_sliced.clear()
+        wireframe_count = 0  # contador de placas que cayeron a wireframe
         
-        axis_index = {'x': 0, 'y': 1, 'z': 2}[axis]
-        
-        for i, polygon in enumerate(result.polygons):
-            if polygon is None:
+        for i, plist in enumerate(result.polygons):
+            if plist is None:
                 continue
             
-            # Posición de la placa en el eje de corte
-            # Separación visual = posición_original + i * gap (desplazamiento acumulado)
+            # Posición de la placa en Z (en mm)
             plate_position = i * (thickness + gap)
             
-            # Extruir el polígono 2D para darle grosor visual
-            plate_mesh = _extrude_polygon(polygon, thickness, axis, plate_position)
-            
-            # Color alternado por placa para distinguirlas
+            # Color alternado por placa
             hue = (i / len(result.polygons))
-            color = _hue_to_rgb(hue) + [0.85]  # alpha
+            color = _hue_to_rgb(hue) + [0.85]
             
-            if plate_mesh is None:
-                # Fallback: si la triangulación falla, dibujar el contorno 2D (wireframe)
-                from pyqtgraph.opengl import GLLinePlotItem
-                coords = np.array(polygon.exterior.coords)
-                # Insertar coordenada Z
-                z_coords = np.full((len(coords), 1), plate_position)
-                if axis == 'z':
+            for polygon in plist:
+                # Los polígonos ya están en mm — usar directo, sin escalar
+                plate_mesh = _extrude_polygon(polygon, thickness, plate_position)
+                
+                if plate_mesh is None:
+                    # Fallback a wireframe — acumular advertencia
+                    wireframe_count += 1
+                    coords = np.array(polygon.exterior.coords)
+                    z_coords = np.full((len(coords), 1), plate_position)
                     pts = np.hstack([coords, z_coords])
-                elif axis == 'y':
-                    pts = np.hstack([coords[:, 0:1], z_coords, coords[:, 1:2]])
-                else: # x
-                    pts = np.hstack([z_coords, coords])
                     
-                item = GLLinePlotItem(pos=pts, color=color, width=2.0, antialias=True)
+                    item = GLLinePlotItem(pos=pts, color=color, width=2.0, antialias=True)
+                    self.view_sliced.addItem(item)
+                    continue
+                
+                verts = plate_mesh.vertices.astype(np.float32)
+                faces = plate_mesh.faces.astype(np.uint32)
+                colors = np.tile(color, (len(faces), 1)).astype(np.float32)
+                
+                item = GLMeshItem(
+                    vertexes=verts, faces=faces, faceColors=colors,
+                    smooth=False, drawEdges=True, edgeColor=(0, 0, 0, 0.5),
+                    glOptions='translucent'
+                )
                 self.view_sliced.addItem(item)
-                continue
-            
-            verts = plate_mesh.vertices.astype(np.float32)
-            faces = plate_mesh.faces.astype(np.uint32)
-            
-            colors = np.tile(color, (len(faces), 1)).astype(np.float32)
-            
-            item = GLMeshItem(
-                vertexes=verts,
-                faces=faces,
-                faceColors=colors,
-                smooth=False,
-                drawEdges=True,
-                edgeColor=(0, 0, 0, 0.5)
-            )
-            self.view_sliced.addItem(item)
         
-        self._fit_camera_to_result(self.view_sliced, result, axis_index, thickness, gap)
+        self._fit_camera_to_result(self.view_sliced, result, thickness, gap)
+        
+        # Retornar conteo de wireframes para que la UI muestre advertencia
+        return wireframe_count
     
     def _fit_camera(self, view: GLViewWidget, bounding_box):
         """Ajusta la cámara para ver el objeto completo."""
@@ -571,41 +759,52 @@ class SculptureViewer(QWidget):
         view.setCameraPosition(distance=extent * 2.5, elevation=30, azimuth=45)
         view.opts['center'] = pg.Vector(center[0], center[1], center[2])
     
-    def _fit_camera_to_result(self, view, result, axis_index, thickness, gap):
-        """Ajusta cámara al bounding box expandido por el gap."""
-        n_plates = len([p for p in result.polygons if p is not None])
-        total_extent = n_plates * (thickness + gap)
-        view.setCameraPosition(distance=total_extent * 2.0, elevation=30, azimuth=45)
+    def _fit_camera_to_result(self, view, result, thickness, gap):
+        """Ajusta cámara centrándola en el bounding box del resultado."""
+        valid_plates = [plist for plist in result.polygons if plist is not None]
+        if not valid_plates:
+            return
+        
+        # Los polígonos ya están en mm — usar directo
+        min_x = min(min(p.bounds[0] for p in plist) for plist in valid_plates)
+        max_x = max(max(p.bounds[2] for p in plist) for plist in valid_plates)
+        min_y = min(min(p.bounds[1] for p in plist) for plist in valid_plates)
+        max_y = max(max(p.bounds[3] for p in plist) for plist in valid_plates)
+        
+        center_x = (min_x + max_x) / 2.0
+        center_y = (min_y + max_y) / 2.0
+        center_z = result.assembled_height / 2.0
+        
+        extent = max(max_x - min_x, max_y - min_y, result.assembled_height)
+        view.setCameraPosition(distance=extent * 2.0, elevation=30, azimuth=45)
+        view.opts['center'] = pg.Vector(center_x, center_y, center_z)
 ```
 
 **Función interna `_extrude_polygon()`:**
 ```python
-def _extrude_polygon(polygon, thickness, axis, position) -> trimesh.Trimesh | None:
+def _extrude_polygon(polygon, thickness, position) -> trimesh.Trimesh | None:
     """
-    Extruye un shapely Polygon a lo largo del eje dado para darle grosor visual.
-    Usa trimesh.creation.extrude_polygon.
+    Extruye un shapely Polygon en Z para darle grosor visual.
+    Como el modelo ya fue rotado, siempre extruimos en Z.
+    Los polígonos ya están en mm — no se aplica escala.
     """
     try:
-        # trimesh.creation.extrude_polygon extruye en Z por defecto
         extruded = trimesh.creation.extrude_polygon(polygon, height=thickness)
         
-        # Rotar al eje correcto si no es Z
-        if axis == 'x':
-            rotation = trimesh.transformations.rotation_matrix(np.pi/2, [0, 1, 0])
-            extruded.apply_transform(rotation)
-        elif axis == 'y':
-            rotation = trimesh.transformations.rotation_matrix(np.pi/2, [1, 0, 0])
-            extruded.apply_transform(rotation)
-        
-        # Trasladar a la posición correcta en el eje
-        translation = [0, 0, 0]
-        translation[{'x':0,'y':1,'z':2}[axis]] = position
+        # Trasladar a la posición correcta en Z
+        translation = [0, 0, position]
         extruded.apply_translation(translation)
         
         return extruded
     except Exception:
         return None
 ```
+
+> [!TIP]
+> **Optimización para modelos con muchas placas (>50):** Si el rendimiento del preview
+> es inaceptable, concatenar todos los meshes extruidos en uno solo con
+> `trimesh.util.concatenate()` y renderizar un solo `GLMeshItem` en vez de uno por
+> polígono. Esto reduce draw calls de ~150 a 1.
 
 ---
 
@@ -710,6 +909,14 @@ class ControlPanel(QWidget):
         self.btn_apply.clicked.connect(self._on_apply_clicked)
         self.btn_export_dxf.clicked.connect(lambda: self.export_requested.emit('dxf'))
         self.btn_export_svg.clicked.connect(lambda: self.export_requested.emit('svg'))
+        
+        # --- NUEVO: Invalidar resultado cuando los parámetros cambian ---
+        # Esto evita que el usuario exporte un resultado que no corresponde
+        # a los parámetros actualmente mostrados en pantalla.
+        self.spin_plates.valueChanged.connect(self._invalidate_result)
+        self.spin_gap.valueChanged.connect(self._invalidate_result)
+        self.spin_thickness.valueChanged.connect(self._invalidate_result)
+        self.combo_axis.currentIndexChanged.connect(self._invalidate_result)
     
     def _on_load_clicked(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -727,6 +934,15 @@ class ControlPanel(QWidget):
             axis_map[self.combo_axis.currentIndex()]
         )
     
+    def _invalidate_result(self):
+        """
+        Se llama cuando cualquier parámetro cambia.
+        Deshabilita los botones de exportación para forzar al usuario a re-aplicar el corte.
+        """
+        self.btn_export_dxf.setEnabled(False)
+        self.btn_export_svg.setEnabled(False)
+        self.lbl_info.setText("⟳ Parámetros modificados — aplicá el corte para actualizar.")
+    
     def set_file_label(self, filename: str, repaired: bool, warning: str):
         text = f"✓ {filename}"
         if repaired:
@@ -737,12 +953,27 @@ class ControlPanel(QWidget):
         self.btn_apply.setEnabled(True)
     
     def set_result_info(self, result: SliceResult, plates: int, gap: float, thickness: float):
-        n_valid = len([p for p in result.polygons if p is not None])
+        valid_plates = [plist for plist in result.polygons if plist is not None]
+        n_valid = len(valid_plates)
+        
+        if valid_plates:
+            # Los polígonos ya están en mm — usar directo
+            min_x = min(min(p.bounds[0] for p in plist) for plist in valid_plates)
+            max_x = max(max(p.bounds[2] for p in plist) for plist in valid_plates)
+            min_y = min(min(p.bounds[1] for p in plist) for plist in valid_plates)
+            max_y = max(max(p.bounds[3] for p in plist) for plist in valid_plates)
+            
+            w_mm = max_x - min_x
+            d_mm = max_y - min_y
+            h_mm = result.assembled_height
+            dim_text = f"Tamaño final: {w_mm:.1f} x {d_mm:.1f} x {h_mm:.1f} mm\n"
+        else:
+            dim_text = "Tamaño final: N/A\n"
+            
         info = (
             f"Placas válidas: {n_valid} / {plates}\n"
-            f"Altura ensamblada: {result.assembled_height:.1f} mm\n"
-            f"Altura original: {result.original_bounds[1] - result.original_bounds[0]:.1f} unidades\n"
-            f"Escala auto-calculada: {result.auto_scale:.2f}x (aplica al exportar)"
+            f"{dim_text}"
+            f"Escala aplicada: {result.auto_scale:.2f}x"
         )
         self.lbl_info.setText(info)
         
@@ -767,6 +998,7 @@ class ControlPanel(QWidget):
 
 ```python
 import sys
+import os
 import trimesh
 from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QWidget
 from PySide6.QtCore import Qt
@@ -807,6 +1039,15 @@ class MainWindow(QMainWindow):
         self.panel.export_requested.connect(self._on_export_requested)
     
     def _on_file_loaded(self, path: str):
+        # --- NUEVO: Invalidar estado anterior antes de hacer cualquier cosa ---
+        self._result = None
+        self._current_params = {}
+        self.panel.btn_export_dxf.setEnabled(False)
+        self.panel.btn_export_svg.setEnabled(False)
+        self.panel.lbl_info.setText("—")
+        self.panel.lbl_warnings.setText("")
+        self.viewer.view_sliced.clear()
+        
         # 1. Validar archivo
         ok, msg = validate_file(path)
         if not ok:
@@ -826,13 +1067,42 @@ class MainWindow(QMainWindow):
             self.panel.show_error(msg)
             return
         
+        # --- NUEVO: Detección heurística de unidades ---
+        max_dim = max(mesh.extents)
+        unit_warning = ""
+        if max_dim > 2000:
+            unit_warning = (f"El modelo mide {max_dim:.0f} unidades en su dimensión mayor. "
+                          f"Si no está en milímetros, los resultados pueden ser inesperados.")
+        elif max_dim < 0.1:
+            unit_warning = (f"El modelo mide {max_dim:.4f} unidades en su dimensión mayor. "
+                          f"Podría estar en metros. Verificá las unidades del archivo.")
+        
+        # --- NUEVO: Info sobre multi-objetos ---
+        # trimesh.load con force='mesh' concatena todos los objetos silenciosamente
+        multi_obj_warning = ""
+        try:
+            scene = trimesh.load(path)
+            if hasattr(scene, 'geometry') and len(scene.geometry) > 1:
+                n_objs = len(scene.geometry)
+                multi_obj_warning = (f"El archivo contiene {n_objs} objetos. Se usarán todos. "
+                                   f"Si hay objetos no deseados (suelo, luces), limpiá el modelo "
+                                   f"en Blender y dejá solo el objeto deseado.")
+        except Exception:
+            pass  # Si falla la detección, no pasa nada — el mesh ya se cargó
+        
         # 4. Guardar y mostrar
         self._mesh = mesh
-        import os
+        
+        combined_warning = msg if (repaired or "advertencia" in msg.lower()) else ""
+        if unit_warning:
+            combined_warning += ("\n" if combined_warning else "") + unit_warning
+        if multi_obj_warning:
+            combined_warning += ("\n" if combined_warning else "") + multi_obj_warning
+        
         self.panel.set_file_label(
             os.path.basename(path),
             repaired=repaired,
-            warning=msg if repaired or "advertencia" in msg.lower() else ""
+            warning=combined_warning
         )
         self.viewer.show_original_mesh(mesh)
     
@@ -871,7 +1141,14 @@ class MainWindow(QMainWindow):
         }
         
         self.panel.set_result_info(result, plates, gap, thickness)
-        self.viewer.show_sliced_result(result, axis, thickness, gap)
+        wireframe_count = self.viewer.show_sliced_result(result, thickness, gap)
+        
+        # Mostrar advertencia si hubo placas que cayeron a wireframe
+        if wireframe_count > 0:
+            self.panel.show_warning(
+                f"{wireframe_count} placa(s) no pudieron renderizarse como sólidos "
+                f"y se muestran como líneas. Esto no afecta la exportación."
+            )
     
     def _on_export_requested(self, format_type: str):
         if self._result is None:
@@ -884,12 +1161,13 @@ class MainWindow(QMainWindow):
             path, _ = QFileDialog.getSaveFileName(self, "Guardar DXF", "", "DXF (*.dxf)")
             if not path:
                 return
-            ok, msg = export_dxf(self._result, path, scale=self._result.auto_scale)
+            # Los polígonos ya están en mm — no se pasa escala adicional
+            ok, msg = export_dxf(self._result, path)
         else:
             path, _ = QFileDialog.getSaveFileName(self, "Guardar SVG", "", "SVG (*.svg)")
             if not path:
                 return
-            ok, msg = export_svg(self._result, path, scale=self._result.auto_scale)
+            ok, msg = export_svg(self._result, path)
         
         if ok:
             from PySide6.QtWidgets import QMessageBox
@@ -931,6 +1209,10 @@ if __name__ == "__main__":
 | Ningún corte produjo geometría | Error fatal | "Ningún plano de corte produjo geometría. Probá con otro eje de corte." | Bloquear |
 | Algunas placas vacías | Advertencia | "Las placas `{lista}` están vacías y serán omitidas." | Continuar |
 | Error al escribir DXF/SVG | Error fatal | "No se pudo guardar el archivo. Verificá que tenés permisos en la carpeta." | Bloquear |
+| Modelo con dimensiones sospechosas (>2000 o <0.1 unidades) | Advertencia | "El modelo mide `{dim}` unidades. Si no está en mm, los resultados pueden ser inesperados." | Continuar |
+| Archivo con múltiples objetos | Info | "El archivo contiene `{n}` objetos. Se usarán todos." | Continuar |
+| Placas con extrusión fallida (wireframe) | Info | "`{n}` placa(s) no pudieron renderizarse como sólidos. No afecta la exportación." | Continuar |
+| Parámetros cambiados sin re-aplicar corte | UI | "⟳ Parámetros modificados — aplicá el corte para actualizar." | Deshabilitar exportación |
 
 ### Regla de presentación de errores
 
@@ -938,6 +1220,7 @@ if __name__ == "__main__":
 Error fatal    → QMessageBox.critical()   → el flujo se detiene
 Advertencia    → QMessageBox.warning()    → el flujo continúa con aviso
 Info           → label amarillo en panel  → no interrumpe
+UI             → label en panel + deshabilitar botones → guía al usuario
 ```
 
 ---
@@ -945,6 +1228,8 @@ Info           → label amarillo en panel  → no interrumpe
 ## Checklist de Criterios de Éxito Global
 
 ### Fase 1 — Slicing headless
+- [ ] L-block asimétrico → Valida que las coordenadas 2D preservan posición relativa (centroides diferentes entre placas)
+- [ ] L-block → Los contornos NO están espejados respecto al modelo 3D (probar ejes X, Y, Z)
 - [ ] Cubo OBJ → 5 cortes → 5 polígonos rectangulares, 0 vacíos
 - [ ] Esfera OBJ → 10 cortes → 10 polígonos elípticos
 - [ ] Modelo con hueco (dona/torus) → polígonos con `interiors` correctos
@@ -952,11 +1237,16 @@ Info           → label amarillo en panel  → no interrumpe
 - [ ] `plates=1` → mensaje `"Se necesitan al menos 2 placas"`
 - [ ] `thickness=-1` → mensaje claro
 - [ ] Eje X vs Y vs Z → resultados diferentes y correctos
+- [ ] **NUEVO:** Los polígonos tienen coordenadas en mm (verificar bounds razonables)
+- [ ] **NUEVO:** `polygons_full` vacío con vértices presentes → fallback genera polígonos
 
 ### Fase 2 — Exportación
 - [ ] DXF abre en AutoCAD / DraftSight / Inkscape sin errores
 - [ ] SVG abre en Inkscape con contornos cerrados
 - [ ] Polígono con hueco → DXF con dos lwpolyline por placa, SVG con path evenodd
+- [ ] **NUEVO:** Modelo asimétrico → las placas en el DXF/SVG preservan su posición relativa (bounding box global)
+- [ ] **NUEVO:** Marcas de alineación presentes y en la misma posición relativa en cada slot
+- [ ] **NUEVO:** Huecos en SVG se ven correctamente en Inkscape (fill-rule evenodd en `<g>`)
 
 ### Fase 3 — UI y Visor
 - [ ] Ventana abre sin errores
@@ -964,28 +1254,41 @@ Info           → label amarillo en panel  → no interrumpe
 - [ ] Cambiar parámetros → vista derecha se actualiza
 - [ ] Botones de exportar deshabilitados hasta que haya resultado
 - [ ] Cámara hace fit automático en ambas vistas
+- [ ] **NUEVO:** Cargar un segundo modelo → resultado anterior se invalida, botones de exportar se deshabilitan
+- [ ] **NUEVO:** Cambiar parámetros sin re-aplicar → exportación deshabilitada con mensaje claro
+- [ ] **NUEVO:** Placas con extrusión fallida → wireframe + advertencia al usuario
+- [ ] **NUEVO:** Modelo con dimensiones sospechosas → advertencia de unidades
 
 ### Fase 4 — Robustez
 - [ ] Nunca hay un traceback visible al usuario final
 - [ ] Todos los mensajes de error son en español y accionables
 - [ ] Modelo no-watertight → advertencia, no crash
+- [ ] **NUEVO:** Archivo con múltiples objetos → info al usuario
 
 ---
 
 ## Orden de Ejecución Sugerido
 
 ```
+0. Inicializar git: `git init`, agregar `.gitignore` y hacer commit inicial.
 1. Instalar dependencias (requirements.txt)
 2. Implementar validator.py completo
 3. Implementar slicer.py completo
-4. Ejecutar test_slice.py con cubo y esfera
+4. Ejecutar test_slice.py con cubo, esfera y L-block asimétrico
+   -> Verificar que los polígonos están en mm y que la posición relativa se preserva
+   -> Hacer commit de Fase 1
 5. Implementar exporter.py completo
 6. Verificar DXF y SVG manualmente en Inkscape
+   -> Confirmar bounding box global, marcas de alineación, y huecos con evenodd
+   -> Hacer commit de Fase 2
 7. Implementar viewer.py
 8. Implementar ui.py
 9. Implementar main.py (conectar todo)
 10. Prueba de integración completa: cargar → rebanar → ver → exportar
+   -> Hacer commit de Fase 3
 11. Prueba de casos de error (archivos inválidos, parámetros fuera de rango)
+   -> Probar invalidación de estado (cambiar parámetros, cargar nuevo modelo)
+   -> Hacer commit de Fase 4 (versión final)
 ```
 
 ---
@@ -1002,3 +1305,5 @@ Info           → label amarillo en panel  → no interrumpe
 - **Preview de corte en tiempo real:** mover un slider y ver el plano de corte animado sobre el modelo original
 - **Múltiples materiales / espesores:** cada placa con un grosor diferente
 - **Exportar PDF:** para enviar directamente a servicios de corte láser que aceptan PDF en vez de DXF/SVG
+- **Slicing en hilo separado:** mover `slice_mesh()` a un `QThread` con `QProgressBar` para modelos grandes (>100 placas)
+- **Cámaras sincronizadas:** sincronizar rotación/elevación entre las dos vistas 3D
