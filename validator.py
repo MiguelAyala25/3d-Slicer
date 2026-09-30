@@ -64,10 +64,10 @@ def validate_mesh(mesh: trimesh.Trimesh) -> Tuple[bool, str, bool]:
     Retorna (es_válido: bool, mensaje: str, fue_reparado: bool).
     """
     if mesh is None or not hasattr(mesh, 'vertices') or not hasattr(mesh, 'faces'):
-        return False, "El modelo cargado no tiene geometría válida.", False
+        return False, "El modelo cargado no tiene geometría (0 vértices).", False
 
     if len(mesh.vertices) == 0 or len(mesh.faces) == 0:
-        return False, "El modelo cargado no tiene geometría (0 vértices o caras).", False
+        return False, "El modelo cargado no tiene geometría (0 vértices).", False
 
     if not mesh.is_watertight:
         try:
@@ -77,8 +77,8 @@ def validate_mesh(mesh: trimesh.Trimesh) -> Tuple[bool, str, bool]:
             pass
 
         if not mesh.is_watertight:
-            return True, "advertencia: modelo no cerrado, resultados pueden ser incompletos", False
+            return True, "El modelo tiene huecos que no pudieron repararse. Los cortes pueden ser incompletos.", False
         else:
-            return True, "modelo reparado automáticamente", True
+            return True, "El modelo tenía huecos y fue reparado automáticamente.", True
 
     return True, "", False

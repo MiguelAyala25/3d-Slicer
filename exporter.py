@@ -111,8 +111,8 @@ def export_dxf(
 
         doc.saveas(output_path)
         return True, output_path
-    except Exception as e:
-        return False, f"Error al guardar DXF: {e}"
+    except Exception:
+        return False, "No se pudo guardar el archivo. Verificá que tenés permisos en la carpeta."
 
 
 def export_svg(
@@ -211,5 +211,5 @@ def export_svg(
 
         dwg.save()
         return True, output_path
-    except Exception as e:
-        return False, f"Error al guardar SVG: {e}"
+    except Exception:
+        return False, "No se pudo guardar el archivo. Verificá que tenés permisos en la carpeta."
