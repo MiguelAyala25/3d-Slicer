@@ -1,0 +1,10 @@
+{
+  "autonomous-audit": {
+    "Stop": [
+      {
+        "type": "command",
+        "command": "python scripts/audit_hook.py"
+      }
+    ]
+  }
+}

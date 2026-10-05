@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QWidget, Q
 
 from validator import validate_file, validate_params, validate_mesh
 from slicer import slice_mesh
-from exporter import export_dxf, export_svg
+from exporter import export_svg
 from viewer import SculptureViewer
 from ui import ControlPanel
 
@@ -50,7 +50,6 @@ class MainWindow(QMainWindow):
         # Invalidar estado anterior por completo
         self._result = None
         self._current_params = {}
-        self.panel.btn_export_dxf.setEnabled(False)
         self.panel.btn_export_svg.setEnabled(False)
         self.panel.lbl_info.setText("—")
         self.panel.lbl_warnings.setText("")
@@ -180,25 +179,19 @@ class MainWindow(QMainWindow):
                 f"y se muestran como líneas. Esto no afecta la exportación."
             )
 
-    def _on_export_requested(self, format_type: str, file_path: Optional[str] = None):
+    def _on_export_requested(self, format_type: str = 'svg', file_path: Optional[str] = None):
         if self._result is None:
             self.panel.show_error("Primero aplicá el corte antes de exportar.")
             return
 
         path = file_path
         if not path:
-            if format_type == 'dxf':
-                path, _ = QFileDialog.getSaveFileName(self, "Guardar DXF", "", "DXF (*.dxf)")
-            else:
-                path, _ = QFileDialog.getSaveFileName(self, "Guardar SVG", "", "SVG (*.svg)")
+            path, _ = QFileDialog.getSaveFileName(self, "Guardar SVG", "", "SVG (*.svg)")
 
         if not path:
             return
 
-        if format_type == 'dxf':
-            ok, msg = export_dxf(self._result, path)
-        else:
-            ok, msg = export_svg(self._result, path)
+        ok, msg = export_svg(self._result, path)
 
         if ok:
             QMessageBox.information(self, "Exportación exitosa", f"Archivo guardado en:\n{msg}")
