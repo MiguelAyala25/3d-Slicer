@@ -15,6 +15,7 @@ from exporter import export_svg
 from viewer import SculptureViewer
 from ui import ControlPanel
 from params import Params
+from supports import compute_supports
 
 
 class MainWindow(QMainWindow):
@@ -26,7 +27,8 @@ class MainWindow(QMainWindow):
 
         self._mesh = None
         self._result = None
-        self._current_params = {}
+        self._supports = None
+        self._current_params = None
 
         self._build_ui()
 
@@ -46,14 +48,17 @@ class MainWindow(QMainWindow):
         self.panel.file_loaded.connect(self._on_file_loaded)
         self.panel.params_changed.connect(self._on_params_changed)
         self.panel.export_requested.connect(self._on_export_requested)
+        self.panel.warning_selected.connect(self._on_warning_selected)
 
     def _on_file_loaded(self, path: str):
         # Invalidar estado anterior por completo
         self._result = None
-        self._current_params = {}
+        self._supports = None
+        self._current_params = None
         self.panel.btn_export_svg.setEnabled(False)
         self.panel.lbl_info.setText("—")
         self.panel.lbl_warnings.setText("")
+        self.panel.list_warnings.clear()
         self.viewer.view_sliced.clear()
 
         # 1. Validar archivo
@@ -179,18 +184,35 @@ class MainWindow(QMainWindow):
             self.panel.show_error("Error inesperado durante el corte. Verificá los parámetros y la geometría del modelo.")
             return
 
+        # Calcular soportes (columnas y discos)
+        try:
+            supports = compute_supports(result.polygons, p)
+        except Exception:
+            supports = None
+
         # Guardar resultado y actualizar UI
         self._result = result
+        self._supports = supports
         self._current_params = p
 
-        self.panel.set_result_info(result, p.plates, p.gap, p.thickness)
-        wireframe_count = self.viewer.show_sliced_result(result, p.thickness, p.gap)
+        self.panel.set_result_info(result, p.plates, p.gap, p.thickness, supports=supports)
+        wireframe_count = self.viewer.show_sliced_result(result, p.thickness, p.gap, supports=supports)
 
         # Mostrar advertencia si hubo placas que cayeron a wireframe
         if wireframe_count > 0:
             self.panel.show_warning(
                 f"{wireframe_count} placa(s) no pudieron renderizarse como sólidos "
                 f"y se muestran como líneas. Esto no afecta la exportación."
+            )
+
+    def _on_warning_selected(self, level: int, x: Optional[float], y: Optional[float]):
+        if self._current_params is not None:
+            self.viewer.highlight_position(
+                level=level,
+                x=x,
+                y=y,
+                thickness=self._current_params.thickness,
+                gap=self._current_params.gap
             )
 
     def _on_export_requested(self, format_type: str = 'svg', file_path: Optional[str] = None):

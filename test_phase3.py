@@ -30,6 +30,7 @@ from slicer import slice_mesh, SliceResult
 from viewer import SculptureViewer, _hue_to_rgb, _extrude_polygon
 from ui import ControlPanel
 from main import MainWindow
+from supports import Column, SupportResult, SupportWarning
 
 
 def test_viewer_utilities():
@@ -72,11 +73,28 @@ def test_sculpture_viewer():
     viewer.show_original_mesh(box)
     assert len(viewer.view_original.items) > 0, "view_original debe contener items después de show_original_mesh"
 
-    # Renderizar resultado rebanado
+    # Renderizar resultado rebanado sin soportes
     res = slice_mesh(box, plates=3, gap=2.0, thickness=3.0, axis='z')
     wireframe_count = viewer.show_sliced_result(res, thickness=3.0, gap=2.0)
     assert wireframe_count == 0, f"No se esperaban wireframes en cubo simple, obtenidos {wireframe_count}"
     assert len(viewer.view_sliced.items) >= 3, "view_sliced debe tener al menos 3 items"
+
+    # Renderizar con soportes (columnas continuas y escalonadas)
+    col_reused = Column(level=0, x=0.0, y=0.0, diameter=6.0, reused=True)
+    col_stepped = Column(level=1, x=2.0, y=2.0, diameter=8.0, reused=False)
+    sup = SupportResult(columns=[col_reused, col_stepped], warnings=[])
+    viewer.show_sliced_result(res, thickness=3.0, gap=2.0, supports=sup)
+    # Deben estar las 3 placas + 2 cilindros = al menos 5 items
+    assert len(viewer.view_sliced.items) >= 5, "view_sliced debe contener placas y cilindros de soporte"
+
+    # Probar highlight_position
+    viewer.highlight_position(level=0, x=0.0, y=0.0, thickness=3.0, gap=2.0)
+    assert viewer._highlight_item is not None, "highlight_item debe crearse"
+    first_hl = viewer._highlight_item
+    # Re-highlight en otra posición debe reemplazar el anterior
+    viewer.highlight_position(level=1, x=2.0, y=2.0, thickness=3.0, gap=2.0)
+    assert viewer._highlight_item is not None
+    assert viewer._highlight_item is not first_hl, "highlight_item anterior debe haber sido reemplazado"
 
     # Probar fallback a wireframe forzando un polígono problemático
     mock_res = SliceResult(
@@ -153,6 +171,20 @@ def test_control_panel_signals_and_invalidation():
     panel.btn_export_svg.click()
     assert export_events == ['svg']
 
+    # Probar avisos interactivos y emisión de warning_selected
+    warn1 = SupportWarning(kind="thin", level=0, x=1.5, y=2.5, message="Nivel 0: zona estrecha en (1.5, 2.5)")
+    sup_warn = SupportResult(columns=[Column(0, 0.0, 0.0, 6.0, True)], warnings=[warn1])
+    panel.set_result_info(res, plates=4, gap=2.0, thickness=3.0, supports=sup_warn)
+    assert panel.list_warnings.count() == 1, "Debe haber 1 aviso en list_warnings"
+    assert "Discos totales: 1" in panel.lbl_info.text()
+
+    selected_warnings = []
+    panel.warning_selected.connect(lambda lvl, x, y: selected_warnings.append((lvl, x, y)))
+    item = panel.list_warnings.item(0)
+    panel.list_warnings.itemClicked.emit(item)
+    assert len(selected_warnings) == 1
+    assert selected_warnings[0] == (0, 1.5, 2.5)
+
     print("[OK] ControlPanel e invalidación de estado verificados con éxito.")
 
 
@@ -199,7 +231,13 @@ def test_main_window_integration():
         # 4.6 Ejecutar corte exitoso
         window._on_params_changed(plates=5, gap=2.0, thickness=3.0, axis='z')
         assert window._result is not None, "Resultado de corte debe existir"
+        assert window._supports is not None, "Supports deben haberse calculado"
+        assert len(window._supports.columns) > 0, "Debe haber columnas generadas para el modelo"
         assert window.panel.btn_export_svg.isEnabled(), "Botón exportar SVG debe estar habilitado"
+
+        # 4.6b Probar selección de aviso y resaltado en visor
+        window._on_warning_selected(level=0, x=0.0, y=0.0)
+        assert window.viewer._highlight_item is not None, "El visor debe resaltar la posición seleccionada"
 
         # 4.7 Exportar SVG desde MainWindow
         svg_out = "tmp_phase3_test.svg"
@@ -223,6 +261,8 @@ def test_main_window_integration():
 
         window._on_file_loaded(temp_obj)
         assert window._result is None, "Resultado anterior debe ser invalidado al cargar nuevo archivo"
+        assert window._supports is None, "Supports anteriores deben ser invalidados al cargar nuevo archivo"
+        assert window.panel.list_warnings.count() == 0, "Lista de avisos debe limpiarse al recargar"
         assert not window.panel.btn_export_svg.isEnabled(), "Exportación debe ser deshabilitada"
 
         if os.path.exists(temp_obj):
