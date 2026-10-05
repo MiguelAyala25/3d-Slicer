@@ -30,7 +30,7 @@ app = QApplication.instance() or QApplication(sys.argv)
 
 from validator import validate_file, validate_params, validate_mesh
 from slicer import slice_mesh, SliceResult
-from exporter import export_dxf, export_svg
+from exporter import export_svg
 from viewer import SculptureViewer
 from ui import ControlPanel
 from main import MainWindow
@@ -182,12 +182,6 @@ def test_exporter_error_cases():
 
     # Ruta a carpeta no escribible o archivo con nombre inválido
     # En Windows, caracteres como '?' o '*' en el nombre o ruta imposible causan error de guardado
-    invalid_path_dxf = "Z:\\ruta_imposible_inexistente_999\\test.dxf"
-    ok, msg = export_dxf(res, invalid_path_dxf)
-    assert not ok, "Debe fallar al intentar guardar en ruta inválida"
-    assert "No se pudo guardar el archivo. Verificá que tenés permisos en la carpeta." in msg, \
-        f"Mensaje incorrecto: {msg}"
-
     invalid_path_svg = "Z:\\ruta_imposible_inexistente_999\\test.svg"
     ok, msg = export_svg(res, invalid_path_svg)
     assert not ok, "Debe fallar al intentar guardar en ruta inválida SVG"
@@ -336,11 +330,11 @@ def test_main_window_ux_and_error_table():
             # CASO 11: Algunas placas vacías (Advertencia informativa en panel)
             window._on_params_changed(plates=5, gap=2.0, thickness=3.0, axis='z')
             assert window._result is not None
-            assert window.panel.btn_export_dxf.isEnabled()
+            assert window.panel.btn_export_svg.isEnabled()
 
             # CASO 12: Error al exportar (Error fatal -> Bloquear)
-            with patch("main.export_dxf", return_value=(False, "No se pudo guardar el archivo. Verificá que tenés permisos en la carpeta.")):
-                window._on_export_requested("dxf", file_path="inaccessible.dxf")
+            with patch("main.export_svg", return_value=(False, "No se pudo guardar el archivo. Verificá que tenés permisos en la carpeta.")):
+                window._on_export_requested("svg", file_path="inaccessible.svg")
                 assert mock_show_error.called
                 assert "No se pudo guardar el archivo. Verificá que tenés permisos en la carpeta." in mock_show_error.call_args[0][0]
                 mock_show_error.reset_mock()
@@ -377,10 +371,9 @@ def test_main_window_ux_and_error_table():
 
             # CASO 16: Invalidación de estado por parámetros
             window._on_params_changed(plates=5, gap=2.0, thickness=3.0, axis='z')
-            assert window.panel.btn_export_dxf.isEnabled()
+            assert window.panel.btn_export_svg.isEnabled()
             # Usuario cambia slider / spinbox
             window.panel.spin_plates.setValue(8)
-            assert not window.panel.btn_export_dxf.isEnabled(), "Exportar DXF debe deshabilitarse"
             assert not window.panel.btn_export_svg.isEnabled(), "Exportar SVG debe deshabilitarse"
             assert "Parámetros modificados" in window.panel.lbl_info.text()
 

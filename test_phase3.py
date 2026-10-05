@@ -100,7 +100,6 @@ def test_control_panel_signals_and_invalidation():
 
     # Estado inicial
     assert not panel.btn_apply.isEnabled(), "btn_apply debe iniciar deshabilitado"
-    assert not panel.btn_export_dxf.isEnabled(), "btn_export_dxf debe iniciar deshabilitado"
     assert not panel.btn_export_svg.isEnabled(), "btn_export_svg debe iniciar deshabilitado"
     assert panel.spin_plates.value() == 10
     assert panel.spin_gap.value() == 5.0
@@ -116,30 +115,28 @@ def test_control_panel_signals_and_invalidation():
     box = trimesh.creation.box(extents=[10, 10, 10])
     res = slice_mesh(box, plates=4, gap=2.0, thickness=3.0, axis='z')
     panel.set_result_info(res, plates=4, gap=2.0, thickness=3.0)
-    assert panel.btn_export_dxf.isEnabled(), "btn_export_dxf debe habilitarse tras set_result_info"
     assert panel.btn_export_svg.isEnabled(), "btn_export_svg debe habilitarse tras set_result_info"
     assert "Placas válidas: 4 / 4" in panel.lbl_info.text()
 
     # Probar invalidación al cambiar número de placas
     panel.spin_plates.setValue(12)
-    assert not panel.btn_export_dxf.isEnabled(), "Exportación DXF debe invalidarse al cambiar plates"
     assert not panel.btn_export_svg.isEnabled(), "Exportación SVG debe invalidarse al cambiar plates"
     assert "Parámetros modificados" in panel.lbl_info.text()
 
     # Re-habilitar y probar invalidación al cambiar separación
     panel.set_result_info(res, plates=4, gap=2.0, thickness=3.0)
     panel.spin_gap.setValue(6.0)
-    assert not panel.btn_export_dxf.isEnabled(), "Exportación DXF debe invalidarse al cambiar gap"
+    assert not panel.btn_export_svg.isEnabled(), "Exportación SVG debe invalidarse al cambiar gap"
 
     # Re-habilitar y probar invalidación al cambiar grosor
     panel.set_result_info(res, plates=4, gap=2.0, thickness=3.0)
     panel.spin_thickness.setValue(4.0)
-    assert not panel.btn_export_dxf.isEnabled(), "Exportación DXF debe invalidarse al cambiar thickness"
+    assert not panel.btn_export_svg.isEnabled(), "Exportación SVG debe invalidarse al cambiar thickness"
 
     # Re-habilitar y probar invalidación al cambiar eje
     panel.set_result_info(res, plates=4, gap=2.0, thickness=3.0)
     panel.combo_axis.setCurrentIndex(1)  # X
-    assert not panel.btn_export_dxf.isEnabled(), "Exportación DXF debe invalidarse al cambiar axis"
+    assert not panel.btn_export_svg.isEnabled(), "Exportación SVG debe invalidarse al cambiar axis"
 
     # Re-habilitar mediante resultado para probar emisión de señales
     panel.set_result_info(res, plates=4, gap=2.0, thickness=3.0)
@@ -153,10 +150,8 @@ def test_control_panel_signals_and_invalidation():
 
     export_events = []
     panel.export_requested.connect(lambda fmt: export_events.append(fmt))
-    panel.btn_export_dxf.click()
-    assert export_events == ['dxf']
     panel.btn_export_svg.click()
-    assert export_events == ['dxf', 'svg']
+    assert export_events == ['svg']
 
     print("[OK] ControlPanel e invalidación de estado verificados con éxito.")
 
@@ -189,10 +184,10 @@ def test_main_window_integration():
         window._on_file_loaded("test_l_block.obj")
         assert window._mesh is not None, "El mesh debe haberse cargado"
         assert window.panel.btn_apply.isEnabled(), "btn_apply debe estar habilitado"
-        assert not window.panel.btn_export_dxf.isEnabled(), "Exportación no debe habilitarse antes de cortar"
+        assert not window.panel.btn_export_svg.isEnabled(), "Exportación no debe habilitarse antes de cortar"
 
         # 4.4 Intentar exportar antes de cortar
-        window._on_export_requested("dxf")
+        window._on_export_requested("svg")
         assert mock_critical.called, "Debe mostrar error al intentar exportar sin cortar"
         mock_critical.reset_mock()
 
@@ -204,30 +199,19 @@ def test_main_window_integration():
         # 4.6 Ejecutar corte exitoso
         window._on_params_changed(plates=5, gap=2.0, thickness=3.0, axis='z')
         assert window._result is not None, "Resultado de corte debe existir"
-        assert window.panel.btn_export_dxf.isEnabled(), "Botón exportar DXF debe estar habilitado"
         assert window.panel.btn_export_svg.isEnabled(), "Botón exportar SVG debe estar habilitado"
 
-        # 4.7 Exportar DXF y SVG desde MainWindow
-        dxf_out = "tmp_phase3_test.dxf"
+        # 4.7 Exportar SVG desde MainWindow
         svg_out = "tmp_phase3_test.svg"
-        if os.path.exists(dxf_out):
-            os.remove(dxf_out)
         if os.path.exists(svg_out):
             os.remove(svg_out)
-
-        window._on_export_requested("dxf", file_path=dxf_out)
-        assert os.path.exists(dxf_out), f"DXF debe haber sido creado en {dxf_out}"
-        assert mock_info.called, "Debe informar éxito de exportación"
-        mock_info.reset_mock()
 
         window._on_export_requested("svg", file_path=svg_out)
         assert os.path.exists(svg_out), f"SVG debe haber sido creado en {svg_out}"
         assert mock_info.called, "Debe informar éxito de exportación SVG"
         mock_info.reset_mock()
 
-        # Limpiar archivos temporales
-        if os.path.exists(dxf_out):
-            os.remove(dxf_out)
+        # Limpiar archivo temporal
         if os.path.exists(svg_out):
             os.remove(svg_out)
 
@@ -239,7 +223,6 @@ def test_main_window_integration():
 
         window._on_file_loaded(temp_obj)
         assert window._result is None, "Resultado anterior debe ser invalidado al cargar nuevo archivo"
-        assert not window.panel.btn_export_dxf.isEnabled(), "Exportación debe ser deshabilitada"
         assert not window.panel.btn_export_svg.isEnabled(), "Exportación debe ser deshabilitada"
 
         if os.path.exists(temp_obj):

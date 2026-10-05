@@ -22,6 +22,10 @@ from validator import validate_file, validate_params, validate_mesh
 from slicer import slice_mesh, path2d_to_shapely
 
 
+def test_slicing_suite():
+    run_tests()
+
+
 def run_tests():
     print("=" * 60)
     print("EJECUTANDO PRUEBAS DE FASE 1 -- Slicing Headless")

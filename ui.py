@@ -98,12 +98,9 @@ class ControlPanel(QWidget):
         layout.addSpacing(12)
         layout.addWidget(QLabel("<b>Exportar</b>"))
 
-        self.btn_export_dxf = QPushButton("Exportar DXF")
         self.btn_export_svg = QPushButton("Exportar SVG")
-        self.btn_export_dxf.setEnabled(False)
         self.btn_export_svg.setEnabled(False)
 
-        layout.addWidget(self.btn_export_dxf)
         layout.addWidget(self.btn_export_svg)
 
         # --- Sección: Advertencias ---
@@ -115,7 +112,6 @@ class ControlPanel(QWidget):
         # --- Conectar señales internas ---
         self.btn_load.clicked.connect(self._on_load_clicked)
         self.btn_apply.clicked.connect(self._on_apply_clicked)
-        self.btn_export_dxf.clicked.connect(lambda: self.export_requested.emit('dxf'))
         self.btn_export_svg.clicked.connect(lambda: self.export_requested.emit('svg'))
 
         # --- Invalidar resultado cuando los parámetros cambian ---
@@ -148,7 +144,6 @@ class ControlPanel(QWidget):
         Se llama cuando cualquier parámetro cambia.
         Deshabilita los botones de exportación para forzar al usuario a re-aplicar el corte.
         """
-        self.btn_export_dxf.setEnabled(False)
         self.btn_export_svg.setEnabled(False)
         self.lbl_info.setText("⟳ Parámetros modificados — aplicá el corte para actualizar.")
 
@@ -190,7 +185,6 @@ class ControlPanel(QWidget):
         if result.warnings:
             self.lbl_warnings.setText("⚠ " + "\n⚠ ".join(result.warnings))
 
-        self.btn_export_dxf.setEnabled(True)
         self.btn_export_svg.setEnabled(True)
 
     def show_error(self, message: str):
