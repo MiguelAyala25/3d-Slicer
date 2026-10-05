@@ -179,38 +179,20 @@ class ControlPanel(QWidget):
         self.section_sheet.set_content_layout(form_sheet)
         layout.addWidget(self.section_sheet)
 
-        # --- Sección colapsable: Columnas y discos (avanzado) ---
+        # --- Sección colapsable: Columnas y discos ---
         layout.addSpacing(6)
-        self.section_cols = CollapsibleSection("Columnas y discos (avanzado)", collapsed=True)
+        self.section_cols = CollapsibleSection("Columnas y discos", collapsed=True)
         form_cols = QFormLayout()
 
-        self.spin_D_max = QDoubleSpinBox()
-        self.spin_D_max.setRange(5.0, 500.0)
-        self.spin_D_max.setValue(40.0)
-        self.spin_D_max.setSuffix(" mm")
-        form_cols.addRow("Distancia máx (D):", self.spin_D_max)
-
-        self.spin_disc_frac = QDoubleSpinBox()
-        self.spin_disc_frac.setRange(0.1, 1.0)
-        self.spin_disc_frac.setValue(0.5)
-        self.spin_disc_frac.setSingleStep(0.05)
-        form_cols.addRow("Fracción diámetro:", self.spin_disc_frac)
-
-        self.spin_disc_min = QDoubleSpinBox()
-        self.spin_disc_min.setRange(1.0, 50.0)
-        self.spin_disc_min.setValue(5.0)
-        self.spin_disc_min.setSuffix(" mm")
-        form_cols.addRow("Diámetro mín:", self.spin_disc_min)
-
-        self.spin_disc_max = QDoubleSpinBox()
-        self.spin_disc_max.setRange(1.0, 100.0)
-        self.spin_disc_max.setValue(15.0)
-        self.spin_disc_max.setSuffix(" mm")
-        form_cols.addRow("Diámetro máx:", self.spin_disc_max)
+        self.spin_disc_diameter = QDoubleSpinBox()
+        self.spin_disc_diameter.setRange(1.0, 50.0)
+        self.spin_disc_diameter.setValue(6.0)
+        self.spin_disc_diameter.setSuffix(" mm")
+        form_cols.addRow("Diámetro del disco:", self.spin_disc_diameter)
 
         self.spin_edge_margin = QDoubleSpinBox()
-        self.spin_edge_margin.setRange(0.0, 20.0)
-        self.spin_edge_margin.setValue(1.0)
+        self.spin_edge_margin.setRange(0.0, 10.0)
+        self.spin_edge_margin.setValue(0.5)
         self.spin_edge_margin.setSuffix(" mm")
         form_cols.addRow("Margen al borde:", self.spin_edge_margin)
 
@@ -219,6 +201,12 @@ class ControlPanel(QWidget):
         self.spin_engrave_clearance.setValue(0.3)
         self.spin_engrave_clearance.setSuffix(" mm")
         form_cols.addRow("Holgura grabado:", self.spin_engrave_clearance)
+
+        # Aliases para compatibilidad hacia atrás
+        self.spin_D_max = self.spin_disc_diameter
+        self.spin_disc_frac = self.spin_disc_diameter
+        self.spin_disc_min = self.spin_disc_diameter
+        self.spin_disc_max = self.spin_disc_diameter
 
         self.section_cols.set_content_layout(form_cols)
         layout.addWidget(self.section_cols)
@@ -263,8 +251,7 @@ class ControlPanel(QWidget):
         for spin in [
             self.spin_plates, self.spin_sheet_w, self.spin_sheet_h,
             self.spin_sheet_margin, self.spin_part_gap, self.spin_kerf,
-            self.spin_D_max, self.spin_disc_frac, self.spin_disc_min,
-            self.spin_disc_max, self.spin_edge_margin, self.spin_engrave_clearance
+            self.spin_disc_diameter, self.spin_edge_margin, self.spin_engrave_clearance
         ]:
             spin.valueChanged.connect(self._invalidate_result)
 
@@ -308,10 +295,7 @@ class ControlPanel(QWidget):
             sheet_margin=self.spin_sheet_margin.value(),
             part_gap=self.spin_part_gap.value(),
             kerf=self.spin_kerf.value(),
-            D_max=self.spin_D_max.value(),
-            disc_frac=self.spin_disc_frac.value(),
-            disc_min=self.spin_disc_min.value(),
-            disc_max=self.spin_disc_max.value(),
+            disc_diameter=self.spin_disc_diameter.value(),
             edge_margin=self.spin_edge_margin.value(),
             engrave_clearance=self.spin_engrave_clearance.value()
         )

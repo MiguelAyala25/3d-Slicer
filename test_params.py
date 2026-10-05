@@ -17,11 +17,8 @@ def test_params_default_values():
     assert p.sheet_margin == 10.0
     assert p.part_gap == 5.0
     assert p.kerf == 0.15
-    assert p.D_max == 40.0
-    assert p.disc_frac == 0.5
-    assert p.disc_min == 5.0
-    assert p.disc_max == 15.0
-    assert p.edge_margin == 1.0
+    assert p.disc_diameter == 6.0
+    assert p.edge_margin == 0.5
     assert p.engrave_clearance == 0.3
 
 
