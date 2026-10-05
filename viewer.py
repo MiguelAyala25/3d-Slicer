@@ -6,12 +6,13 @@ Muestra dos vistas lado a lado: modelo original y resultado rebanado.
 import colorsys
 from typing import Optional
 import numpy as np
+from PySide6.QtWidgets import QWidget, QHBoxLayout
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import GLViewWidget, GLMeshItem, GLLinePlotItem
-from PySide6.QtWidgets import QWidget, QHBoxLayout
 import trimesh
 from slicer import SliceResult
+from supports import SupportResult
 
 
 def _hue_to_rgb(h: float) -> list[float]:
@@ -38,11 +39,12 @@ class SculptureViewer(QWidget):
     """
     Widget con dos GLViewWidget lado a lado:
     - izquierda: mesh original
-    - derecha: placas rebanadas y separadas por gap
+    - derecha: placas rebanadas y separadas por gap con columnas de soporte
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._highlight_item = None
         self._setup_layout()
 
     def _setup_layout(self):
@@ -85,16 +87,23 @@ class SculptureViewer(QWidget):
         self.view_original.addItem(mesh_item)
         self._fit_camera(self.view_original, mesh.bounding_box)
 
-    def show_sliced_result(self, result: SliceResult, thickness: float, gap: float) -> int:
+    def show_sliced_result(
+        self,
+        result: SliceResult,
+        thickness: float,
+        gap: float,
+        supports: Optional[SupportResult] = None
+    ) -> int:
         """
-        Renderiza las placas como cajas planas separadas por el gap.
-        Cada placa es un sólido extruido con el grosor indicado.
+        Renderiza las placas como cajas planas separadas por el gap,
+        y las columnas de soporte como cilindros acrílicos (discos apilados).
 
         Los polígonos en result.polygons ya están en mm (pre-escalados por el slicer).
         No se aplica escala adicional.
         Retorna el conteo de polígonos que cayeron a wireframe.
         """
         self.view_sliced.clear()
+        self._highlight_item = None
         wireframe_count = 0  # contador de placas/polígonos que cayeron a wireframe
 
         total_plates = len(result.polygons)
@@ -110,11 +119,9 @@ class SculptureViewer(QWidget):
             color = _hue_to_rgb(hue) + [0.85]
 
             for polygon in plist:
-                # Los polígonos ya están en mm — usar directo, sin escalar
                 plate_mesh = _extrude_polygon(polygon, thickness, plate_position)
 
                 if plate_mesh is None:
-                    # Fallback a wireframe — acumular advertencia
                     wireframe_count += 1
                     coords = np.array(polygon.exterior.coords)
                     z_coords = np.full((len(coords), 1), plate_position)
@@ -139,8 +146,87 @@ class SculptureViewer(QWidget):
                 )
                 self.view_sliced.addItem(item)
 
+        # Renderizar cilindros de soporte entre placas
+        if supports is not None and gap > 0.01:
+            for col in supports.columns:
+                try:
+                    radius = max(0.5, col.diameter / 2.0)
+                    cyl = trimesh.creation.cylinder(radius=radius, height=gap, sections=20)
+                    z_center = col.level * (thickness + gap) + thickness + (gap / 2.0)
+                    cyl.apply_translation([col.x, col.y, z_center])
+
+                    verts = cyl.vertices.astype(np.float32)
+                    faces = cyl.faces.astype(np.uint32)
+
+                    # Continuas en púrpura, escalonadas/nuevas en naranja
+                    if col.reused:
+                        cyl_color = [0.65, 0.25, 0.85, 0.95]
+                        edge_c = (0.4, 0.1, 0.6, 1.0)
+                    else:
+                        cyl_color = [0.95, 0.40, 0.15, 0.95]
+                        edge_c = (0.7, 0.2, 0.0, 1.0)
+
+                    colors = np.tile(cyl_color, (len(faces), 1)).astype(np.float32)
+
+                    item = GLMeshItem(
+                        vertexes=verts,
+                        faces=faces,
+                        faceColors=colors,
+                        smooth=True,
+                        drawEdges=True,
+                        edgeColor=edge_c,
+                        glOptions='translucent'
+                    )
+                    self.view_sliced.addItem(item)
+                except Exception:
+                    pass
+
         self._fit_camera_to_result(self.view_sliced, result, thickness, gap)
         return wireframe_count
+
+    def highlight_position(
+        self,
+        level: int,
+        x: Optional[float],
+        y: Optional[float],
+        thickness: float,
+        gap: float
+    ):
+        """Resalta la posición de un aviso o columna seleccionada y enfoca la cámara."""
+        if self._highlight_item is not None:
+            try:
+                self.view_sliced.removeItem(self._highlight_item)
+            except Exception:
+                pass
+            self._highlight_item = None
+
+        z_center = level * (thickness + gap) + thickness + (gap / 2.0)
+        target_x = x if x is not None else 0.0
+        target_y = y if y is not None else 0.0
+
+        if x is not None and y is not None:
+            try:
+                marker = trimesh.creation.icosphere(radius=max(2.5, gap * 0.4), subdivisions=2)
+                marker.apply_translation([target_x, target_y, z_center])
+                verts = marker.vertices.astype(np.float32)
+                faces = marker.faces.astype(np.uint32)
+                colors = np.tile([1.0, 0.9, 0.0, 0.95], (len(faces), 1)).astype(np.float32)
+
+                self._highlight_item = GLMeshItem(
+                    vertexes=verts,
+                    faces=faces,
+                    faceColors=colors,
+                    smooth=True,
+                    drawEdges=True,
+                    edgeColor=(1.0, 0.5, 0.0, 1.0),
+                    glOptions='opaque'
+                )
+                self.view_sliced.addItem(self._highlight_item)
+            except Exception:
+                pass
+
+        self.view_sliced.opts['center'] = pg.Vector(float(target_x), float(target_y), float(z_center))
+        self.view_sliced.update()
 
     def _fit_camera(self, view: GLViewWidget, bounding_box):
         """Ajusta la cámara para ver el objeto completo."""

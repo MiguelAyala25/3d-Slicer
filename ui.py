@@ -7,11 +7,12 @@ from typing import Optional
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QLabel,
     QPushButton, QSpinBox, QDoubleSpinBox, QComboBox, QFileDialog,
-    QMessageBox, QScrollArea, QGroupBox
+    QMessageBox, QScrollArea, QGroupBox, QListWidget, QListWidgetItem
 )
 from PySide6.QtCore import Signal, Qt
 from slicer import SliceResult
 from params import Params
+from supports import SupportResult
 
 
 class CollapsibleSection(QWidget):
@@ -72,9 +73,10 @@ class ControlPanel(QWidget):
     """
 
     # Señales
-    file_loaded = Signal(str)       # ruta del archivo cargado
-    params_changed = Signal(object) # emite instancia de Params
-    export_requested = Signal(str)  # 'svg'
+    file_loaded = Signal(str)                  # ruta del archivo cargado
+    params_changed = Signal(object)            # emite instancia de Params
+    export_requested = Signal(str)             # 'svg'
+    warning_selected = Signal(int, object, object)  # level, x, y
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -244,7 +246,30 @@ class ControlPanel(QWidget):
         self.btn_export_svg.setEnabled(False)
         layout.addWidget(self.btn_export_svg)
 
-        # --- Sección: Advertencias ---
+        # --- Sección: Advertencias y avisos clicables ---
+        layout.addSpacing(10)
+        layout.addWidget(QLabel("<b>Avisos del modelo:</b>"))
+
+        self.list_warnings = QListWidget()
+        self.list_warnings.setMaximumHeight(120)
+        self.list_warnings.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #555;
+                border-radius: 4px;
+                font-size: 11px;
+                background-color: palette(base);
+            }
+            QListWidget::item {
+                padding: 4px;
+            }
+            QListWidget::item:selected {
+                background-color: #f57c00;
+                color: white;
+            }
+        """)
+        self.list_warnings.itemClicked.connect(self._on_warning_item_clicked)
+        layout.addWidget(self.list_warnings)
+
         self.lbl_warnings = QLabel("")
         self.lbl_warnings.setWordWrap(True)
         self.lbl_warnings.setStyleSheet("color: orange;")
@@ -333,6 +358,7 @@ class ControlPanel(QWidget):
         """
         self.btn_export_svg.setEnabled(False)
         self.lbl_info.setText("⟳ Parámetros modificados — aplicá el corte para actualizar.")
+        self.list_warnings.clear()
 
     def set_file_label(self, filename: str, repaired: bool, warning: str):
         text = f"✓ {filename}"
@@ -345,7 +371,14 @@ class ControlPanel(QWidget):
             self.lbl_warnings.setText("")
         self.btn_apply.setEnabled(True)
 
-    def set_result_info(self, result: SliceResult, plates: int, gap: float, thickness: float):
+    def set_result_info(
+        self,
+        result: SliceResult,
+        plates: int,
+        gap: float,
+        thickness: float,
+        supports: Optional[SupportResult] = None
+    ):
         valid_plates = [plist for plist in result.polygons if plist is not None]
         n_valid = len(valid_plates)
 
@@ -362,17 +395,46 @@ class ControlPanel(QWidget):
         else:
             dim_text = "Tamaño final: N/A\n"
 
+        disc_info = ""
+        if supports is not None:
+            hist = supports.diameter_histogram()
+            hist_str = ", ".join(f"Ø{int(d)}mm: {cnt}" for d, cnt in hist.items()) if hist else "0"
+            disc_info = f"\nDiscos totales: {supports.discs_total} ({hist_str})"
+
         info = (
             f"Placas válidas: {n_valid} / {plates}\n"
             f"{dim_text}"
             f"Escala aplicada: {result.auto_scale:.2f}x"
+            f"{disc_info}"
         )
         self.lbl_info.setText(info)
 
-        if result.warnings:
-            self.lbl_warnings.setText("⚠ " + "\n⚠ ".join(result.warnings))
+        # Poblar lista interactiva de avisos
+        self.list_warnings.clear()
+        combined_warnings = []
+        if supports is not None and supports.warnings:
+            for w in supports.warnings:
+                item = QListWidgetItem(f"[{w.kind}] {w.message}")
+                item.setData(Qt.UserRole, (w.level, w.x, w.y))
+                self.list_warnings.addItem(item)
+                combined_warnings.append(w.message)
+        elif result.warnings:
+            for wmsg in result.warnings:
+                self.list_warnings.addItem(QListWidgetItem(f"[slicer] {wmsg}"))
+                combined_warnings.append(wmsg)
+
+        if combined_warnings:
+            self.lbl_warnings.setText("⚠ " + "\n⚠ ".join(combined_warnings[:4]))
+        else:
+            self.lbl_warnings.setText("")
 
         self.btn_export_svg.setEnabled(True)
+
+    def _on_warning_item_clicked(self, item: QListWidgetItem):
+        data = item.data(Qt.UserRole)
+        if data:
+            level, x, y = data
+            self.warning_selected.emit(level, x, y)
 
     def show_error(self, message: str):
         QMessageBox.critical(self, "Error", message)
