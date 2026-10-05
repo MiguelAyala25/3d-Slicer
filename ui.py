@@ -14,6 +14,57 @@ from slicer import SliceResult
 from params import Params
 
 
+class CollapsibleSection(QWidget):
+    """
+    Sección colapsable estilo desplegable con botón toggle (▶ / ▼).
+    Permite abrir/cerrar secciones para evitar sobrecargar la interfaz.
+    """
+    def __init__(self, title: str, collapsed: bool = True, parent=None):
+        super().__init__(parent)
+        self._is_collapsed = collapsed
+        self._title = title
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 2, 0, 2)
+        main_layout.setSpacing(4)
+
+        self.toggle_btn = QPushButton()
+        self.toggle_btn.setCursor(Qt.PointingHandCursor)
+        self.toggle_btn.setStyleSheet("""
+            QPushButton {
+                text-align: left;
+                font-weight: bold;
+                padding: 6px 10px;
+                border: 1px solid #555;
+                border-radius: 4px;
+                background-color: palette(button);
+            }
+            QPushButton:hover {
+                background-color: palette(midlight);
+            }
+        """)
+        self.toggle_btn.clicked.connect(self.toggle)
+        main_layout.addWidget(self.toggle_btn)
+
+        self.content_widget = QWidget()
+        self.content_widget.setVisible(not collapsed)
+        main_layout.addWidget(self.content_widget)
+
+        self._update_header()
+
+    def set_content_layout(self, layout):
+        self.content_widget.setLayout(layout)
+
+    def toggle(self):
+        self._is_collapsed = not self._is_collapsed
+        self.content_widget.setVisible(not self._is_collapsed)
+        self._update_header()
+
+    def _update_header(self):
+        icon = "▶" if self._is_collapsed else "▼"
+        self.toggle_btn.setText(f"{icon}  {self._title}")
+
+
 class ControlPanel(QWidget):
     """
     Panel lateral con todos los controles de la aplicación.
@@ -88,10 +139,10 @@ class ControlPanel(QWidget):
 
         layout.addWidget(group_slice)
 
-        # --- Grupo: Hoja de corte ---
-        layout.addSpacing(8)
-        group_sheet = QGroupBox("Hoja de corte")
-        form_sheet = QFormLayout(group_sheet)
+        # --- Sección colapsable: Hoja de corte ---
+        layout.addSpacing(6)
+        self.section_sheet = CollapsibleSection("Hoja de corte", collapsed=True)
+        form_sheet = QFormLayout()
 
         self.spin_sheet_w = QDoubleSpinBox()
         self.spin_sheet_w.setRange(10.0, 5000.0)
@@ -125,12 +176,13 @@ class ControlPanel(QWidget):
         self.spin_kerf.setSuffix(" mm")
         form_sheet.addRow("Kerf láser:", self.spin_kerf)
 
-        layout.addWidget(group_sheet)
+        self.section_sheet.set_content_layout(form_sheet)
+        layout.addWidget(self.section_sheet)
 
-        # --- Grupo: Columnas y discos (avanzado) ---
-        layout.addSpacing(8)
-        group_cols = QGroupBox("Columnas y discos (avanzado)")
-        form_cols = QFormLayout(group_cols)
+        # --- Sección colapsable: Columnas y discos (avanzado) ---
+        layout.addSpacing(6)
+        self.section_cols = CollapsibleSection("Columnas y discos (avanzado)", collapsed=True)
+        form_cols = QFormLayout()
 
         self.spin_D_max = QDoubleSpinBox()
         self.spin_D_max.setRange(5.0, 500.0)
@@ -168,7 +220,8 @@ class ControlPanel(QWidget):
         self.spin_engrave_clearance.setSuffix(" mm")
         form_cols.addRow("Holgura grabado:", self.spin_engrave_clearance)
 
-        layout.addWidget(group_cols)
+        self.section_cols.set_content_layout(form_cols)
+        layout.addWidget(self.section_cols)
 
         # --- Botón: Aplicar ---
         layout.addSpacing(10)
