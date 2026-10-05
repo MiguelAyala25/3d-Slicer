@@ -112,3 +112,22 @@ def test_new_controls_invalidate_result():
     panel.btn_export_svg.setEnabled(True)
     panel.spin_kerf.setValue(0.20)
     assert not panel.btn_export_svg.isEnabled()
+
+
+def test_collapsible_sections_toggle():
+    panel = ControlPanel()
+    # Ambas secciones inician colapsadas
+    assert panel.section_sheet.content_widget.isHidden()
+    assert "▶" in panel.section_sheet.toggle_btn.text()
+    assert panel.section_cols.content_widget.isHidden()
+    assert "▶" in panel.section_cols.toggle_btn.text()
+
+    # Abrir sección Hoja
+    panel.section_sheet.toggle_btn.click()
+    assert not panel.section_sheet.content_widget.isHidden()
+    assert "▼" in panel.section_sheet.toggle_btn.text()
+
+    # Cerrar sección Hoja
+    panel.section_sheet.toggle_btn.click()
+    assert panel.section_sheet.content_widget.isHidden()
+    assert "▶" in panel.section_sheet.toggle_btn.text()
