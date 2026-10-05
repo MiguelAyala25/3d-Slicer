@@ -14,6 +14,7 @@ from slicer import slice_mesh
 from exporter import export_svg
 from viewer import SculptureViewer
 from ui import ControlPanel
+from params import Params
 
 
 class MainWindow(QMainWindow):
@@ -135,13 +136,29 @@ class MainWindow(QMainWindow):
         )
         self.viewer.show_original_mesh(mesh)
 
-    def _on_params_changed(self, plates: int, gap: float, thickness: float, axis: str):
+    def _on_params_changed(
+        self,
+        params: Optional[Params] = None,
+        plates: Optional[int] = None,
+        gap: Optional[float] = None,
+        thickness: Optional[float] = None,
+        axis: Optional[str] = None
+    ):
         if self._mesh is None:
             self.panel.show_error("Primero cargá un modelo 3D.")
             return
 
+        if isinstance(params, Params):
+            p = params
+        elif params is not None and isinstance(params, (int, float)):
+            p = Params(plates=int(params), gap=gap, thickness=thickness, axis=axis)
+        elif plates is not None:
+            p = Params(plates=plates, gap=gap, thickness=thickness, axis=axis)
+        else:
+            p = self.panel.get_params()
+
         # Validar parámetros
-        ok, msg = validate_params(plates, gap, thickness)
+        ok, msg = validate_params(p.plates, p.gap, p.thickness)
         if not ok:
             self.panel.show_error(msg)
             return
@@ -150,10 +167,10 @@ class MainWindow(QMainWindow):
         try:
             result = slice_mesh(
                 self._mesh,
-                plates=plates,
-                gap=gap,
-                thickness=thickness,
-                axis=axis
+                plates=p.plates,
+                gap=p.gap,
+                thickness=p.thickness,
+                axis=p.axis
             )
         except ValueError as e:
             self.panel.show_error(str(e))
@@ -164,13 +181,10 @@ class MainWindow(QMainWindow):
 
         # Guardar resultado y actualizar UI
         self._result = result
-        self._current_params = {
-            'plates': plates, 'gap': gap,
-            'thickness': thickness, 'axis': axis
-        }
+        self._current_params = p
 
-        self.panel.set_result_info(result, plates, gap, thickness)
-        wireframe_count = self.viewer.show_sliced_result(result, thickness, gap)
+        self.panel.set_result_info(result, p.plates, p.gap, p.thickness)
+        wireframe_count = self.viewer.show_sliced_result(result, p.thickness, p.gap)
 
         # Mostrar advertencia si hubo placas que cayeron a wireframe
         if wireframe_count > 0:

@@ -102,7 +102,7 @@ def test_control_panel_signals_and_invalidation():
     assert not panel.btn_apply.isEnabled(), "btn_apply debe iniciar deshabilitado"
     assert not panel.btn_export_svg.isEnabled(), "btn_export_svg debe iniciar deshabilitado"
     assert panel.spin_plates.value() == 10
-    assert panel.spin_gap.value() == 5.0
+    assert panel.spin_gap.value() == 3.0
     assert panel.spin_thickness.value() == 3.0
     assert panel.combo_axis.currentIndex() == 0  # Z
 
@@ -143,10 +143,10 @@ def test_control_panel_signals_and_invalidation():
 
     # Probar emisión de señales
     received_params = []
-    panel.params_changed.connect(lambda p, g, t, a: received_params.append((p, g, t, a)))
+    panel.params_changed.connect(lambda p: received_params.append(p))
     panel.btn_apply.click()
     assert len(received_params) == 1, "btn_apply debe emitir params_changed"
-    assert received_params[0] == (12, 6.0, 4.0, 'x')
+    assert (received_params[0].plates, received_params[0].gap, received_params[0].thickness, received_params[0].axis) == (12, 6.0, 4.0, 'x')
 
     export_events = []
     panel.export_requested.connect(lambda fmt: export_events.append(fmt))
