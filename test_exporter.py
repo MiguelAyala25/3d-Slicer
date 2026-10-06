@@ -119,8 +119,8 @@ def test_export_svg_colors_and_layers():
     assert 'stroke:#FF0000' in svg_str
     # Capa grabado (azul)
     assert 'stroke:#0000FF' in svg_str
-    # Texto grabado
-    assert 'PLACA 0' in svg_str
+    # Sin texto intrusivo que tape o invada las piezas
+    assert '<text' not in svg_str
 
 
 def test_export_engrave_circles_solid_and_dashed():
@@ -180,7 +180,7 @@ def test_export_discs_with_kerf():
 
     # Radio compensado de corte: 3.1
     assert 'r="3.1"' in svg_str
-    assert '0→1' in svg_str
+    assert '<text' not in svg_str
 
 
 def test_export_layout_to_multiple_files(tmp_path):

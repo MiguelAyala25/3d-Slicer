@@ -85,23 +85,8 @@ def sheet_to_svg_string(sheet: SheetLayout, preview_mode: bool = False) -> str:
         style=f"fill:none; stroke:#0000FF; stroke-width:{engrave_stroke_width};"
     )
 
-    # Etiquetas de placas y círculos grabados en placas
+    # Círculos grabados en placas (sólidos para hueco k, punteados para hueco k-1)
     for plate in sheet.placed_plates:
-        # Texto vectorial de la placa
-        fsize = getattr(plate, 'font_size', 3.0)
-        font_size_str = f"{fsize:.2f}" if preview_mode else f"{fsize:.2f}mm"
-        group_engrave.add(dwg.text(
-            plate.label_text,
-            insert=(plate.label_pos[0], plate.label_pos[1]),
-            fill="#0000FF",
-            stroke="none",
-            font_size=font_size_str,
-            font_family="Arial, Helvetica, sans-serif",
-            font_weight="bold",
-            dominant_baseline="hanging"
-        ))
-
-        # Círculos grabados (sólidos para hueco k, punteados para hueco k-1)
         for circle_info in plate.engrave_circles:
             r = circle_info.diameter / 2.0
             if circle_info.is_dashed:
@@ -117,19 +102,6 @@ def sheet_to_svg_string(sheet: SheetLayout, preview_mode: bool = False) -> str:
                     center=(circle_info.center_x, circle_info.center_y),
                     r=r
                 ))
-
-    # Etiquetas de grupos de discos ("k→k+1")
-    for group in sheet.disc_groups:
-        group_engrave.add(dwg.text(
-            group.label_text,
-            insert=(group.label_pos[0], group.label_pos[1]),
-            fill="#0000FF",
-            stroke="none",
-            font_size="2.6" if preview_mode else "2.8mm",
-            font_family="Arial, Helvetica, sans-serif",
-            font_weight="bold",
-            dominant_baseline="hanging"
-        ))
 
     dwg.add(group_cut)
     dwg.add(group_engrave)
