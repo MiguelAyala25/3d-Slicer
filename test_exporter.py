@@ -93,3 +93,124 @@ def test_export_svg_multipolygon():
     finally:
         if os.path.exists(svg_m_path):
             os.remove(svg_m_path)
+
+
+def test_export_svg_colors_and_layers():
+    """Valida capas estándar de corte (rojo #FF0000) y grabado (azul #0000FF)."""
+    from params import Params
+    from discs import DiscManager
+    from layout import compute_layout
+    from exporter import sheet_to_svg_string
+
+    p0 = [Polygon([(0, 0), (50, 0), (50, 50), (0, 50)])]
+    res = SliceResult(
+        polygons=[p0],
+        empty_plates=[],
+        original_bounds=(0, 50),
+        assembled_height=50.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    params = Params(sheet_w=600.0, sheet_h=400.0)
+    layout = compute_layout(res, params)
+    svg_str = sheet_to_svg_string(layout.sheets[0])
+
+    # Capa corte (rojo)
+    assert 'stroke:#FF0000' in svg_str
+    # Capa grabado (azul)
+    assert 'stroke:#0000FF' in svg_str
+    # Texto grabado
+    assert 'PLACA 0' in svg_str
+
+
+def test_export_engrave_circles_solid_and_dashed():
+    """Valida que los círculos grabados sean sólidos (arriba) y punteados (abajo) con holgura."""
+    from params import Params
+    from discs import DiscManager
+    from layout import compute_layout
+    from exporter import sheet_to_svg_string
+
+    p0 = [Polygon([(0, 0), (60, 0), (60, 60), (0, 60)])]
+    p1 = [Polygon([(0, 0), (60, 0), (60, 60), (0, 60)])]
+    res = SliceResult(
+        polygons=[p0, p1],
+        empty_plates=[],
+        original_bounds=(0, 60),
+        assembled_height=60.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    params = Params(sheet_w=600.0, sheet_h=400.0, engrave_clearance=0.3)
+    dm = DiscManager()
+    # Disco en hueco 0 entre placa 0 y 1
+    dm.add_disc(hueco=0, x=20.0, y=20.0, diameter=6.0, max_gap=0)
+
+    layout = compute_layout(res, params, dm)
+    svg_str = sheet_to_svg_string(layout.sheets[0])
+
+    # Debe contener círculo sólido con radio 3.15 mm (diámetro 6.3 mm)
+    assert 'r="3.15"' in svg_str
+    # Debe contener círculo punteado con stroke-dasharray
+    assert 'stroke-dasharray="1.5,1.0"' in svg_str
+
+
+def test_export_discs_with_kerf():
+    """Valida que los discos en la zona de corte tengan kerf compensado (diámetro + kerf)."""
+    from params import Params
+    from discs import DiscManager
+    from layout import compute_layout
+    from exporter import sheet_to_svg_string
+
+    p0 = [Polygon([(0, 0), (40, 0), (40, 40), (0, 40)])]
+    res = SliceResult(
+        polygons=[p0],
+        empty_plates=[],
+        original_bounds=(0, 40),
+        assembled_height=40.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    # kerf = 0.20 mm, diámetro nominal = 6.0 mm -> diámetro corte = 6.20 mm -> r = 3.10 mm
+    params = Params(sheet_w=600.0, sheet_h=400.0, kerf=0.20)
+    dm = DiscManager()
+    dm.add_disc(hueco=0, x=10.0, y=10.0, diameter=6.0, max_gap=0)
+
+    layout = compute_layout(res, params, dm)
+    svg_str = sheet_to_svg_string(layout.sheets[0])
+
+    # Radio compensado de corte: 3.1
+    assert 'r="3.1"' in svg_str
+    assert '0→1' in svg_str
+
+
+def test_export_layout_to_multiple_files(tmp_path):
+    """Valida la exportación de múltiples hojas a archivos independientes."""
+    from params import Params
+    from discs import DiscManager
+    from layout import compute_layout
+    from exporter import export_layout_to_svg_files
+
+    # gap != thickness genera 2 hojas independientes
+    params = Params(sheet_w=600.0, sheet_h=400.0, thickness=3.0, gap=5.0)
+    p0 = [Polygon([(0, 0), (40, 0), (40, 40), (0, 40)])]
+    res = SliceResult(
+        polygons=[p0],
+        empty_plates=[],
+        original_bounds=(0, 40),
+        assembled_height=40.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    dm = DiscManager()
+    dm.add_disc(hueco=0, x=10.0, y=10.0, diameter=6.0, max_gap=0)
+
+    layout = compute_layout(res, params, dm)
+    assert layout.total_sheets == 2
+
+    out_dir = str(tmp_path / "svg_out")
+    files = export_layout_to_svg_files(layout, out_dir, base_name="test_proj")
+    assert len(files) == 2
+    assert all(os.path.exists(f) for f in files)
+    assert "hoja_1_placas.svg" in files[0]
+    assert "hoja_2_discos.svg" in files[1]
+
