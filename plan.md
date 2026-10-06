@@ -124,21 +124,29 @@
   - Commit local: `"feat(fase1): colocacion manual y arrastre de discos directo en visor 3D"`
   - *Pausa para que el usuario pruebe la colocación y el piso activo en 3D antes de seguir.*
 
-#### Etapa 1.B: Auto-copia al Piso Siguiente, Borrado y Edición de Diámetro
+#### Etapa 1.B: Auto-copia al Piso Siguiente, Borrado, Edición de Diámetro, Cámara Blender y Feedback Visual
+- **Cámara Estilo Blender en Visor 3D**:
+  - Botón central (MMB / rueda presionada) = Orbitar vista de manera suave.
+  - Shift + MMB (o Shift + Click derecho) = Pan (desplazar vista).
+  - Rueda de mouse = Zoom suave.
+  - Click izquierdo libre de conflictos con la cámara para selección, arrastre y colocación precisa.
+- **Feedback Visual de Hover y Selección de Discos**:
+  - **Hover**: Al pasar el mouse sobre un disco del piso activo, se resalta visualmente para indicar interactividad inmediata.
+  - **Selección**: Click en un disco lo selecciona visualmente (resaltado con contorno distintivo/color de selección).
 - **Auto-copia en `DiscManager`**:
   - Al colocar un disco en hueco $k$ (si no es el último hueco $N-2$):
-    - Si no existe un disco en esa misma $(x, y)$ en el hueco $k+1$, se crea una copia en $k+1$ con nuevo `id` único, misma $(x, y)$ y mismo diámetro.
+    - Si no existe un disco en esa misma $(x, y)$ en el hueco $k+1$, se crea una copia en $k+1$ con nuevo `id` único incremental, misma $(x, y)$ y mismo diámetro.
     - Si ya existe en esa $(x, y)$, no se duplica.
     - En el último hueco no hay copia.
     - **Independencia total**: Mover, editar o borrar un disco no afecta a ningún otro.
 - **Borrado**:
-  - Click en disco para seleccionar + botón **"Borrar disco"** (o tecla Suprimir).
+  - Disco seleccionado + botón **"Borrar disco"** (o tecla Suprimir / Delete).
 - **Edición de Tamaño**:
-  - Campo numérico en la UI para cambiar el diámetro del disco seleccionado individualmente.
+  - Control numérico en la barra de herramientas para ver y modificar el diámetro del disco seleccionado individualmente en tiempo real.
 - **Tests básicos**:
   - Auto-copia a $k+1$, no duplicación, sin copia en el último hueco, independencia al mover/editar/borrar.
 - **Checkpoint 1.B**:
-  - Commit local: `"feat(fase1): auto-copia independiente al piso siguiente, borrado y edicion de diametro"`
+  - Commit local: `"feat(fase1): auto-copia a piso siguiente, borrado, edicion diametro, camara blender y hover/seleccion 3D"`
   - *Pausa para visto bueno.*
 
 #### Etapa 1.C: Guardado y Carga JSON (con Alerta Explícita de Re-slicing)
