@@ -357,10 +357,12 @@ class SlicedGLView(GLViewWidget):
         return best_plate
 
     def mousePressEvent(self, event):
+        lpos = event.position() if hasattr(event, 'position') else event.localPos()
         self._mouse_press_pos = event.pos()
-        self.mousePos = event.pos()
+        self._last_mouse_pos = lpos
         self._is_dragging_disc = False
         self._drag_disc_id = None
+        self._has_moved_mouse = False
 
         # Si el usuario hace click izquierdo:
         if event.button() == Qt.LeftButton and self.disc_manager:
@@ -375,12 +377,19 @@ class SlicedGLView(GLViewWidget):
                     event.accept()
                     return
 
-        # Si presiona MMB o RMB, o LMB para cámara:
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        diff = event.pos() - self.mousePos
-        self.mousePos = event.pos()
+        lpos = event.position() if hasattr(event, 'position') else event.localPos()
+        if not hasattr(self, '_last_mouse_pos') or self._last_mouse_pos is None:
+            self._last_mouse_pos = lpos
+        diff = lpos - self._last_mouse_pos
+        self._last_mouse_pos = lpos
+
+        # Marcar que hubo desplazamiento significativo
+        if self._mouse_press_pos is not None:
+            if (event.pos() - self._mouse_press_pos).manhattanLength() > 4:
+                self._has_moved_mouse = True
 
         # 1. Si estamos arrastrando un disco con LMB
         if self._is_dragging_disc and self._drag_disc_id is not None and self.disc_manager:
@@ -399,29 +408,47 @@ class SlicedGLView(GLViewWidget):
             event.accept()
             return
 
-        # 2. Navegación estilo Blender con el Botón Central (MMB)
-        if event.buttons() & Qt.MiddleButton:
+        buttons = event.buttons()
+
+        # 2. Navegación con Botón Central (MMB estilo Blender)
+        if buttons & Qt.MiddleButton:
             if event.modifiers() & Qt.ShiftModifier:
-                # Shift + MMB = Pan (desplazar vista suavemente)
-                self.pan(diff.x(), diff.y(), 0, 'view')
+                # Shift + MMB = Pan
+                self.pan(diff.x(), diff.y(), 0, relative='view-upright')
             elif event.modifiers() & Qt.ControlModifier:
                 # Ctrl + MMB = Zoom suave
                 self.opts['distance'] *= 0.999 ** diff.y()
                 self.update()
             else:
-                # MMB = Orbitar suavemente estilo Blender
+                # MMB = Orbitar estilo Blender
                 self.orbit(-diff.x(), diff.y())
             event.accept()
             return
 
-        # Pan alternativo: Shift + Click Derecho
-        if (event.buttons() & Qt.RightButton) and (event.modifiers() & Qt.ShiftModifier):
-            self.pan(diff.x(), diff.y(), 0, 'view')
+        # 3. Navegación con Botón Izquierdo (LMB) si no estamos arrastrando un disco
+        if buttons & Qt.LeftButton:
+            if event.modifiers() & Qt.ShiftModifier:
+                self.pan(diff.x(), diff.y(), 0, relative='view-upright')
+            elif event.modifiers() & Qt.ControlModifier:
+                self.opts['distance'] *= 0.999 ** diff.y()
+                self.update()
+            else:
+                self.orbit(-diff.x(), diff.y())
             event.accept()
             return
 
-        # 3. Detección de Hover cuando ningún botón está presionado
-        if event.buttons() == Qt.NoButton and self.disc_manager:
+        # 4. Navegación con Botón Derecho (RMB)
+        if buttons & Qt.RightButton:
+            if event.modifiers() & Qt.ShiftModifier:
+                self.pan(diff.x(), diff.y(), 0, relative='view-upright')
+            else:
+                self.opts['distance'] *= 0.999 ** diff.y()
+                self.update()
+            event.accept()
+            return
+
+        # 5. Detección de Hover cuando ningún botón está presionado
+        if buttons == Qt.NoButton and self.disc_manager:
             total = len(self.plates_polygons)
             if 0 <= self.active_floor < total - 1:
                 disc_under_cursor = self._find_disc_at_point(event.pos(), self.active_floor)
@@ -437,15 +464,18 @@ class SlicedGLView(GLViewWidget):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        if self._is_dragging_disc:
-            self._is_dragging_disc = False
-            self._drag_disc_id = None
+        was_dragging_disc = self._is_dragging_disc
+        self._is_dragging_disc = False
+        self._drag_disc_id = None
+
+        if was_dragging_disc:
             event.accept()
             return
 
         if event.button() == Qt.LeftButton and self._mouse_press_pos is not None:
             drag_dist = (event.pos() - self._mouse_press_pos).manhattanLength()
-            if drag_dist < 6:
+            # Solo interpretar como click si el movimiento fue menor a 6 píxeles y no hubo arrastre
+            if drag_dist < 6 and not getattr(self, '_has_moved_mouse', False):
                 total = len(self.plates_polygons)
                 # Primero: comprobar si clickeó un disco para seleccionarlo
                 disc_clicked = self._find_disc_at_point(event.pos(), self.active_floor)
@@ -485,6 +515,8 @@ class SlicedGLView(GLViewWidget):
                     else:
                         self.deselect_disc()
 
+        self._mouse_press_pos = None
+        self._has_moved_mouse = False
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
