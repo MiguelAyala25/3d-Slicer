@@ -99,16 +99,21 @@
 *Todo es manual: sin autocolocador, sin reglas de distancia, sin validación de bordes.*
 
 #### Etapa 1.A: Colocación y Edición Directa en Vista 3D
+*Nota: Todo se añade reutilizando el visor 3D que ya existe para el modelo rebanado (`view_sliced`), sin crear un visor ni ventana nueva.*
+
 - **Modelo de Datos (`discs.py`)**:
-  - `Disc(id: str, hueco: int, x: float, y: float, diameter: float)`.
+  - `Disc(id: int, hueco: int, x: float, y: float, diameter: float)` (id es un entero incremental).
   - `DiscManager`: almacena discos por hueco, métodos `add_disc(hueco, x, y, diameter)`, `move_disc(id, x, y)`, `get_discs_for_gap(hueco)`.
 - **Selección de Piso Activo en 3D (`viewer.py`)**:
   - Un piso = una placa $k$. El piso activo se dibuja con opacidad 100%; todos los demás con opacidad baja.
-  - Click en una placa del modelo 3D selecciona ese piso.
-  - Los discos que se coloquen en el piso $k$ van en el hueco $k$ (entre la placa $k$ y la $k+1$).
-  - Los discos también respetan la regla de opacidad (piso activo opaco, el resto bajo).
-- **Visibilidad (Toggle)**:
+  - Los huecos con discos van de $0$ a $N-2$. Si la placa seleccionada es la última ($N-1$), el modo "Poner discos" no coloca nada, ya que no hay hueco arriba.
+  - Cambio de piso activo:
+    - Click en una placa del modelo 3D (cuando el modo "Poner discos" está apagado).
+    - Botones en la interfaz: **"Piso anterior"** / **"Piso siguiente"** (y atajos de teclado si es sencillo).
+- **Visibilidad y Representación**:
   - Un botón toggle **"Solo piso activo"** que oculta todo lo que no sea el piso activo (placas y discos). Apagado, vuelve a mostrar todo con la opacidad baja para los inactivos.
+  - Los discos se dibujan en el visor 3D como **cilindros** con su diámetro real y altura igual a la separación (`gap`). Se actualizan en tiempo real al colocar o mover.
+  - Los discos respetan la regla de opacidad del piso al que pertenecen (piso activo opaco, el resto bajo).
 - **Colocar y Mover Discos (Interacción 3D)**:
   - Botón toggle **"Poner discos"**. Con el modo activo, un click sobre la placa del piso activo coloca un disco ahí: el $(x, y)$ sale de proyectar el click sobre la cara superior de esa placa.
   - Arrastrar un disco lo mueve sobre ese mismo plano.
