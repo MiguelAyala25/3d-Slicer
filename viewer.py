@@ -58,9 +58,71 @@ def _event_pos(event) -> QPoint:
 
 class SmoothGLView(GLViewWidget):
     """
-    GLViewWidget con zoom infinito por rueda de mouse (sin desaceleración asintótica).
-    Al acercarse al foco de la cámara, avanza el centro continuamente en la dirección de vista.
+    GLViewWidget con navegación simplificada de 3 inputs:
+    - Control + Arrastre: Pan (funcionalidad de la manita)
+    - Scroll del mouse: Zoom infinito suave
+    - Arrastre del mouse: Giro / órbita de cámara
     """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setMouseTracking(True)
+        self._last_mouse_pos = None
+
+    def keyPressEvent(self, ev):
+        if ev.key() == Qt.Key_Control:
+            self.setCursor(Qt.OpenHandCursor)
+        super().keyPressEvent(ev)
+
+    def keyReleaseEvent(self, ev):
+        if ev.key() == Qt.Key_Control:
+            self.setCursor(Qt.ArrowCursor)
+        super().keyReleaseEvent(ev)
+
+    def leaveEvent(self, ev):
+        self.setCursor(Qt.ArrowCursor)
+        super().leaveEvent(ev)
+
+    def mousePressEvent(self, ev):
+        lpos = _event_pos(ev)
+        self._last_mouse_pos = lpos
+        if ev.modifiers() & Qt.ControlModifier:
+            self.setCursor(Qt.ClosedHandCursor)
+            ev.accept()
+            return
+        super().mousePressEvent(ev)
+
+    def mouseMoveEvent(self, ev):
+        lpos = _event_pos(ev)
+        if not hasattr(self, '_last_mouse_pos') or self._last_mouse_pos is None:
+            self._last_mouse_pos = lpos
+        diff = lpos - self._last_mouse_pos
+        self._last_mouse_pos = lpos
+
+        buttons = ev.buttons()
+        if buttons != Qt.NoButton:
+            if ev.modifiers() & Qt.ControlModifier:
+                self.setCursor(Qt.ClosedHandCursor)
+                self.pan(diff.x(), diff.y(), 0, relative='view')
+            else:
+                self.orbit(-diff.x(), diff.y())
+            ev.accept()
+            return
+        else:
+            if ev.modifiers() & Qt.ControlModifier:
+                self.setCursor(Qt.OpenHandCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
+
+        super().mouseMoveEvent(ev)
+
+    def mouseReleaseEvent(self, ev):
+        if ev.modifiers() & Qt.ControlModifier:
+            self.setCursor(Qt.OpenHandCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
+        super().mouseReleaseEvent(ev)
+
     def wheelEvent(self, ev):
         delta = ev.angleDelta().y()
         if delta == 0:
@@ -431,7 +493,13 @@ class SlicedGLView(SmoothGLView):
         self._drag_disc_id = None
         self._has_moved_mouse = False
 
-        # Si el usuario hace click izquierdo:
+        # Si Control está presionado: es Pan con la manita (no tocar discos ni pisos)
+        if event.modifiers() & Qt.ControlModifier:
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+
+        # Si el usuario hace click izquierdo (sin Control):
         if event.button() == Qt.LeftButton and self.disc_manager:
             total = len(self.plates_polygons)
             if 0 <= self.active_floor < total - 1:
@@ -458,7 +526,7 @@ class SlicedGLView(SmoothGLView):
             if (_event_pos(event) - self._mouse_press_pos).manhattanLength() > 4:
                 self._has_moved_mouse = True
 
-        # 1. Si estamos arrastrando un disco con LMB
+        # 1. Si estamos arrastrando un disco con LMB (sin Control)
         if self._is_dragging_disc and self._drag_disc_id is not None and self.disc_manager:
             p0, dir_vec = self._get_ray(_event_pos(event))
             if p0 is not None:
@@ -477,45 +545,25 @@ class SlicedGLView(SmoothGLView):
 
         buttons = event.buttons()
 
-        # 2. Navegación con Botón Central (MMB estilo Blender)
-        if buttons & Qt.MiddleButton:
-            if event.modifiers() & Qt.ShiftModifier:
-                # Shift + MMB = Pan
-                self.pan(diff.x(), diff.y(), 0, relative='view-upright')
-            elif event.modifiers() & Qt.ControlModifier:
-                # Ctrl + MMB = Zoom suave
-                self.opts['distance'] *= 0.999 ** diff.y()
-                self.update()
+        # 2. Si hay algún botón presionado (arrastre de cámara):
+        if buttons != Qt.NoButton:
+            if event.modifiers() & Qt.ControlModifier:
+                # Control = Pan con la manita
+                self.setCursor(Qt.ClosedHandCursor)
+                self.pan(diff.x(), diff.y(), 0, relative='view')
+            elif event.modifiers() & Qt.ShiftModifier:
+                # Shift = Pan como alternativa
+                self.pan(diff.x(), diff.y(), 0, relative='view')
             else:
-                # MMB = Orbitar estilo Blender
+                # Giro de mouse = Mover/orbitar cámara
                 self.orbit(-diff.x(), diff.y())
             event.accept()
             return
 
-        # 3. Navegación con Botón Izquierdo (LMB) si no estamos arrastrando un disco
-        if buttons & Qt.LeftButton:
-            if event.modifiers() & Qt.ShiftModifier:
-                self.pan(diff.x(), diff.y(), 0, relative='view-upright')
-            elif event.modifiers() & Qt.ControlModifier:
-                self.opts['distance'] *= 0.999 ** diff.y()
-                self.update()
-            else:
-                self.orbit(-diff.x(), diff.y())
-            event.accept()
-            return
-
-        # 4. Navegación con Botón Derecho (RMB)
-        if buttons & Qt.RightButton:
-            if event.modifiers() & Qt.ShiftModifier:
-                self.pan(diff.x(), diff.y(), 0, relative='view-upright')
-            else:
-                self.opts['distance'] *= 0.999 ** diff.y()
-                self.update()
-            event.accept()
-            return
-
-        # 5. Detección de Hover cuando ningún botón está presionado
-        if buttons == Qt.NoButton and self.disc_manager:
+        # 3. Sin botones presionados (hover):
+        if event.modifiers() & Qt.ControlModifier:
+            self.setCursor(Qt.OpenHandCursor)
+        elif self.disc_manager:
             total = len(self.plates_polygons)
             if 0 <= self.active_floor < total - 1:
                 disc_under_cursor = self._find_disc_at_point(_event_pos(event), self.active_floor)
@@ -527,6 +575,12 @@ class SlicedGLView(SmoothGLView):
                     else:
                         self.setCursor(Qt.ArrowCursor)
                     self.update_opacities()
+                elif new_hover_id is None:
+                    self.setCursor(Qt.ArrowCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
 
         super().mouseMoveEvent(event)
 
@@ -536,6 +590,17 @@ class SlicedGLView(SmoothGLView):
         self._drag_disc_id = None
 
         if was_dragging_disc:
+            self._mouse_press_pos = None
+            self._has_moved_mouse = False
+            self.setCursor(Qt.ArrowCursor)
+            event.accept()
+            return
+
+        # Si Control estaba presionado, fue Pan (manita): no colocar nada ni seleccionar
+        if event.modifiers() & Qt.ControlModifier:
+            self._mouse_press_pos = None
+            self._has_moved_mouse = False
+            self.setCursor(Qt.OpenHandCursor)
             event.accept()
             return
 
@@ -584,9 +649,15 @@ class SlicedGLView(SmoothGLView):
 
         self._mouse_press_pos = None
         self._has_moved_mouse = False
+        if self.hovered_disc_id is not None:
+            self.setCursor(Qt.PointingHandCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
         super().mouseReleaseEvent(event)
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Control:
+            self.setCursor(Qt.OpenHandCursor)
         if event.key() in (Qt.Key_Up, Qt.Key_Right, Qt.Key_BracketRight):
             self.next_floor()
             event.accept()
@@ -600,6 +671,18 @@ class SlicedGLView(SmoothGLView):
                 event.accept()
                 return
         super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Control:
+            if self.hovered_disc_id is not None:
+                self.setCursor(Qt.PointingHandCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
+        super().keyReleaseEvent(event)
+
+    def leaveEvent(self, event):
+        self.setCursor(Qt.ArrowCursor)
+        super().leaveEvent(event)
 
 
 class SculptureViewer(QWidget):

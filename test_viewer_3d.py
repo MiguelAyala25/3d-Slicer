@@ -11,7 +11,7 @@ from shapely.geometry import Polygon, box
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QPoint, QPointF, Qt, QEvent
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QMouseEvent, QWheelEvent
 
 app = QApplication.instance() or QApplication(sys.argv)
 
@@ -262,3 +262,86 @@ def test_camera_orbit_mouse_drag():
     view.mouseMoveEvent(move_mmb)
 
     assert view.opts['azimuth'] != azim_before_mmb
+
+
+def test_camera_3_inputs_pan_zoom_orbit():
+    view = SlicedGLView()
+    view.resize(600, 400)
+    view.show()
+
+    initial_center = (view.opts['center'].x(), view.opts['center'].y(), view.opts['center'].z())
+    initial_azim = view.opts['azimuth']
+    initial_dist = view.opts['distance']
+
+    # 1. Control + arrastre = PAN (manita)
+    press_pan = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(200, 200),
+        QPointF(200, 200),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ControlModifier
+    )
+    view.mousePressEvent(press_pan)
+    assert view.cursor().shape() == Qt.ClosedHandCursor
+
+    move_pan = QMouseEvent(
+        QEvent.Type.MouseMove,
+        QPointF(250, 230),
+        QPointF(250, 230),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.ControlModifier
+    )
+    view.mouseMoveEvent(move_pan)
+    new_center = (view.opts['center'].x(), view.opts['center'].y(), view.opts['center'].z())
+    assert new_center != initial_center, "Pan debe desplazar el centro de la cámara"
+    assert view.cursor().shape() == Qt.ClosedHandCursor
+
+    release_pan = QMouseEvent(
+        QEvent.Type.MouseButtonRelease,
+        QPointF(250, 230),
+        QPointF(250, 230),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.ControlModifier
+    )
+    view.mouseReleaseEvent(release_pan)
+    assert view.cursor().shape() == Qt.OpenHandCursor
+
+    # 2. Scroll de mouse = ZOOM
+    wheel_ev = QWheelEvent(
+        QPointF(300, 200),
+        QPointF(300, 200),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False
+    )
+    view.wheelEvent(wheel_ev)
+    assert view.opts['distance'] != initial_dist or (view.opts['center'].x(), view.opts['center'].y(), view.opts['center'].z()) != new_center
+
+    # 3. Arrastre de mouse normal = ORBIT / Giro de cámara
+    press_orbit = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(100, 100),
+        QPointF(100, 100),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier
+    )
+    view.mousePressEvent(press_orbit)
+
+    move_orbit = QMouseEvent(
+        QEvent.Type.MouseMove,
+        QPointF(140, 130),
+        QPointF(140, 130),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier
+    )
+    view.mouseMoveEvent(move_orbit)
+    assert view.opts['azimuth'] != initial_azim or view.opts['elevation'] != 30.0
+
