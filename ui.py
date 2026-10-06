@@ -179,9 +179,9 @@ class ControlPanel(QWidget):
         self.section_sheet.set_content_layout(form_sheet)
         layout.addWidget(self.section_sheet)
 
-        # --- Sección colapsable: Columnas y discos ---
+        # --- Sección colapsable: Discos ---
         layout.addSpacing(6)
-        self.section_cols = CollapsibleSection("Columnas y discos", collapsed=True)
+        self.section_cols = CollapsibleSection("Discos", collapsed=True)
         form_cols = QFormLayout()
 
         self.spin_disc_diameter = QDoubleSpinBox()
@@ -190,23 +190,11 @@ class ControlPanel(QWidget):
         self.spin_disc_diameter.setSuffix(" mm")
         form_cols.addRow("Diámetro del disco:", self.spin_disc_diameter)
 
-        self.spin_edge_margin = QDoubleSpinBox()
-        self.spin_edge_margin.setRange(0.0, 10.0)
-        self.spin_edge_margin.setValue(0.5)
-        self.spin_edge_margin.setSuffix(" mm")
-        form_cols.addRow("Margen al borde:", self.spin_edge_margin)
-
         self.spin_engrave_clearance = QDoubleSpinBox()
         self.spin_engrave_clearance.setRange(0.0, 10.0)
         self.spin_engrave_clearance.setValue(0.3)
         self.spin_engrave_clearance.setSuffix(" mm")
         form_cols.addRow("Holgura grabado:", self.spin_engrave_clearance)
-
-        # Aliases para compatibilidad hacia atrás
-        self.spin_D_max = self.spin_disc_diameter
-        self.spin_disc_frac = self.spin_disc_diameter
-        self.spin_disc_min = self.spin_disc_diameter
-        self.spin_disc_max = self.spin_disc_diameter
 
         self.section_cols.set_content_layout(form_cols)
         layout.addWidget(self.section_cols)
@@ -251,7 +239,7 @@ class ControlPanel(QWidget):
         for spin in [
             self.spin_plates, self.spin_sheet_w, self.spin_sheet_h,
             self.spin_sheet_margin, self.spin_part_gap, self.spin_kerf,
-            self.spin_disc_diameter, self.spin_edge_margin, self.spin_engrave_clearance
+            self.spin_disc_diameter, self.spin_engrave_clearance
         ]:
             spin.valueChanged.connect(self._invalidate_result)
 
@@ -296,7 +284,6 @@ class ControlPanel(QWidget):
             part_gap=self.spin_part_gap.value(),
             kerf=self.spin_kerf.value(),
             disc_diameter=self.spin_disc_diameter.value(),
-            edge_margin=self.spin_edge_margin.value(),
             engrave_clearance=self.spin_engrave_clearance.value()
         )
 

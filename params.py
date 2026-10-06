@@ -17,16 +17,9 @@ class Params:
     part_gap: float = 5.0
     kerf: float = 0.15
 
-    # Parámetros simplificados y sin clutter para columnas y discos
+    # Parámetros para discos
     disc_diameter: float = 6.0       # mm (por defecto 6.0 mm)
-    edge_margin: float = 0.5         # mm (por defecto 0.5 mm)
     engrave_clearance: float = 0.3   # mm (por defecto 0.3 mm)
-
-    # Compatibilidad interna opcional
-    D_max: float = 40.0
-    disc_frac: float = 0.5
-    disc_min: float = 6.0
-    disc_max: float = 6.0
 
     @property
     def disc_thickness(self) -> float:
