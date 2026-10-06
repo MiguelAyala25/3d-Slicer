@@ -14,14 +14,32 @@ import os
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTabWidget, QWidget, QFileDialog, QMessageBox,
-    QGraphicsView, QGraphicsScene, QFrame
+    QGraphicsView, QGraphicsScene, QGraphicsItem, QFrame
 )
-from PySide6.QtCore import Qt, QByteArray, QRectF
+from PySide6.QtCore import Qt, QByteArray, QRectF, QTimer
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush
-from PySide6.QtSvgWidgets import QGraphicsSvgItem
+from PySide6.QtSvg import QSvgRenderer
 
 from layout import LayoutResult, SheetLayout
 from exporter import sheet_to_svg_string, export_layout_to_svg_files
+
+
+class SvgSheetItem(QGraphicsItem):
+    """
+    Elemento gráfico que renderiza fielmente el archivo SVG a escala exacta en milímetros
+    utilizando QSvgRenderer sobre las coordenadas de la escena.
+    """
+    def __init__(self, renderer: QSvgRenderer, width: float, height: float, parent=None):
+        super().__init__(parent)
+        self.renderer = renderer
+        self.w = width
+        self.h = height
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(0.0, 0.0, self.w, self.h)
+
+    def paint(self, painter: QPainter, option, widget=None):
+        self.renderer.render(painter, QRectF(0.0, 0.0, self.w, self.h))
 
 
 class SvgSheetView(QGraphicsView):
@@ -32,6 +50,7 @@ class SvgSheetView(QGraphicsView):
         super().__init__(parent)
         self.sheet = sheet
         self._zoom_factor = 1.0
+        self._initial_fitted = False
 
         self.setScene(QGraphicsScene(self))
         self.setRenderHint(QPainter.Antialiasing)
@@ -44,34 +63,49 @@ class SvgSheetView(QGraphicsView):
         self._load_svg()
 
     def _load_svg(self):
-        svg_str = sheet_to_svg_string(self.sheet)
+        # Generar SVG con trazos optimizados para visualización en pantalla
+        svg_str = sheet_to_svg_string(self.sheet, preview_mode=True)
         svg_bytes = QByteArray(svg_str.encode("utf-8"))
 
-        # Dibujar fondo blanco que representa la lámina física de material
-        sheet_rect = QRectF(0, 0, self.sheet.sheet_w, self.sheet.sheet_h)
+        # 1. Sombra sutil que da sensación física a la lámina de corte
+        shadow_rect = QRectF(4.0, 4.0, self.sheet.sheet_w, self.sheet.sheet_h)
+        self.scene().addRect(
+            shadow_rect,
+            QPen(Qt.NoPen),
+            QBrush(QColor("#d2d2d8"))
+        )
+
+        # 2. Lámina física de material (fondo blanco con borde gris de corte)
+        sheet_rect = QRectF(0.0, 0.0, self.sheet.sheet_w, self.sheet.sheet_h)
         self.scene().addRect(
             sheet_rect,
-            QPen(QColor("#b0b0b5"), 1.0),
+            QPen(QColor("#9c9ca4"), 1.0),
             QBrush(QColor("#ffffff"))
         )
 
-        # Dibujar área útil (margen punteado sutil para referencia visual)
-        margin = 10.0  # referencia
+        # 3. Margen útil de referencia visual (guía punteada sutil)
+        margin = 10.0
         usable_rect = QRectF(
             margin,
             margin,
             max(1.0, self.sheet.sheet_w - 2 * margin),
             max(1.0, self.sheet.sheet_h - 2 * margin)
         )
-        dashed_pen = QPen(QColor("#e0e0e0"), 0.5, Qt.DashLine)
+        dashed_pen = QPen(QColor("#e4e4e8"), 0.5, Qt.DashLine)
         self.scene().addRect(usable_rect, dashed_pen, QBrush(Qt.NoBrush))
 
-        # Cargar el elemento vectorial SVG
-        svg_item = QGraphicsSvgItem()
-        svg_item.renderer().load(svg_bytes)
-        self.scene().addItem(svg_item)
+        # 4. Renderizador y elemento gráfico vectorial del SVG
+        self.svg_renderer = QSvgRenderer(svg_bytes, self)
+        self.svg_item = SvgSheetItem(self.svg_renderer, self.sheet.sheet_w, self.sheet.sheet_h)
+        self.scene().addItem(self.svg_item)
 
-        self.setSceneRect(-20, -20, self.sheet.sheet_w + 40, self.sheet.sheet_h + 40)
+        margin_view = 30.0
+        self.setSceneRect(
+            -margin_view,
+            -margin_view,
+            self.sheet.sheet_w + 2 * margin_view,
+            self.sheet.sheet_h + 2 * margin_view
+        )
 
     def fit_in_view(self):
         """Ajusta la hoja completa a la ventana."""
@@ -89,6 +123,12 @@ class SvgSheetView(QGraphicsView):
         elif delta < 0:
             self.zoom(1.0 / 1.15)
         event.accept()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._initial_fitted and self.width() > 100:
+            self._initial_fitted = True
+            self.fit_in_view()
 
 
 class SheetTabWidget(QWidget):
@@ -146,7 +186,7 @@ class SheetTabWidget(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.viewer.fit_in_view()
+        QTimer.singleShot(20, self.viewer.fit_in_view)
 
 
 class PreviewDialog(QDialog):
@@ -196,7 +236,13 @@ class PreviewDialog(QDialog):
             sheet_tab = SheetTabWidget(sheet, self.tabs)
             self.tabs.addTab(sheet_tab, tab_title)
 
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         root_layout.addWidget(self.tabs, stretch=1)
+
+    def _on_tab_changed(self, index: int):
+        widget = self.tabs.widget(index)
+        if isinstance(widget, SheetTabWidget):
+            QTimer.singleShot(20, widget.viewer.fit_in_view)
 
         # Barra inferior de acciones
         footer_layout = QHBoxLayout()

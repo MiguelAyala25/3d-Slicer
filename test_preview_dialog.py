@@ -107,3 +107,40 @@ def test_preview_dialog_export_all(tmp_path):
         assert mock_info.called
         assert len(dialog.exported_files) == 2
         assert all(os.path.exists(f) for f in dialog.exported_files)
+
+
+def test_preview_renders_non_white_elements():
+    """Valida que la vista previa SVG renderice elementos visibles (no una hoja completamente en blanco)."""
+    from PySide6.QtGui import QImage, QPainter, QColor
+    params = Params(sheet_w=600.0, sheet_h=400.0)
+    p0 = [box(0, 0, 100, 100)]
+    res = _make_dummy_slice_result([p0])
+    dm = DiscManager()
+    dm.add_disc(hueco=0, x=30.0, y=30.0, diameter=6.0, max_gap=0)
+    layout = compute_layout(res, params, dm)
+
+    view = SvgSheetView(layout.sheets[0])
+    view.resize(800, 600)
+    view.fit_in_view()
+
+    # Renderizar la escena en una imagen
+    img = QImage(800, 600, QImage.Format_ARGB32)
+    img.fill(QColor("white"))
+    painter = QPainter(img)
+    view.render(painter)
+    painter.end()
+
+    # Debe contener píxeles de corte (rojo) o grabado (azul)
+    has_colored_pixels = False
+    for y in range(600):
+        for x in range(800):
+            c = img.pixelColor(x, y)
+            if (c.red() > 160 and c.blue() < 120 and c.green() < 120) or \
+               (c.blue() > 160 and c.red() < 120 and c.green() < 120):
+                has_colored_pixels = True
+                break
+        if has_colored_pixels:
+            break
+
+    assert has_colored_pixels, "El visor de hoja SVG debe renderizar elementos visibles (rojo de corte o azul de grabado)."
+
