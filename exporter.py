@@ -39,19 +39,25 @@ def _coords_to_svg_path(coords) -> str:
     return " ".join(parts)
 
 
-def sheet_to_svg_string(sheet: SheetLayout) -> str:
+def sheet_to_svg_string(sheet: SheetLayout, preview_mode: bool = False) -> str:
     """
     Genera el contenido XML SVG de una hoja según las especificaciones de corte y grabado láser.
+    Si preview_mode es True, usa anchos de trazo aumentados para una óptima visualización en pantalla.
     """
     dwg = svgwrite.Drawing(
         size=(f"{sheet.sheet_w:.3f}mm", f"{sheet.sheet_h:.3f}mm")
     )
     dwg.viewbox(0, 0, sheet.sheet_w, sheet.sheet_h)
 
-    # 1. Grupo de CORTE — Rojo (#FF0000, 0.1mm)
+    cut_stroke_width = "1.0" if preview_mode else "0.1mm"
+    engrave_stroke_width = "1.0" if preview_mode else "0.1mm"
+    dash_pattern = "2.5,2.0" if preview_mode else "1.5,1.0"
+    font_size = "5.0" if preview_mode else "4.5mm"
+
+    # 1. Grupo de CORTE — Rojo (#FF0000)
     group_cut = dwg.g(
         id="corte",
-        style="fill-rule:evenodd; fill:none; stroke:#FF0000; stroke-width:0.1mm;"
+        style=f"fill-rule:evenodd; fill:none; stroke:#FF0000; stroke-width:{cut_stroke_width};"
     )
 
     # Contornos de placas
@@ -74,10 +80,10 @@ def sheet_to_svg_string(sheet: SheetLayout) -> str:
                 r=r
             ))
 
-    # 2. Grupo de GRABADO — Azul (#0000FF, 0.1mm)
+    # 2. Grupo de GRABADO — Azul (#0000FF)
     group_engrave = dwg.g(
         id="grabado",
-        style="fill:none; stroke:#0000FF; stroke-width:0.1mm;"
+        style=f"fill:none; stroke:#0000FF; stroke-width:{engrave_stroke_width};"
     )
 
     # Etiquetas de placas ("PLACA k") y círculos grabados en placas
@@ -88,7 +94,7 @@ def sheet_to_svg_string(sheet: SheetLayout) -> str:
             insert=(plate.label_pos[0], plate.label_pos[1]),
             fill="#0000FF",
             stroke="none",
-            font_size="4.5mm",
+            font_size=font_size,
             font_family="Arial, Helvetica, sans-serif",
             font_weight="bold"
         ))
@@ -101,7 +107,7 @@ def sheet_to_svg_string(sheet: SheetLayout) -> str:
                 group_engrave.add(dwg.circle(
                     center=(circle_info.center_x, circle_info.center_y),
                     r=r,
-                    stroke_dasharray="1.5,1.0"
+                    stroke_dasharray=dash_pattern
                 ))
             else:
                 # Círculo sólido (discos colocados arriba k)
@@ -117,7 +123,7 @@ def sheet_to_svg_string(sheet: SheetLayout) -> str:
             insert=(group.label_pos[0], group.label_pos[1]),
             fill="#0000FF",
             stroke="none",
-            font_size="4.5mm",
+            font_size=font_size,
             font_family="Arial, Helvetica, sans-serif",
             font_weight="bold"
         ))
