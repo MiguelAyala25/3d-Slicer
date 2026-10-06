@@ -15,6 +15,7 @@ from exporter import export_svg
 from viewer import SculptureViewer
 from ui import ControlPanel
 from params import Params
+from discs import DiscManager
 
 
 class MainWindow(QMainWindow):
@@ -27,6 +28,7 @@ class MainWindow(QMainWindow):
         self._mesh = None
         self._result = None
         self._current_params = {}
+        self.disc_manager = DiscManager()
 
         self._build_ui()
 
@@ -38,6 +40,7 @@ class MainWindow(QMainWindow):
         self.panel = ControlPanel()
         self.panel.setMinimumWidth(280)
         self.viewer = SculptureViewer()
+        self.viewer.set_disc_manager(self.disc_manager)
 
         layout.addWidget(self.panel, stretch=0)   # panel lateral ~300px
         layout.addWidget(self.viewer, stretch=1)  # visor ocupa el resto
@@ -51,6 +54,7 @@ class MainWindow(QMainWindow):
         # Invalidar estado anterior por completo
         self._result = None
         self._current_params = {}
+        self.disc_manager.clear()
         self.panel.btn_export_svg.setEnabled(False)
         self.panel.lbl_info.setText("—")
         self.panel.lbl_warnings.setText("")
@@ -183,6 +187,8 @@ class MainWindow(QMainWindow):
         self._result = result
         self._current_params = p
 
+        self.disc_manager.clear()
+        self.viewer.set_default_disc_diameter(p.disc_diameter)
         self.panel.set_result_info(result, p.plates, p.gap, p.thickness)
         wireframe_count = self.viewer.show_sliced_result(result, p.thickness, p.gap)
 

@@ -1,17 +1,27 @@
 """
 viewer.py — Widget Qt para visualización 3D con pyqtgraph / OpenGL.
 Muestra dos vistas lado a lado: modelo original y resultado rebanado.
+En la vista derecha (view_sliced), permite interactuar con el modelo rebanado:
+- Selección de piso activo (placa k) con opacidad 100% y resto con opacidad baja.
+- Botones "Piso anterior" / "Piso siguiente" y atajos de teclado.
+- Toggle "Solo piso activo".
+- Toggle "Poner discos": coloca cilindros 3D en el piso activo y permite arrastrarlos.
 """
 
 import colorsys
-from typing import Optional
+from typing import Optional, List, Dict, Tuple
 import numpy as np
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import GLViewWidget, GLMeshItem, GLLinePlotItem
-from PySide6.QtWidgets import QWidget, QHBoxLayout
+from PySide6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel
+from PySide6.QtCore import Signal, Qt, QPoint
+from PySide6.QtGui import QVector3D
+from shapely.geometry import Point
 import trimesh
+
 from slicer import SliceResult
+from discs import DiscManager, Disc
 
 
 def _hue_to_rgb(h: float) -> list[float]:
@@ -34,44 +44,429 @@ def _extrude_polygon(polygon, thickness: float, position: float) -> Optional[tri
         return None
 
 
+class SlicedGLView(GLViewWidget):
+    """
+    Visor 3D interactivo para el modelo rebanado.
+    Permite selección de pisos, toggle de visibilidad, y colocación/arrastre de discos 3D.
+    """
+    floor_changed = Signal(int)
+    discs_changed = Signal()
+    status_message = Signal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.disc_manager: Optional[DiscManager] = None
+        self.active_floor: int = 0
+        self.only_active_floor: bool = False
+        self.mode_add_discs: bool = False
+        self.default_disc_diameter: float = 6.0
+
+        self.plates_polygons = []
+        self.thickness: float = 3.0
+        self.gap: float = 3.0
+
+        # Lista de tuplas: (plate_idx, item, base_rgb)
+        self._plate_items: List[Tuple[int, GLMeshItem, list]] = []
+        # Diccionario: disc_id -> GLMeshItem
+        self._disc_items: Dict[int, GLMeshItem] = {}
+
+        self._mouse_press_pos: Optional[QPoint] = None
+        self._is_dragging_disc: bool = False
+        self._drag_disc_id: Optional[int] = None
+
+    def set_disc_manager(self, manager: DiscManager):
+        self.disc_manager = manager
+        self.update_discs_render()
+
+    def set_active_floor(self, floor: int):
+        total = len(self.plates_polygons)
+        if total == 0:
+            self.active_floor = 0
+            return
+        floor = max(0, min(floor, total - 1))
+        if floor != self.active_floor:
+            self.active_floor = floor
+            self.update_opacities()
+            self.floor_changed.emit(self.active_floor)
+            if self.mode_add_discs and self.active_floor == total - 1:
+                self.status_message.emit("Última placa: no hay hueco arriba para colocar discos.")
+            elif self.mode_add_discs:
+                self.status_message.emit(f"Piso {self.active_floor}: Click para colocar disco | Arrastra para mover")
+
+    def prev_floor(self):
+        if self.active_floor > 0:
+            self.set_active_floor(self.active_floor - 1)
+
+    def next_floor(self):
+        if self.active_floor < len(self.plates_polygons) - 1:
+            self.set_active_floor(self.active_floor + 1)
+
+    def set_only_active_floor(self, enabled: bool):
+        self.only_active_floor = enabled
+        self.update_opacities()
+
+    def set_mode_add_discs(self, enabled: bool):
+        self.mode_add_discs = enabled
+        total = len(self.plates_polygons)
+        if enabled:
+            if total > 0 and self.active_floor == total - 1:
+                self.status_message.emit("Última placa: no hay hueco arriba para colocar discos.")
+            else:
+                self.status_message.emit(f"Piso {self.active_floor}: Click para colocar disco | Arrastra para mover")
+        else:
+            self.status_message.emit("Click sobre una placa para seleccionar ese piso.")
+
+    def update_opacities(self):
+        """Actualiza la opacidad y visibilidad de placas y discos según el piso activo."""
+        # 1. Placas
+        for p_idx, item, base_rgb in self._plate_items:
+            is_active = (p_idx == self.active_floor)
+            if self.only_active_floor:
+                item.setVisible(is_active)
+                alpha = 1.0
+            else:
+                item.setVisible(True)
+                alpha = 1.0 if is_active else 0.18
+
+            if isinstance(item, GLMeshItem):
+                item.setColor((*base_rgb, alpha))
+            elif isinstance(item, GLLinePlotItem):
+                item.setData(color=[*base_rgb, alpha])
+
+        # 2. Discos
+        if self.disc_manager:
+            for disc in self.disc_manager.discs:
+                item = self._disc_items.get(disc.id)
+                if item is not None:
+                    is_active = (disc.hueco == self.active_floor)
+                    if self.only_active_floor:
+                        item.setVisible(is_active)
+                        alpha = 1.0
+                    else:
+                        item.setVisible(True)
+                        alpha = 1.0 if is_active else 0.25
+                    item.setColor((0.95, 0.65, 0.15, alpha))
+
+    def _create_disc_cylinder(self, disc: Disc) -> GLMeshItem:
+        radius = disc.diameter / 2.0
+        cyl = trimesh.creation.cylinder(radius=radius, height=self.gap, sections=24)
+        verts = cyl.vertices.astype(np.float32)
+        faces = cyl.faces.astype(np.uint32)
+
+        is_active = (disc.hueco == self.active_floor)
+        alpha = 1.0 if is_active else (0.0 if self.only_active_floor else 0.25)
+
+        mesh_item = GLMeshItem(
+            vertexes=verts,
+            faces=faces,
+            smooth=True,
+            drawEdges=True,
+            edgeColor=(0.2, 0.1, 0.0, alpha),
+            glOptions='translucent'
+        )
+        mesh_item.setColor((0.95, 0.65, 0.15, alpha))
+        z_center = disc.hueco * (self.thickness + self.gap) + self.thickness + (self.gap / 2.0)
+        mesh_item.translate(disc.x, disc.y, z_center)
+        if self.only_active_floor and not is_active:
+            mesh_item.setVisible(False)
+        return mesh_item
+
+    def update_discs_render(self):
+        """Sincroniza los cilindros 3D con DiscManager."""
+        if not self.disc_manager:
+            return
+
+        current_discs = {d.id: d for d in self.disc_manager.discs}
+
+        # Eliminar items de discos que ya no existan
+        for d_id in list(self._disc_items.keys()):
+            if d_id not in current_discs:
+                self.removeItem(self._disc_items[d_id])
+                del self._disc_items[d_id]
+
+        # Añadir o actualizar posiciones
+        for d_id, disc in current_discs.items():
+            z_center = disc.hueco * (self.thickness + self.gap) + self.thickness + (self.gap / 2.0)
+            if d_id not in self._disc_items:
+                item = self._create_disc_cylinder(disc)
+                self.addItem(item)
+                self._disc_items[d_id] = item
+            else:
+                item = self._disc_items[d_id]
+                item.resetTransform()
+                item.translate(disc.x, disc.y, z_center)
+
+        self.update_opacities()
+
+    def clear(self):
+        super().clear()
+        self._plate_items.clear()
+        self._disc_items.clear()
+        self.plates_polygons.clear()
+        self.active_floor = 0
+
+    def _get_ray(self, pos: QPoint):
+        w = self.width()
+        h = self.height()
+        if w <= 0 or h <= 0:
+            return None, None
+        viewport = (0, 0, w, h)
+        proj = self.projectionMatrix(viewport, viewport)
+        view = self.viewMatrix()
+        mvp = proj * view
+        inv, ok = mvp.inverted()
+        if not ok:
+            return None, None
+
+        ndc_x = (2.0 * pos.x() / w) - 1.0
+        ndc_y = 1.0 - (2.0 * pos.y() / h)
+
+        p_near = inv.map(QVector3D(ndc_x, ndc_y, -1.0))
+        p_far = inv.map(QVector3D(ndc_x, ndc_y, 1.0))
+
+        p0 = np.array([p_near.x(), p_near.y(), p_near.z()], dtype=float)
+        p1 = np.array([p_far.x(), p_far.y(), p_far.z()], dtype=float)
+        dir_vec = p1 - p0
+        return p0, dir_vec
+
+    def _intersect_z(self, p0, dir_vec, z_target: float):
+        if abs(dir_vec[2]) < 1e-7:
+            return None
+        t = (z_target - p0[2]) / dir_vec[2]
+        return p0 + t * dir_vec, t
+
+    def _find_clicked_plate(self, pos: QPoint) -> Optional[int]:
+        p0, dir_vec = self._get_ray(pos)
+        if p0 is None:
+            return None
+
+        best_t = float('inf')
+        best_plate = None
+
+        for i, plist in enumerate(self.plates_polygons):
+            if not plist:
+                continue
+            z_top = i * (self.thickness + self.gap) + self.thickness
+            z_bot = i * (self.thickness + self.gap)
+
+            for z in (z_top, z_bot):
+                res = self._intersect_z(p0, dir_vec, z)
+                if res is None:
+                    continue
+                hit, t = res
+                if 0 < t < best_t:
+                    pt = Point(hit[0], hit[1])
+                    if any(poly.contains(pt) or poly.distance(pt) < 1.0 for poly in plist):
+                        best_t = t
+                        best_plate = i
+        return best_plate
+
+    def mousePressEvent(self, event):
+        self._mouse_press_pos = event.pos()
+        self._is_dragging_disc = False
+        self._drag_disc_id = None
+
+        if event.button() == Qt.LeftButton and self.mode_add_discs and self.disc_manager:
+            total = len(self.plates_polygons)
+            if 0 <= self.active_floor < total - 1:
+                p0, dir_vec = self._get_ray(event.pos())
+                if p0 is not None:
+                    z_center = self.active_floor * (self.thickness + self.gap) + self.thickness + (self.gap / 2.0)
+                    res = self._intersect_z(p0, dir_vec, z_center)
+                    if res is not None:
+                        hit, _ = res
+                        discs_active = self.disc_manager.get_discs_for_gap(self.active_floor)
+                        for d in discs_active:
+                            dist = np.hypot(d.x - hit[0], d.y - hit[1])
+                            if dist <= (d.diameter / 2.0 + 3.0):
+                                self._is_dragging_disc = True
+                                self._drag_disc_id = d.id
+                                event.accept()
+                                return
+
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._is_dragging_disc and self._drag_disc_id is not None and self.disc_manager:
+            p0, dir_vec = self._get_ray(event.pos())
+            if p0 is not None:
+                z_center = self.active_floor * (self.thickness + self.gap) + self.thickness + (self.gap / 2.0)
+                res = self._intersect_z(p0, dir_vec, z_center)
+                if res is not None:
+                    hit, _ = res
+                    self.disc_manager.move_disc(self._drag_disc_id, float(hit[0]), float(hit[1]))
+                    if self._drag_disc_id in self._disc_items:
+                        item = self._disc_items[self._drag_disc_id]
+                        item.resetTransform()
+                        item.translate(float(hit[0]), float(hit[1]), z_center)
+                    self.discs_changed.emit()
+            event.accept()
+            return
+
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if self._is_dragging_disc:
+            self._is_dragging_disc = False
+            self._drag_disc_id = None
+            event.accept()
+            return
+
+        if event.button() == Qt.LeftButton and self._mouse_press_pos is not None:
+            drag_dist = (event.pos() - self._mouse_press_pos).manhattanLength()
+            if drag_dist < 6:
+                total = len(self.plates_polygons)
+                if self.mode_add_discs:
+                    if total > 0 and self.active_floor >= total - 1:
+                        self.status_message.emit("La última placa no tiene hueco arriba para colocar discos.")
+                    elif self.disc_manager and total > 0:
+                        z_top = self.active_floor * (self.thickness + self.gap) + self.thickness
+                        p0, dir_vec = self._get_ray(event.pos())
+                        if p0 is not None:
+                            res = self._intersect_z(p0, dir_vec, z_top)
+                            if res is not None:
+                                hit, _ = res
+                                pt = Point(hit[0], hit[1])
+                                plist = self.plates_polygons[self.active_floor]
+                                if any(poly.contains(pt) or poly.distance(pt) < 1.0 for poly in plist):
+                                    self.disc_manager.add_disc(
+                                        hueco=self.active_floor,
+                                        x=float(hit[0]),
+                                        y=float(hit[1]),
+                                        diameter=float(self.default_disc_diameter)
+                                    )
+                                    self.update_discs_render()
+                                    self.discs_changed.emit()
+                else:
+                    clicked_floor = self._find_clicked_plate(event.pos())
+                    if clicked_floor is not None:
+                        self.set_active_floor(clicked_floor)
+
+        super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Up, Qt.Key_Right, Qt.Key_BracketRight):
+            self.next_floor()
+            event.accept()
+            return
+        elif event.key() in (Qt.Key_Down, Qt.Key_Left, Qt.Key_BracketLeft):
+            self.prev_floor()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class SculptureViewer(QWidget):
     """
-    Widget con dos GLViewWidget lado a lado:
-    - izquierda: mesh original
-    - derecha: placas rebanadas y separadas por gap
+    Widget con dos vistas lado a lado:
+    - izquierda: mesh original (view_original)
+    - derecha: placas rebanadas y herramientas interactivas de discos 3D (view_sliced)
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.disc_manager: Optional[DiscManager] = None
         self._setup_layout()
 
     def _setup_layout(self):
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
 
         # Vista izquierda — modelo original
         self.view_original = GLViewWidget()
         self.view_original.setWindowTitle("Modelo Original")
 
-        # Vista derecha — resultado rebanado
-        self.view_sliced = GLViewWidget()
-        self.view_sliced.setWindowTitle("Resultado Rebanado")
+        # Contenedor derecho: barra de herramientas superior + vista rebanada
+        right_container = QWidget()
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(4)
 
-        layout.addWidget(self.view_original)
-        layout.addWidget(self.view_sliced)
+        # Barra de herramientas del visor 3D
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(6, 4, 6, 4)
+
+        self.lbl_floor = QLabel("Piso activo: 0 / 0")
+        self.lbl_floor.setStyleSheet("font-weight: bold; min-width: 130px;")
+
+        self.btn_prev_floor = QPushButton("◀ Piso ant.")
+        self.btn_next_floor = QPushButton("Piso sig. ▶")
+
+        self.btn_solo_piso = QPushButton("Solo piso activo")
+        self.btn_solo_piso.setCheckable(True)
+
+        self.btn_poner_discos = QPushButton("Poner discos")
+        self.btn_poner_discos.setCheckable(True)
+        self.btn_poner_discos.setStyleSheet("""
+            QPushButton:checked {
+                background-color: #e65100;
+                color: white;
+                font-weight: bold;
+            }
+        """)
+
+        self.lbl_status = QLabel("Click en placa para seleccionar piso.")
+        self.lbl_status.setStyleSheet("color: #666; font-size: 11px;")
+
+        toolbar.addWidget(self.lbl_floor)
+        toolbar.addWidget(self.btn_prev_floor)
+        toolbar.addWidget(self.btn_next_floor)
+        toolbar.addWidget(self.btn_solo_piso)
+        toolbar.addWidget(self.btn_poner_discos)
+        toolbar.addWidget(self.lbl_status, stretch=1)
+
+        right_layout.addLayout(toolbar)
+
+        # Vista derecha interactiva
+        self.view_sliced = SlicedGLView()
+        self.view_sliced.setWindowTitle("Resultado Rebanado")
+        right_layout.addWidget(self.view_sliced, stretch=1)
+
+        main_layout.addWidget(self.view_original, stretch=1)
+        main_layout.addWidget(right_container, stretch=1)
+
+        # Conectar controles con view_sliced
+        self.btn_prev_floor.clicked.connect(self.view_sliced.prev_floor)
+        self.btn_next_floor.clicked.connect(self.view_sliced.next_floor)
+        self.btn_solo_piso.toggled.connect(self._on_solo_piso_toggled)
+        self.btn_poner_discos.toggled.connect(self._on_poner_discos_toggled)
+
+        self.view_sliced.floor_changed.connect(self._update_floor_label)
+        self.view_sliced.status_message.connect(self.lbl_status.setText)
+
+    def set_disc_manager(self, manager: DiscManager):
+        self.disc_manager = manager
+        self.view_sliced.set_disc_manager(manager)
+
+    def set_default_disc_diameter(self, diameter: float):
+        self.view_sliced.default_disc_diameter = diameter
+
+    def _on_solo_piso_toggled(self, checked: bool):
+        self.view_sliced.set_only_active_floor(checked)
+
+    def _on_poner_discos_toggled(self, checked: bool):
+        if checked:
+            self.btn_poner_discos.setText("● Poner discos: ON")
+        else:
+            self.btn_poner_discos.setText("Poner discos")
+        self.view_sliced.set_mode_add_discs(checked)
+
+    def _update_floor_label(self, floor_idx: int):
+        total = len(self.view_sliced.plates_polygons)
+        if total > 0:
+            self.lbl_floor.setText(f"Piso activo: {floor_idx + 1} / {total}")
+        else:
+            self.lbl_floor.setText("Piso activo: 0 / 0")
 
     def show_original_mesh(self, mesh: trimesh.Trimesh):
-        """
-        Renderiza el mesh original en la vista izquierda.
-        Usa wireframe semitransparente para ver la forma.
-        """
+        """Renderiza el mesh original en la vista izquierda."""
         self.view_original.clear()
 
         verts = mesh.vertices.astype(np.float32)
         faces = mesh.faces.astype(np.uint32)
         colors = np.ones((len(faces), 4), dtype=np.float32)
-        colors[:, :3] = [0.7, 0.85, 1.0]  # azul claro
-        colors[:, 3] = 0.7  # semitransparente
+        colors[:, :3] = [0.7, 0.85, 1.0]
+        colors[:, 3] = 0.7
 
         mesh_item = GLMeshItem(
             vertexes=verts,
@@ -87,57 +482,52 @@ class SculptureViewer(QWidget):
 
     def show_sliced_result(self, result: SliceResult, thickness: float, gap: float) -> int:
         """
-        Renderiza las placas como cajas planas separadas por el gap.
-        Cada placa es un sólido extruido con el grosor indicado.
-
-        Los polígonos en result.polygons ya están en mm (pre-escalados por el slicer).
-        No se aplica escala adicional.
+        Renderiza las placas como sólidos extruidos y prepara la interacción 3D.
         Retorna el conteo de polígonos que cayeron a wireframe.
         """
         self.view_sliced.clear()
-        wireframe_count = 0  # contador de placas/polígonos que cayeron a wireframe
+        wireframe_count = 0
 
-        total_plates = len(result.polygons)
-        for i, plist in enumerate(result.polygons):
-            if plist is None:
-                continue
+        valid_plates = [plist for plist in result.polygons if plist is not None]
+        self.view_sliced.plates_polygons = valid_plates
+        self.view_sliced.thickness = thickness
+        self.view_sliced.gap = gap
 
-            # Posición de la placa en Z (en mm)
+        total_plates = len(valid_plates)
+        for i, plist in enumerate(valid_plates):
             plate_position = i * (thickness + gap)
-
-            # Color alternado por placa
             hue = (i / total_plates) if total_plates > 0 else 0.0
-            color = _hue_to_rgb(hue) + [0.85]
+            base_rgb = _hue_to_rgb(hue)
 
             for polygon in plist:
-                # Los polígonos ya están en mm — usar directo, sin escalar
                 plate_mesh = _extrude_polygon(polygon, thickness, plate_position)
-
                 if plate_mesh is None:
-                    # Fallback a wireframe — acumular advertencia
                     wireframe_count += 1
                     coords = np.array(polygon.exterior.coords)
                     z_coords = np.full((len(coords), 1), plate_position)
                     pts = np.hstack([coords, z_coords])
-
-                    item = GLLinePlotItem(pos=pts, color=color, width=2.0, antialias=True)
+                    item = GLLinePlotItem(pos=pts, color=[*base_rgb, 1.0], width=2.0, antialias=True)
                     self.view_sliced.addItem(item)
+                    self.view_sliced._plate_items.append((i, item, base_rgb))
                     continue
 
                 verts = plate_mesh.vertices.astype(np.float32)
                 faces = plate_mesh.faces.astype(np.uint32)
-                colors = np.tile(color, (len(faces), 1)).astype(np.float32)
-
                 item = GLMeshItem(
                     vertexes=verts,
                     faces=faces,
-                    faceColors=colors,
                     smooth=False,
                     drawEdges=True,
                     edgeColor=(0.0, 0.0, 0.0, 0.5),
                     glOptions='translucent'
                 )
+                item.setColor((*base_rgb, 1.0))
                 self.view_sliced.addItem(item)
+                self.view_sliced._plate_items.append((i, item, base_rgb))
+
+        self.view_sliced.set_active_floor(0)
+        self._update_floor_label(0)
+        self.view_sliced.update_discs_render()
 
         self._fit_camera_to_result(self.view_sliced, result, thickness, gap)
         return wireframe_count
@@ -157,7 +547,6 @@ class SculptureViewer(QWidget):
         if not valid_plates:
             return
 
-        # Los polígonos ya están en mm — usar directo
         min_x = min(min(p.bounds[0] for p in plist) for plist in valid_plates)
         max_x = max(max(p.bounds[2] for p in plist) for plist in valid_plates)
         min_y = min(min(p.bounds[1] for p in plist) for plist in valid_plates)
