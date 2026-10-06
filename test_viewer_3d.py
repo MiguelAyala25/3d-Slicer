@@ -10,7 +10,7 @@ from shapely.geometry import Polygon, box
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt, QEvent
 from PySide6.QtGui import QMouseEvent
 
 app = QApplication.instance() or QApplication(sys.argv)
@@ -217,20 +217,22 @@ def test_camera_orbit_mouse_drag():
 
     # 1. Simular arrastre con botón izquierdo (LMB) para orbitar
     press_event = QMouseEvent(
-        QMouseEvent.MouseButtonPress,
+        QEvent.Type.MouseButtonPress,
         QPointF(100, 100),
-        Qt.LeftButton,
-        Qt.LeftButton,
-        Qt.NoModifier
+        QPointF(100, 100),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier
     )
     view.mousePressEvent(press_event)
 
     move_event = QMouseEvent(
-        QMouseEvent.MouseMove,
+        QEvent.Type.MouseMove,
         QPointF(130, 120),
-        Qt.LeftButton,
-        Qt.LeftButton,
-        Qt.NoModifier
+        QPointF(130, 120),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier
     )
     view.mouseMoveEvent(move_event)
 
@@ -240,20 +242,22 @@ def test_camera_orbit_mouse_drag():
     # 2. Simular arrastre con botón central (MMB estilo Blender)
     azim_before_mmb = view.opts['azimuth']
     press_mmb = QMouseEvent(
-        QMouseEvent.MouseButtonPress,
+        QEvent.Type.MouseButtonPress,
         QPointF(100, 100),
-        Qt.MiddleButton,
-        Qt.MiddleButton,
-        Qt.NoModifier
+        QPointF(100, 100),
+        Qt.MouseButton.MiddleButton,
+        Qt.MouseButton.MiddleButton,
+        Qt.KeyboardModifier.NoModifier
     )
     view.mousePressEvent(press_mmb)
 
     move_mmb = QMouseEvent(
-        QMouseEvent.MouseMove,
+        QEvent.Type.MouseMove,
         QPointF(150, 100),
-        Qt.MiddleButton,
-        Qt.MiddleButton,
-        Qt.NoModifier
+        QPointF(150, 100),
+        Qt.MouseButton.MiddleButton,
+        Qt.MouseButton.MiddleButton,
+        Qt.KeyboardModifier.NoModifier
     )
     view.mouseMoveEvent(move_mmb)
 

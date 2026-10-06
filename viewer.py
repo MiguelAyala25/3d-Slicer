@@ -49,6 +49,13 @@ def _extrude_polygon(polygon, thickness: float, position: float) -> Optional[tri
         return None
 
 
+def _event_pos(event) -> QPoint:
+    """Retorna la posición del evento como QPoint compatible con Qt6."""
+    if hasattr(event, 'position'):
+        return event.position().toPoint()
+    return event.pos()
+
+
 class SmoothGLView(GLViewWidget):
     """
     GLViewWidget con zoom infinito por rueda de mouse (sin desaceleración asintótica).
@@ -418,7 +425,7 @@ class SlicedGLView(SmoothGLView):
 
     def mousePressEvent(self, event):
         lpos = event.position() if hasattr(event, 'position') else event.localPos()
-        self._mouse_press_pos = event.pos()
+        self._mouse_press_pos = _event_pos(event)
         self._last_mouse_pos = lpos
         self._is_dragging_disc = False
         self._drag_disc_id = None
@@ -429,7 +436,7 @@ class SlicedGLView(SmoothGLView):
             total = len(self.plates_polygons)
             if 0 <= self.active_floor < total - 1:
                 # Verificar si tocó un disco existente del piso activo
-                clicked_disc = self._find_disc_at_point(event.pos(), self.active_floor)
+                clicked_disc = self._find_disc_at_point(_event_pos(event), self.active_floor)
                 if clicked_disc:
                     self.select_disc(clicked_disc.id)
                     self._is_dragging_disc = True
@@ -448,12 +455,12 @@ class SlicedGLView(SmoothGLView):
 
         # Marcar que hubo desplazamiento significativo
         if self._mouse_press_pos is not None:
-            if (event.pos() - self._mouse_press_pos).manhattanLength() > 4:
+            if (_event_pos(event) - self._mouse_press_pos).manhattanLength() > 4:
                 self._has_moved_mouse = True
 
         # 1. Si estamos arrastrando un disco con LMB
         if self._is_dragging_disc and self._drag_disc_id is not None and self.disc_manager:
-            p0, dir_vec = self._get_ray(event.pos())
+            p0, dir_vec = self._get_ray(_event_pos(event))
             if p0 is not None:
                 z_center = self.active_floor * (self.thickness + self.gap) + self.thickness + (self.gap / 2.0)
                 res = self._intersect_z(p0, dir_vec, z_center)
@@ -511,7 +518,7 @@ class SlicedGLView(SmoothGLView):
         if buttons == Qt.NoButton and self.disc_manager:
             total = len(self.plates_polygons)
             if 0 <= self.active_floor < total - 1:
-                disc_under_cursor = self._find_disc_at_point(event.pos(), self.active_floor)
+                disc_under_cursor = self._find_disc_at_point(_event_pos(event), self.active_floor)
                 new_hover_id = disc_under_cursor.id if disc_under_cursor else None
                 if new_hover_id != self.hovered_disc_id:
                     self.hovered_disc_id = new_hover_id
@@ -533,12 +540,12 @@ class SlicedGLView(SmoothGLView):
             return
 
         if event.button() == Qt.LeftButton and self._mouse_press_pos is not None:
-            drag_dist = (event.pos() - self._mouse_press_pos).manhattanLength()
+            drag_dist = (_event_pos(event) - self._mouse_press_pos).manhattanLength()
             # Solo interpretar como click si el movimiento fue menor a 6 píxeles y no hubo arrastre
             if drag_dist < 6 and not getattr(self, '_has_moved_mouse', False):
                 total = len(self.plates_polygons)
                 # Primero: comprobar si clickeó un disco para seleccionarlo
-                disc_clicked = self._find_disc_at_point(event.pos(), self.active_floor)
+                disc_clicked = self._find_disc_at_point(_event_pos(event), self.active_floor)
                 if disc_clicked is not None:
                     self.select_disc(disc_clicked.id)
                 elif self.mode_add_discs:
@@ -547,7 +554,7 @@ class SlicedGLView(SmoothGLView):
                         self.status_message.emit("La última placa no tiene hueco arriba para colocar discos.")
                     elif self.disc_manager and total > 0:
                         z_top = self.active_floor * (self.thickness + self.gap) + self.thickness
-                        p0, dir_vec = self._get_ray(event.pos())
+                        p0, dir_vec = self._get_ray(_event_pos(event))
                         if p0 is not None:
                             res = self._intersect_z(p0, dir_vec, z_top)
                             if res is not None:
@@ -568,7 +575,7 @@ class SlicedGLView(SmoothGLView):
                                     self.discs_changed.emit()
                 else:
                     # Modo poner discos OFF y no clickeó disco: seleccionar placa de piso
-                    clicked_floor = self._find_clicked_plate(event.pos())
+                    clicked_floor = self._find_clicked_plate(_event_pos(event))
                     if clicked_floor is not None:
                         self.set_active_floor(clicked_floor)
                         self.deselect_disc()
