@@ -22,6 +22,8 @@ from project import (
     load_project_from_dict,
     check_params_compatibility
 )
+from layout import compute_layout
+from preview_dialog import PreviewDialog
 
 
 class MainWindow(QMainWindow):
@@ -212,19 +214,25 @@ class MainWindow(QMainWindow):
             self.panel.show_error("Primero aplicá el corte antes de exportar.")
             return
 
-        path = file_path
-        if not path:
-            path, _ = QFileDialog.getSaveFileName(self, "Guardar SVG", "", "SVG (*.svg)")
-
-        if not path:
+        if file_path:
+            # Exportación directa a ruta fija (usado en tests automáticos y scripts)
+            ok, msg = export_svg(self._result, file_path, params=self._current_params if isinstance(self._current_params, Params) else None, disc_manager=self.disc_manager)
+            if ok:
+                QMessageBox.information(self, "Exportación exitosa", f"Archivo guardado en:\n{msg}")
+            else:
+                self.panel.show_error(msg)
             return
 
-        ok, msg = export_svg(self._result, path)
-
-        if ok:
-            QMessageBox.information(self, "Exportación exitosa", f"Archivo guardado en:\n{msg}")
-        else:
-            self.panel.show_error(msg)
+        # Flujo interactivo: abrir diálogo modal de vista previa antes de exportar
+        try:
+            params = self._current_params if isinstance(self._current_params, Params) else self.panel.get_params()
+            layout = compute_layout(self._result, params, self.disc_manager)
+            dialog = PreviewDialog(layout, parent=self)
+            dialog.exec()
+        except ValueError as e:
+            self.panel.show_error(str(e))
+        except Exception as e:
+            self.panel.show_error(f"Error al generar vista previa: {e}")
 
     def _on_save_project(self):
         if self._result is None or not self._current_params:
