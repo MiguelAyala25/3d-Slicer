@@ -1,5 +1,5 @@
 """
-test_viewer_3d.py — Pruebas unitarias para la interacción 3D de discos y pisos (Etapa 1.A).
+test_viewer_3d.py — Pruebas unitarias para la interacción 3D de discos y pisos (Etapa 1.A y 1.B).
 """
 
 import sys
@@ -126,7 +126,6 @@ def test_sculpture_viewer_toolbar_and_signals():
     assert viewer.disc_manager is manager
     assert viewer.view_sliced.disc_manager is manager
 
-    # Cargar resultado de slicing simulado con 3 placas
     polys = [
         [box(-10, -10, 10, 10)],
         [box(-8, -8, 8, 8)],
@@ -159,3 +158,49 @@ def test_sculpture_viewer_toolbar_and_signals():
     viewer.btn_poner_discos.click()
     assert viewer.view_sliced.mode_add_discs is True
     assert "ON" in viewer.btn_poner_discos.text()
+
+
+def test_disc_selection_hover_and_toolbar_controls():
+    viewer = SculptureViewer()
+    manager = DiscManager()
+    viewer.set_disc_manager(manager)
+
+    polys = [
+        [box(-10, -10, 10, 10)],
+        [box(-8, -8, 8, 8)]
+    ]
+    res = SliceResult(
+        polygons=polys,
+        empty_plates=[],
+        original_bounds=(0.0, 12.0),
+        assembled_height=12.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    viewer.show_sliced_result(res, thickness=3.0, gap=3.0)
+
+    # Añadir un disco en piso 0
+    disc_id = manager.add_disc(hueco=0, x=0.0, y=0.0, diameter=6.0)
+    viewer.view_sliced.update_discs_render()
+
+    # Estado inicial de controles de selección
+    assert viewer.btn_delete_disc.isEnabled() is False
+    assert viewer.spin_selected_diam.isEnabled() is False
+
+    # Seleccionar disco
+    viewer.view_sliced.select_disc(disc_id)
+    assert viewer.view_sliced.selected_disc_id == disc_id
+    assert viewer.btn_delete_disc.isEnabled() is True
+    assert viewer.spin_selected_diam.isEnabled() is True
+    assert viewer.spin_selected_diam.value() == 6.0
+
+    # Modificar diámetro mediante control en la UI
+    viewer.spin_selected_diam.setValue(9.0)
+    assert manager.get_disc(disc_id).diameter == 9.0
+
+    # Borrar disco mediante botón en la UI
+    viewer.btn_delete_disc.click()
+    assert manager.get_disc(disc_id) is None
+    assert viewer.view_sliced.selected_disc_id is None
+    assert viewer.btn_delete_disc.isEnabled() is False
+    assert viewer.spin_selected_diam.isEnabled() is False
