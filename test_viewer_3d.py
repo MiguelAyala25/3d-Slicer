@@ -1,5 +1,5 @@
 """
-test_viewer_3d.py — Pruebas unitarias para la interacción 3D de discos y pisos (Etapa 1.A y 1.B).
+test_viewer_3d.py — Pruebas unitarias para la interacción 3D de discos, cámara y pisos (Etapa 1.A y 1.B).
 """
 
 import sys
@@ -10,7 +10,8 @@ from shapely.geometry import Polygon, box
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
 
 app = QApplication.instance() or QApplication(sys.argv)
 
@@ -204,3 +205,56 @@ def test_disc_selection_hover_and_toolbar_controls():
     assert viewer.view_sliced.selected_disc_id is None
     assert viewer.btn_delete_disc.isEnabled() is False
     assert viewer.spin_selected_diam.isEnabled() is False
+
+
+def test_camera_orbit_mouse_drag():
+    view = SlicedGLView()
+    view.resize(600, 400)
+    view.show()
+
+    initial_azim = view.opts['azimuth']
+    initial_elev = view.opts['elevation']
+
+    # 1. Simular arrastre con botón izquierdo (LMB) para orbitar
+    press_event = QMouseEvent(
+        QMouseEvent.MouseButtonPress,
+        QPointF(100, 100),
+        Qt.LeftButton,
+        Qt.LeftButton,
+        Qt.NoModifier
+    )
+    view.mousePressEvent(press_event)
+
+    move_event = QMouseEvent(
+        QMouseEvent.MouseMove,
+        QPointF(130, 120),
+        Qt.LeftButton,
+        Qt.LeftButton,
+        Qt.NoModifier
+    )
+    view.mouseMoveEvent(move_event)
+
+    # Debe haber orbitado la cámara
+    assert view.opts['azimuth'] != initial_azim or view.opts['elevation'] != initial_elev
+
+    # 2. Simular arrastre con botón central (MMB estilo Blender)
+    azim_before_mmb = view.opts['azimuth']
+    press_mmb = QMouseEvent(
+        QMouseEvent.MouseButtonPress,
+        QPointF(100, 100),
+        Qt.MiddleButton,
+        Qt.MiddleButton,
+        Qt.NoModifier
+    )
+    view.mousePressEvent(press_mmb)
+
+    move_mmb = QMouseEvent(
+        QMouseEvent.MouseMove,
+        QPointF(150, 100),
+        Qt.MiddleButton,
+        Qt.MiddleButton,
+        Qt.NoModifier
+    )
+    view.mouseMoveEvent(move_mmb)
+
+    assert view.opts['azimuth'] != azim_before_mmb
