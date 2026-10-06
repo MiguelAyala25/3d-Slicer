@@ -49,12 +49,72 @@ def _extrude_polygon(polygon, thickness: float, position: float) -> Optional[tri
         return None
 
 
-class SlicedGLView(GLViewWidget):
+class SmoothGLView(GLViewWidget):
+    """
+    GLViewWidget con zoom infinito por rueda de mouse (sin desaceleración asintótica).
+    Al acercarse al foco de la cámara, avanza el centro continuamente en la dirección de vista.
+    """
+    def wheelEvent(self, ev):
+        delta = ev.angleDelta().y()
+        if delta == 0:
+            delta = ev.angleDelta().x()
+        if delta == 0:
+            return
+
+        elev = math.radians(self.opts['elevation'])
+        azim = math.radians(self.opts['azimuth'])
+        dir_x = -math.cos(elev) * math.cos(azim)
+        dir_y = -math.cos(elev) * math.sin(azim)
+        dir_z = -math.sin(elev)
+
+        steps = delta / 120.0
+        current_dist = self.opts['distance']
+        min_dist_threshold = 20.0
+
+        if steps > 0:
+            # Zoom IN hacia adelante
+            if current_dist > min_dist_threshold:
+                new_dist = current_dist * (0.88 ** steps)
+                if new_dist < min_dist_threshold:
+                    excess = min_dist_threshold - new_dist
+                    self.opts['distance'] = min_dist_threshold
+                    advance = excess * 1.5
+                    self.opts['center'] = pg.Vector(
+                        self.opts['center'].x() + dir_x * advance,
+                        self.opts['center'].y() + dir_y * advance,
+                        self.opts['center'].z() + dir_z * advance
+                    )
+                else:
+                    self.opts['distance'] = new_dist
+            else:
+                # Zoom infinito continuo
+                advance = 8.0 * steps
+                self.opts['center'] = pg.Vector(
+                    self.opts['center'].x() + dir_x * advance,
+                    self.opts['center'].y() + dir_y * advance,
+                    self.opts['center'].z() + dir_z * advance
+                )
+        else:
+            # Zoom OUT hacia atrás
+            zoom_factor = 1.15 ** (-steps)
+            self.opts['distance'] = max(min_dist_threshold, current_dist * zoom_factor)
+            if current_dist <= min_dist_threshold + 5.0:
+                retreat = 6.0 * (-steps)
+                self.opts['center'] = pg.Vector(
+                    self.opts['center'].x() - dir_x * retreat,
+                    self.opts['center'].y() - dir_y * retreat,
+                    self.opts['center'].z() - dir_z * retreat
+                )
+
+        self.update()
+
+
+class SlicedGLView(SmoothGLView):
     """
     Visor 3D interactivo para el modelo rebanado con navegación estilo Blender.
     - Botón Central (MMB): Orbitar cámara
     - Shift + Botón Central (o Shift + Click Derecho): Pan (desplazar vista)
-    - Rueda del mouse: Zoom suave
+    - Rueda del mouse: Zoom suave infinito
     - Click Izquierdo (LMB): Selección de piso, hover/selección de discos, colocación y arrastre
     """
     floor_changed = Signal(int)
@@ -552,7 +612,7 @@ class SculptureViewer(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
 
         # Vista izquierda — modelo original
-        self.view_original = GLViewWidget()
+        self.view_original = SmoothGLView()
         self.view_original.setWindowTitle("Modelo Original")
 
         # Contenedor derecho: barra de herramientas superior + vista rebanada
