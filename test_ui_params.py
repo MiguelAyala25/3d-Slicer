@@ -53,7 +53,6 @@ def test_get_params_returns_valid_dataclass():
     panel.spin_part_gap.setValue(6.0)
     panel.spin_kerf.setValue(0.18)
     panel.spin_disc_diameter.setValue(8.0)
-    panel.spin_edge_margin.setValue(1.5)
     panel.spin_engrave_clearance.setValue(0.4)
 
     p = panel.get_params()
@@ -68,7 +67,6 @@ def test_get_params_returns_valid_dataclass():
     assert p.part_gap == 6.0
     assert p.kerf == 0.18
     assert p.disc_diameter == 8.0
-    assert p.edge_margin == 1.5
     assert p.engrave_clearance == 0.4
     assert p.disc_thickness == 6.0
     assert p.discs_separate_sheet is True
