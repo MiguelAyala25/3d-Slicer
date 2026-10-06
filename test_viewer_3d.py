@@ -11,7 +11,7 @@ from shapely.geometry import Polygon, box
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 from PySide6.QtWidgets import QApplication
 from PySide6.QtCore import QPoint, QPointF, Qt, QEvent
-from PySide6.QtGui import QMouseEvent, QWheelEvent
+from PySide6.QtGui import QMouseEvent, QWheelEvent, QKeyEvent
 
 app = QApplication.instance() or QApplication(sys.argv)
 
@@ -344,4 +344,93 @@ def test_camera_3_inputs_pan_zoom_orbit():
     )
     view.mouseMoveEvent(move_orbit)
     assert view.opts['azimuth'] != initial_azim or view.opts['elevation'] != 30.0
+
+
+def test_view_presets_and_shortcuts():
+    view = SlicedGLView()
+    view.resize(600, 400)
+    view.show()
+
+    # 1. Vista arriba
+    view.set_view_top()
+    assert abs(view.opts['elevation'] - 89.99) < 0.05
+    assert abs(view.opts['azimuth'] - (-90.0)) < 0.05
+
+    # Al arrastrar el mouse, sale suavemente de la vista hacia giro libre 3D estilo Blender
+    press_ev = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPointF(100, 100),
+        QPointF(100, 100),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier
+    )
+    view.mousePressEvent(press_ev)
+    move_ev = QMouseEvent(
+        QEvent.Type.MouseMove,
+        QPointF(120, 70),
+        QPointF(120, 70),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier
+    )
+    view.mouseMoveEvent(move_ev)
+    assert view.opts['elevation'] < 88.0, "Arrastre debe salir libremente de la vista superior"
+
+    # 2. Vista de lado
+    view.set_view_side()
+    assert abs(view.opts['elevation'] - 0.0) < 0.05
+    assert abs(view.opts['azimuth'] - 0.0) < 0.05
+
+    # 3. Vista frontal
+    view.set_view_front()
+    assert abs(view.opts['elevation'] - 0.0) < 0.05
+    assert abs(view.opts['azimuth'] - (-90.0)) < 0.05
+
+    # 4. Vista 3D
+    view.set_view_3d()
+    assert abs(view.opts['elevation'] - 30.0) < 0.05
+    assert abs(view.opts['azimuth'] - 45.0) < 0.05
+
+    # 5. Atajos de teclado (7 = arriba, 3 = lado, 1 = frente, 0 = 3D)
+    key_top = QKeyEvent(QEvent.Type.KeyPress, Qt.Key_7, Qt.KeyboardModifier.NoModifier)
+    view.keyPressEvent(key_top)
+    assert abs(view.opts['elevation'] - 89.99) < 0.05
+
+    key_side = QKeyEvent(QEvent.Type.KeyPress, Qt.Key_3, Qt.KeyboardModifier.NoModifier)
+    view.keyPressEvent(key_side)
+    assert abs(view.opts['elevation'] - 0.0) < 0.05
+
+    key_front = QKeyEvent(QEvent.Type.KeyPress, Qt.Key_1, Qt.KeyboardModifier.NoModifier)
+    view.keyPressEvent(key_front)
+    assert abs(view.opts['azimuth'] - (-90.0)) < 0.05
+
+    key_3d = QKeyEvent(QEvent.Type.KeyPress, Qt.Key_0, Qt.KeyboardModifier.NoModifier)
+    view.keyPressEvent(key_3d)
+    assert abs(view.opts['elevation'] - 30.0) < 0.05
+
+
+def test_sculpture_viewer_view_buttons():
+    viewer = SculptureViewer()
+    viewer.resize(800, 600)
+    viewer.show()
+
+    # Click en botón Vista Arriba
+    viewer.btn_view_top.click()
+    assert abs(viewer.view_sliced.opts['elevation'] - 89.99) < 0.05
+
+    # Click en botón Vista Lado
+    viewer.btn_view_side.click()
+    assert abs(viewer.view_sliced.opts['elevation'] - 0.0) < 0.05
+    assert abs(viewer.view_sliced.opts['azimuth'] - 0.0) < 0.05
+
+    # Click en botón Vista Frente
+    viewer.btn_view_front.click()
+    assert abs(viewer.view_sliced.opts['elevation'] - 0.0) < 0.05
+    assert abs(viewer.view_sliced.opts['azimuth'] - (-90.0)) < 0.05
+
+    # Click en botón Vista 3D
+    viewer.btn_view_3d.click()
+    assert abs(viewer.view_sliced.opts['elevation'] - 30.0) < 0.05
+
 

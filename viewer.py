@@ -69,9 +69,41 @@ class SmoothGLView(GLViewWidget):
         self.setMouseTracking(True)
         self._last_mouse_pos = None
 
+    def set_view_top(self):
+        """Vista superior alineada (desde arriba en Z, estilo Blender Numpad 7)."""
+        self.setCameraPosition(elevation=89.99, azimuth=-90.0)
+
+    def set_view_side(self):
+        """Vista lateral alineada (desde el lado YZ, estilo Blender Numpad 3)."""
+        self.setCameraPosition(elevation=0.0, azimuth=0.0)
+
+    def set_view_front(self):
+        """Vista frontal alineada (desde el frente XZ, estilo Blender Numpad 1)."""
+        self.setCameraPosition(elevation=0.0, azimuth=-90.0)
+
+    def set_view_3d(self):
+        """Vista 3D perspectiva / libre (estilo Blender)."""
+        self.setCameraPosition(elevation=30.0, azimuth=45.0)
+
     def keyPressEvent(self, ev):
         if ev.key() == Qt.Key_Control:
             self.setCursor(Qt.OpenHandCursor)
+        if ev.key() in (Qt.Key_7, Qt.Key_T):
+            self.set_view_top()
+            ev.accept()
+            return
+        elif ev.key() in (Qt.Key_3, Qt.Key_S):
+            self.set_view_side()
+            ev.accept()
+            return
+        elif ev.key() in (Qt.Key_1, Qt.Key_F):
+            self.set_view_front()
+            ev.accept()
+            return
+        elif ev.key() in (Qt.Key_0, Qt.Key_P):
+            self.set_view_3d()
+            ev.accept()
+            return
         super().keyPressEvent(ev)
 
     def keyReleaseEvent(self, ev):
@@ -658,7 +690,23 @@ class SlicedGLView(SmoothGLView):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Control:
             self.setCursor(Qt.OpenHandCursor)
-        if event.key() in (Qt.Key_Up, Qt.Key_Right, Qt.Key_BracketRight):
+        if event.key() in (Qt.Key_7, Qt.Key_T):
+            self.set_view_top()
+            event.accept()
+            return
+        elif event.key() in (Qt.Key_3, Qt.Key_S):
+            self.set_view_side()
+            event.accept()
+            return
+        elif event.key() in (Qt.Key_1, Qt.Key_F):
+            self.set_view_front()
+            event.accept()
+            return
+        elif event.key() in (Qt.Key_0, Qt.Key_P):
+            self.set_view_3d()
+            event.accept()
+            return
+        elif event.key() in (Qt.Key_Up, Qt.Key_Right, Qt.Key_BracketRight):
             self.next_floor()
             event.accept()
             return
@@ -711,9 +759,10 @@ class SculptureViewer(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(4)
 
-        # Barra de herramientas del visor 3D
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(6, 4, 6, 4)
+        # Barra de herramientas del visor 3D (2 filas compactas)
+        toolbar_row1 = QHBoxLayout()
+        toolbar_row1.setContentsMargins(6, 2, 6, 2)
+        toolbar_row1.setSpacing(6)
 
         self.lbl_floor = QLabel("Piso activo: 0 / 0")
         self.lbl_floor.setStyleSheet("font-weight: bold; min-width: 125px;")
@@ -735,7 +784,6 @@ class SculptureViewer(QWidget):
         """)
 
         # Control de diámetro de disco seleccionado
-        toolbar.addSpacing(6)
         self.lbl_diam = QLabel("Ø disco:")
         self.spin_selected_diam = QDoubleSpinBox()
         self.spin_selected_diam.setRange(1.0, 50.0)
@@ -748,20 +796,49 @@ class SculptureViewer(QWidget):
         self.btn_delete_disc = QPushButton("🗑 Borrar disco")
         self.btn_delete_disc.setEnabled(False)
 
-        self.lbl_status = QLabel("MMB: Orbitar | Shift+MMB: Pan | Click: Seleccionar")
+        toolbar_row1.addWidget(self.lbl_floor)
+        toolbar_row1.addWidget(self.btn_prev_floor)
+        toolbar_row1.addWidget(self.btn_next_floor)
+        toolbar_row1.addWidget(self.btn_solo_piso)
+        toolbar_row1.addWidget(self.btn_poner_discos)
+        toolbar_row1.addWidget(self.lbl_diam)
+        toolbar_row1.addWidget(self.spin_selected_diam)
+        toolbar_row1.addWidget(self.btn_delete_disc)
+        toolbar_row1.addStretch(1)
+
+        # Fila 2: Botones de vistas predefinidas y ayuda de navegación
+        toolbar_row2 = QHBoxLayout()
+        toolbar_row2.setContentsMargins(6, 2, 6, 2)
+        toolbar_row2.setSpacing(4)
+
+        lbl_vistas = QLabel("Vistas:")
+        lbl_vistas.setStyleSheet("font-weight: bold; color: #444;")
+
+        self.btn_view_top = QPushButton("⬆ Arriba (7)")
+        self.btn_view_top.setToolTip("Vista superior alineada (Numpad 7 o Tecla T)")
+
+        self.btn_view_side = QPushButton("➡ Lado (3)")
+        self.btn_view_side.setToolTip("Vista lateral alineada (Numpad 3 o Tecla S)")
+
+        self.btn_view_front = QPushButton("⏺ Frente (1)")
+        self.btn_view_front.setToolTip("Vista frontal alineada (Numpad 1 o Tecla F)")
+
+        self.btn_view_3d = QPushButton("🔄 3D (0)")
+        self.btn_view_3d.setToolTip("Vista perspectiva 3D (Numpad 0 o Tecla P)")
+
+        self.lbl_status = QLabel("Ctrl: Pan manita | Scroll: Zoom | Arrastre: Girar libremente")
         self.lbl_status.setStyleSheet("color: #666; font-size: 11px;")
 
-        toolbar.addWidget(self.lbl_floor)
-        toolbar.addWidget(self.btn_prev_floor)
-        toolbar.addWidget(self.btn_next_floor)
-        toolbar.addWidget(self.btn_solo_piso)
-        toolbar.addWidget(self.btn_poner_discos)
-        toolbar.addWidget(self.lbl_diam)
-        toolbar.addWidget(self.spin_selected_diam)
-        toolbar.addWidget(self.btn_delete_disc)
-        toolbar.addWidget(self.lbl_status, stretch=1)
+        toolbar_row2.addWidget(lbl_vistas)
+        toolbar_row2.addWidget(self.btn_view_top)
+        toolbar_row2.addWidget(self.btn_view_side)
+        toolbar_row2.addWidget(self.btn_view_front)
+        toolbar_row2.addWidget(self.btn_view_3d)
+        toolbar_row2.addSpacing(10)
+        toolbar_row2.addWidget(self.lbl_status, stretch=1)
 
-        right_layout.addLayout(toolbar)
+        right_layout.addLayout(toolbar_row1)
+        right_layout.addLayout(toolbar_row2)
 
         # Vista derecha interactiva
         self.view_sliced = SlicedGLView()
@@ -778,6 +855,11 @@ class SculptureViewer(QWidget):
         self.btn_poner_discos.toggled.connect(self._on_poner_discos_toggled)
         self.btn_delete_disc.clicked.connect(self.view_sliced.delete_selected_disc)
         self.spin_selected_diam.valueChanged.connect(self._on_selected_diam_changed)
+
+        self.btn_view_top.clicked.connect(self.view_sliced.set_view_top)
+        self.btn_view_side.clicked.connect(self.view_sliced.set_view_side)
+        self.btn_view_front.clicked.connect(self.view_sliced.set_view_front)
+        self.btn_view_3d.clicked.connect(self.view_sliced.set_view_3d)
 
         self.view_sliced.floor_changed.connect(self._update_floor_label)
         self.view_sliced.status_message.connect(self.lbl_status.setText)
