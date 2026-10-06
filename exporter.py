@@ -49,10 +49,9 @@ def sheet_to_svg_string(sheet: SheetLayout, preview_mode: bool = False) -> str:
     )
     dwg.viewbox(0, 0, sheet.sheet_w, sheet.sheet_h)
 
-    cut_stroke_width = "1.0" if preview_mode else "0.1mm"
-    engrave_stroke_width = "1.0" if preview_mode else "0.1mm"
-    dash_pattern = "2.5,2.0" if preview_mode else "1.5,1.0"
-    font_size = "5.0" if preview_mode else "4.5mm"
+    cut_stroke_width = "0.45" if preview_mode else "0.1mm"
+    engrave_stroke_width = "0.25" if preview_mode else "0.1mm"
+    dash_pattern = "1.5,1.0"
 
     # 1. Grupo de CORTE — Rojo (#FF0000)
     group_cut = dwg.g(
@@ -86,17 +85,20 @@ def sheet_to_svg_string(sheet: SheetLayout, preview_mode: bool = False) -> str:
         style=f"fill:none; stroke:#0000FF; stroke-width:{engrave_stroke_width};"
     )
 
-    # Etiquetas de placas ("PLACA k") y círculos grabados en placas
+    # Etiquetas de placas y círculos grabados en placas
     for plate in sheet.placed_plates:
         # Texto vectorial de la placa
+        fsize = getattr(plate, 'font_size', 3.0)
+        font_size_str = f"{fsize:.2f}" if preview_mode else f"{fsize:.2f}mm"
         group_engrave.add(dwg.text(
             plate.label_text,
             insert=(plate.label_pos[0], plate.label_pos[1]),
             fill="#0000FF",
             stroke="none",
-            font_size=font_size,
+            font_size=font_size_str,
             font_family="Arial, Helvetica, sans-serif",
-            font_weight="bold"
+            font_weight="bold",
+            dominant_baseline="hanging"
         ))
 
         # Círculos grabados (sólidos para hueco k, punteados para hueco k-1)
@@ -123,9 +125,10 @@ def sheet_to_svg_string(sheet: SheetLayout, preview_mode: bool = False) -> str:
             insert=(group.label_pos[0], group.label_pos[1]),
             fill="#0000FF",
             stroke="none",
-            font_size=font_size,
+            font_size="2.6" if preview_mode else "2.8mm",
             font_family="Arial, Helvetica, sans-serif",
-            font_weight="bold"
+            font_weight="bold",
+            dominant_baseline="hanging"
         ))
 
     dwg.add(group_cut)

@@ -109,6 +109,22 @@ def test_preview_dialog_export_all(tmp_path):
         assert all(os.path.exists(f) for f in dialog.exported_files)
 
 
+def test_sheet_tab_export_this(tmp_path):
+    """Valida el botón de exportar esta hoja individual como SVG."""
+    params = Params(sheet_w=600.0, sheet_h=400.0)
+    p0 = [box(0, 0, 50, 50)]
+    res = _make_dummy_slice_result([p0])
+    layout = compute_layout(res, params)
+    tab = SheetTabWidget(layout.sheets[0])
+
+    target_file = str(tmp_path / "hoja_individual.svg")
+    with patch("PySide6.QtWidgets.QFileDialog.getSaveFileName", return_value=(target_file, "SVG")), \
+         patch("PySide6.QtWidgets.QMessageBox.information") as mock_info:
+        tab._on_export_sheet()
+        assert mock_info.called
+        assert os.path.exists(target_file)
+
+
 def test_preview_renders_non_white_elements():
     """Valida que la vista previa SVG renderice elementos visibles (no una hoja completamente en blanco)."""
     from PySide6.QtGui import QImage, QPainter, QColor
@@ -135,8 +151,9 @@ def test_preview_renders_non_white_elements():
     for y in range(600):
         for x in range(800):
             c = img.pixelColor(x, y)
-            if (c.red() > 160 and c.blue() < 120 and c.green() < 120) or \
-               (c.blue() > 160 and c.red() < 120 and c.green() < 120):
+            # Detectar rojo de corte dominante o azul de grabado dominante
+            if (c.red() > c.blue() + 40 and c.red() > c.green() + 40) or \
+               (c.blue() > c.red() + 40 and c.blue() > c.green() + 40):
                 has_colored_pixels = True
                 break
         if has_colored_pixels:

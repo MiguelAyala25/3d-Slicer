@@ -55,6 +55,7 @@ class PlacedPlate:
     label_text: str
     label_pos: Tuple[float, float]
     engrave_circles: List[EngraveCircle] = field(default_factory=list)
+    font_size: float = 3.0
 
 
 @dataclass
@@ -167,6 +168,82 @@ def validate_plate_sizes(result: SliceResult, params: Params):
                 f"({usable_w:.1f} x {usable_h:.1f} mm). Ajusta el tamaño de la hoja "
                 f"o escala el modelo 3D."
             )
+
+
+def _compute_plate_label(
+    i: int,
+    w: float,
+    h: float,
+    curr_x: float,
+    curr_y: float,
+    polygons: List[Polygon],
+    circles: List[EngraveCircle]
+) -> Tuple[str, Tuple[float, float], float]:
+    """
+    Calcula el texto, posición (x, y) y tamaño de fuente de la etiqueta de la placa
+    para asegurar que nunca se encime con otras placas, círculos ni bordes.
+    """
+    if w >= 35.0:
+        label_text = f"PLACA {i}"
+    elif w >= 14.0:
+        label_text = f"P{i}"
+    else:
+        label_text = f"{i}"
+
+    char_count = len(label_text)
+    # En Arial Bold, ancho aprox por carácter es 0.65 * font_size
+    font_size = min(3.2, max(1.8, min(w, h) * 0.15))
+    text_w = char_count * font_size * 0.65
+
+    if text_w > max(1.0, w - 2.0) and label_text.startswith("PLACA "):
+        label_text = f"P{i}"
+        char_count = len(label_text)
+        text_w = char_count * font_size * 0.65
+
+    if text_w > max(1.0, w - 2.0):
+        label_text = f"{i}"
+        char_count = len(label_text)
+        text_w = char_count * font_size * 0.65
+        font_size = min(font_size, max(1.5, (w - 2.0) / max(1, char_count * 0.65)))
+
+    best_x = curr_x + 1.5
+    best_y = curr_y + 1.5
+
+    if polygons:
+        sorted_polys = sorted(polygons, key=lambda p: p.area, reverse=True)
+        for poly in sorted_polys:
+            pb = poly.bounds
+            pw = pb[2] - pb[0]
+            ph = pb[3] - pb[1]
+            if pw >= text_w + 1.0 and ph >= font_size + 1.0:
+                cand_x = pb[0] + 1.0
+                cand_y = pb[1] + 1.0
+                overlap = False
+                for c in circles:
+                    dx = c.center_x - (cand_x + text_w / 2)
+                    dy = c.center_y - (cand_y + font_size / 2)
+                    dist = (dx * dx + dy * dy) ** 0.5
+                    if dist < (c.diameter / 2 + font_size):
+                        overlap = True
+                        break
+                if not overlap:
+                    best_x, best_y = cand_x, cand_y
+                    break
+                else:
+                    cand_y_bot = pb[3] - font_size - 1.0
+                    overlap_bot = False
+                    for c in circles:
+                        dx = c.center_x - (cand_x + text_w / 2)
+                        dy = c.center_y - (cand_y_bot + font_size / 2)
+                        dist = (dx * dx + dy * dy) ** 0.5
+                        if dist < (c.diameter / 2 + font_size):
+                            overlap_bot = True
+                            break
+                    if not overlap_bot:
+                        best_x, best_y = cand_x, cand_y_bot
+                        break
+
+    return label_text, (best_x, best_y), font_size
 
 
 def compute_layout(
@@ -284,8 +361,16 @@ def compute_layout(
                         disc_id=d.id
                     ))
 
-            # Posición de la etiqueta grabada "PLACA i"
-            label_pos = (curr_x + min(8.0, w * 0.1), curr_y + min(12.0, h * 0.2))
+            # Posición y texto de la etiqueta grabada optimizada
+            lbl_text, lbl_pos, lbl_fsize = _compute_plate_label(
+                i=i,
+                w=w,
+                h=h,
+                curr_x=curr_x,
+                curr_y=curr_y,
+                polygons=placed_polys,
+                circles=engrave_circles
+            )
 
             plate_obj = PlacedPlate(
                 plate_idx=i,
@@ -295,9 +380,10 @@ def compute_layout(
                 y=curr_y,
                 w=w,
                 h=h,
-                label_text=f"PLACA {i}",
-                label_pos=label_pos,
-                engrave_circles=engrave_circles
+                label_text=lbl_text,
+                label_pos=lbl_pos,
+                engrave_circles=engrave_circles,
+                font_size=lbl_fsize
             )
             current_sheet.placed_plates.append(plate_obj)
 

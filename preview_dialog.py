@@ -16,12 +16,12 @@ from PySide6.QtWidgets import (
     QTabWidget, QWidget, QFileDialog, QMessageBox,
     QGraphicsView, QGraphicsScene, QGraphicsItem, QFrame
 )
-from PySide6.QtCore import Qt, QByteArray, QRectF, QTimer
-from PySide6.QtGui import QPainter, QColor, QPen, QBrush
+from PySide6.QtCore import Qt, QByteArray, QRectF, QTimer, QUrl
+from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QDesktopServices
 from PySide6.QtSvg import QSvgRenderer
 
 from layout import LayoutResult, SheetLayout
-from exporter import sheet_to_svg_string, export_layout_to_svg_files
+from exporter import sheet_to_svg_string, export_layout_to_svg_files, export_sheet_to_svg
 
 
 class SvgSheetItem(QGraphicsItem):
@@ -144,6 +144,7 @@ class SheetTabWidget(QWidget):
         # Barra de métricas y controles de zoom de la hoja
         info_bar = QHBoxLayout()
         info_bar.setContentsMargins(0, 0, 0, 0)
+        info_bar.setSpacing(6)
 
         tipo_str = "Discos" if sheet.sheet_type == "discs" else "Placas"
         n_placas = len(sheet.placed_plates)
@@ -163,16 +164,31 @@ class SheetTabWidget(QWidget):
         self.lbl_metrics.setStyleSheet("font-size: 12px;")
 
         btn_zoom_in = QPushButton("➕ Zoom +")
-        btn_zoom_in.setFixedWidth(80)
+        btn_zoom_in.setFixedWidth(75)
         btn_zoom_out = QPushButton("➖ Zoom -")
-        btn_zoom_out.setFixedWidth(80)
+        btn_zoom_out.setFixedWidth(75)
         btn_fit = QPushButton("🔍 Ajustar")
-        btn_fit.setFixedWidth(80)
+        btn_fit.setFixedWidth(75)
+
+        self.btn_export_this = QPushButton("💾 Exportar esta hoja (.svg)")
+        self.btn_export_this.setStyleSheet("""
+            QPushButton {
+                background-color: #1976d2;
+                color: white;
+                font-weight: bold;
+                padding: 4px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #1565c0;
+            }
+        """)
 
         info_bar.addWidget(self.lbl_metrics, stretch=1)
         info_bar.addWidget(btn_zoom_in)
         info_bar.addWidget(btn_zoom_out)
         info_bar.addWidget(btn_fit)
+        info_bar.addWidget(self.btn_export_this)
 
         # Visor gráfico
         self.viewer = SvgSheetView(sheet, self)
@@ -180,9 +196,35 @@ class SheetTabWidget(QWidget):
         btn_zoom_in.clicked.connect(lambda: self.viewer.zoom(1.2))
         btn_zoom_out.clicked.connect(lambda: self.viewer.zoom(1.0 / 1.2))
         btn_fit.clicked.connect(self.viewer.fit_in_view)
+        self.btn_export_this.clicked.connect(self._on_export_sheet)
 
         layout.addLayout(info_bar)
         layout.addWidget(self.viewer, stretch=1)
+
+    def _on_export_sheet(self):
+        """Exporta esta hoja individual a un archivo SVG seleccionado por el usuario."""
+        tipo_str = "discos" if self.sheet.sheet_type == "discs" else "placas"
+        default_name = f"escultura_hoja_{self.sheet.sheet_index + 1}_{tipo_str}.svg"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Exportar Hoja {self.sheet.sheet_index + 1} como SVG",
+            default_name,
+            "Archivos SVG (*.svg)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".svg"):
+            path += ".svg"
+
+        try:
+            export_sheet_to_svg(self.sheet, path)
+            QMessageBox.information(
+                self,
+                "Exportación Exitosa",
+                f"Hoja {self.sheet.sheet_index + 1} exportada exitosamente en:\n{path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Error al exportar hoja", f"No se pudo guardar el archivo SVG:\n{e}")
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -199,8 +241,8 @@ class PreviewDialog(QDialog):
         self.exported_files: List[str] = []
 
         self.setWindowTitle("Vista Previa de Exportación SVG — Planos Seriados")
-        self.resize(1050, 720)
-        self.setMinimumSize(800, 550)
+        self.resize(1100, 750)
+        self.setMinimumSize(850, 580)
 
         self._setup_ui()
 
@@ -215,13 +257,44 @@ class PreviewDialog(QDialog):
             f"<h3 style='margin:0;'>Vista Previa de Hojas ({self.layout.total_sheets} Hoja(s) en total)</h3>"
         )
         header_hint = QLabel(
-            "<span style='color: #666;'>Corte: <b style='color:#d32f2f;'>Rojo</b> | "
+            "<span style='color: #555;'>Corte: <b style='color:#d32f2f;'>Rojo</b> | "
             "Grabado: <b style='color:#1976d2;'>Azul</b> (sólido: encima, punteado: abajo) | "
             "Arrastra para desplazar, rueda para zoom</span>"
         )
+
+        self.btn_header_export_current = QPushButton("💾 Exportar hoja activa (.svg)")
+        self.btn_header_export_current.setStyleSheet("""
+            QPushButton {
+                background-color: #1976d2;
+                color: white;
+                font-weight: bold;
+                padding: 5px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #1565c0;
+            }
+        """)
+
+        self.btn_header_export_all = QPushButton("📁 Exportar todas las hojas...")
+        self.btn_header_export_all.setStyleSheet("""
+            QPushButton {
+                background-color: #2e7d32;
+                color: white;
+                font-weight: bold;
+                padding: 5px 12px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #388e3c;
+            }
+        """)
+
         header_layout.addWidget(header_title)
-        header_layout.addStretch(1)
         header_layout.addWidget(header_hint)
+        header_layout.addStretch(1)
+        header_layout.addWidget(self.btn_header_export_current)
+        header_layout.addWidget(self.btn_header_export_all)
 
         root_layout.addLayout(header_layout)
 
@@ -239,14 +312,10 @@ class PreviewDialog(QDialog):
         self.tabs.currentChanged.connect(self._on_tab_changed)
         root_layout.addWidget(self.tabs, stretch=1)
 
-    def _on_tab_changed(self, index: int):
-        widget = self.tabs.widget(index)
-        if isinstance(widget, SheetTabWidget):
-            QTimer.singleShot(20, widget.viewer.fit_in_view)
-
         # Barra inferior de acciones
         footer_layout = QHBoxLayout()
         footer_layout.setContentsMargins(0, 4, 0, 0)
+        footer_layout.setSpacing(8)
 
         # Resumen general de medidas usadas
         sheets_summary = " | ".join(
@@ -256,7 +325,21 @@ class PreviewDialog(QDialog):
         lbl_summary = QLabel(f"<b>Medidas usadas:</b> {sheets_summary}")
         lbl_summary.setStyleSheet("color: #444; font-size: 11px;")
 
-        self.btn_export_all = QPushButton("💾 Exportar todos los archivos SVG...")
+        self.btn_export_current = QPushButton("💾 Exportar hoja actual (.svg)")
+        self.btn_export_current.setStyleSheet("""
+            QPushButton {
+                background-color: #1976d2;
+                color: white;
+                font-weight: bold;
+                padding: 6px 14px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #1565c0;
+            }
+        """)
+
+        self.btn_export_all = QPushButton("📁 Exportar todas las hojas a carpeta...")
         self.btn_export_all.setStyleSheet("""
             QPushButton {
                 background-color: #2e7d32;
@@ -274,19 +357,35 @@ class PreviewDialog(QDialog):
         self.btn_close.setFixedWidth(90)
 
         footer_layout.addWidget(lbl_summary, stretch=1)
+        footer_layout.addWidget(self.btn_export_current)
         footer_layout.addWidget(self.btn_export_all)
         footer_layout.addWidget(self.btn_close)
 
         root_layout.addLayout(footer_layout)
 
+        # Conectar señales
+        self.btn_header_export_current.clicked.connect(self._on_export_current)
+        self.btn_header_export_all.clicked.connect(self._on_export_all)
+        self.btn_export_current.clicked.connect(self._on_export_current)
         self.btn_export_all.clicked.connect(self._on_export_all)
         self.btn_close.clicked.connect(self.reject)
+
+    def _on_tab_changed(self, index: int):
+        widget = self.tabs.widget(index)
+        if isinstance(widget, SheetTabWidget):
+            QTimer.singleShot(20, widget.viewer.fit_in_view)
+
+    def _on_export_current(self):
+        """Exporta la hoja que está actualmente activa en las pestañas."""
+        current_widget = self.tabs.currentWidget()
+        if isinstance(current_widget, SheetTabWidget):
+            current_widget._on_export_sheet()
 
     def _on_export_all(self):
         """Abre selector de carpeta y exporta todos los archivos SVG."""
         chosen_dir = QFileDialog.getExistingDirectory(
             self,
-            "Seleccionar carpeta de destino para los archivos SVG",
+            "Seleccionar carpeta de destino para todos los archivos SVG",
             ""
         )
         if not chosen_dir:
