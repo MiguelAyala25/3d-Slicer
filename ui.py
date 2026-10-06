@@ -75,6 +75,8 @@ class ControlPanel(QWidget):
     file_loaded = Signal(str)       # ruta del archivo cargado
     params_changed = Signal(object) # emite instancia de Params
     export_requested = Signal(str)  # 'svg'
+    save_project_requested = Signal()
+    load_project_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -212,6 +214,15 @@ class ControlPanel(QWidget):
         self.lbl_info.setWordWrap(True)
         layout.addWidget(self.lbl_info)
 
+        # --- Sección: Proyecto ---
+        layout.addSpacing(12)
+        layout.addWidget(QLabel("<b>Proyecto</b>"))
+        self.btn_save_project = QPushButton("Guardar proyecto...")
+        self.btn_save_project.setEnabled(False)
+        self.btn_load_project = QPushButton("Cargar proyecto...")
+        layout.addWidget(self.btn_save_project)
+        layout.addWidget(self.btn_load_project)
+
         # --- Sección: Exportar ---
         layout.addSpacing(12)
         layout.addWidget(QLabel("<b>Exportar</b>"))
@@ -229,6 +240,8 @@ class ControlPanel(QWidget):
         # --- Conectar señales internas ---
         self.btn_load.clicked.connect(self._on_load_clicked)
         self.btn_apply.clicked.connect(self._on_apply_clicked)
+        self.btn_save_project.clicked.connect(self.save_project_requested.emit)
+        self.btn_load_project.clicked.connect(self.load_project_requested.emit)
         self.btn_export_svg.clicked.connect(lambda: self.export_requested.emit('svg'))
 
         # Lógica de sincronización de separación vs grosor
@@ -303,6 +316,7 @@ class ControlPanel(QWidget):
         Deshabilita los botones de exportación para forzar al usuario a re-aplicar el corte.
         """
         self.btn_export_svg.setEnabled(False)
+        self.btn_save_project.setEnabled(False)
         self.lbl_info.setText("⟳ Parámetros modificados — aplicá el corte para actualizar.")
 
     def set_file_label(self, filename: str, repaired: bool, warning: str):
@@ -344,6 +358,7 @@ class ControlPanel(QWidget):
             self.lbl_warnings.setText("⚠ " + "\n⚠ ".join(result.warnings))
 
         self.btn_export_svg.setEnabled(True)
+        self.btn_save_project.setEnabled(True)
 
     def show_error(self, message: str):
         QMessageBox.critical(self, "Error", message)

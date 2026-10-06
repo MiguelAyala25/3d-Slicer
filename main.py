@@ -7,6 +7,7 @@ import sys
 import os
 from typing import Optional
 import trimesh
+import json
 from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QWidget, QFileDialog, QMessageBox
 
 from validator import validate_file, validate_params, validate_mesh
@@ -16,6 +17,11 @@ from viewer import SculptureViewer
 from ui import ControlPanel
 from params import Params
 from discs import DiscManager
+from project import (
+    save_project,
+    load_project_from_dict,
+    check_params_compatibility
+)
 
 
 class MainWindow(QMainWindow):
@@ -49,6 +55,8 @@ class MainWindow(QMainWindow):
         self.panel.file_loaded.connect(self._on_file_loaded)
         self.panel.params_changed.connect(self._on_params_changed)
         self.panel.export_requested.connect(self._on_export_requested)
+        self.panel.save_project_requested.connect(self._on_save_project)
+        self.panel.load_project_requested.connect(self._on_load_project)
 
     def _on_file_loaded(self, path: str):
         # Invalidar estado anterior por completo
@@ -217,6 +225,74 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Exportación exitosa", f"Archivo guardado en:\n{msg}")
         else:
             self.panel.show_error(msg)
+
+    def _on_save_project(self):
+        if self._result is None or not self._current_params:
+            self.panel.show_error("Primero aplicá el corte antes de guardar el proyecto.")
+            return
+
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar proyecto", "", "Proyecto JSON (*.json)")
+        if not path:
+            return
+
+        try:
+            p = self._current_params
+            save_project(
+                path,
+                plates=p.plates,
+                thickness=p.thickness,
+                gap=p.gap,
+                disc_manager=self.disc_manager
+            )
+            QMessageBox.information(self, "Guardado exitoso", f"Proyecto guardado correctamente en:\n{path}")
+        except Exception as e:
+            self.panel.show_error(f"Error al guardar el proyecto: {e}")
+
+    def _on_load_project(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Cargar proyecto", "", "Proyecto JSON (*.json)")
+        if not path:
+            return
+
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            self.panel.show_error(f"Error al leer el archivo JSON: {e}")
+            return
+
+        loaded_plates = int(data.get("plates", 10))
+        loaded_gap = float(data.get("gap", 3.0))
+        loaded_thickness = float(data.get("thickness", 3.0))
+
+        current_plates = self.panel.spin_plates.value()
+        current_gap = self.panel.spin_gap.value()
+        is_compatible = check_params_compatibility(loaded_plates, loaded_gap, current_plates, current_gap)
+
+        if not is_compatible:
+            reply = QMessageBox.question(
+                self,
+                "Parámetros incompatibles",
+                "Los parámetros del archivo difieren de los actuales. Adaptar el proyecto implica volver a rebanar el modelo 3D. ¿Deseas rebanar y adaptar el proyecto, o cancelar?",
+                QMessageBox.Yes | QMessageBox.Cancel,
+                QMessageBox.Cancel
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+            self.panel.spin_plates.setValue(loaded_plates)
+            self.panel.spin_thickness.setValue(loaded_thickness)
+            self.panel.spin_gap.setValue(loaded_gap)
+
+            if self._mesh is not None:
+                self._on_params_changed()
+
+        load_project_from_dict(data, self.disc_manager)
+        self.viewer.view_sliced.update_discs_render()
+        QMessageBox.information(
+            self,
+            "Proyecto cargado",
+            f"Se cargó el proyecto con {len(self.disc_manager.discs)} disco(s)."
+        )
 
 
 def main():
