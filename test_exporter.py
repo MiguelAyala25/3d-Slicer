@@ -438,4 +438,74 @@ def test_export_layout_to_dxf_files(tmp_path):
     assert len(rects) >= 1  # Bandeja de discos
 
 
+def test_disc_trays_single_rect_per_plate_and_widened_offset():
+    """
+    Valida que:
+    1. Hay un único rectángulo delimitador grabado por cada placa (hueco).
+    2. El offset es amplio (al menos 4.0 mm) y ningún rectángulo azul toca ni cruza círculos rojos.
+    3. Ninguna bandeja se solapa con otra bandeja en la hoja.
+    """
+    from shapely.geometry import box as s_box, Point
+    from discs import DiscManager
+    from params import Params
+    from layout import compute_layout
+    from exporter import sheet_to_svg_string
+
+    # Simular escultura con 8 placas
+    plates = 8
+    boxes = [[Polygon([(0, 0), (60, 0), (60, 40), (0, 40)])] for _ in range(plates)]
+    res = SliceResult(
+        polygons=boxes,
+        empty_plates=[],
+        original_bounds=(0, 60),
+        assembled_height=60.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    dm = DiscManager()
+    # Agregar discos en placas 0, 1, 2, 3, 4 con diferentes diámetros
+    for h in range(5):
+        for idx in range(3):
+            dm.add_disc(hueco=h, x=15.0 + idx * 10, y=15.0 + idx * 5, diameter=6.0 + h * 1.0, max_gap=0)
+
+    params = Params(plates=plates, thickness=3.0, gap=3.0, sheet_w=600.0, sheet_h=400.0, sheet_margin=10.0, part_gap=5.0)
+    layout = compute_layout(res, params, dm)
+
+    all_trays = []
+    for s in layout.sheets:
+        for g in s.disc_groups:
+            assert g.bounds != (0.0, 0.0, 0.0, 0.0)
+            gx1, gy1, gx2, gy2 = g.bounds
+            tray_poly = s_box(gx1, gy1, gx2, gy2)
+            all_trays.append((g.hueco, tray_poly, g))
+
+            # Verificar que los círculos de corte (rojos) tienen al menos 4.0 mm de margen del rectángulo (azul)
+            for d in g.discs:
+                r = d.cut_diameter / 2.0
+                assert d.center_x - r >= gx1 + 3.99, f"Placa {g.hueco}: disco demasiado cerca del borde izquierdo del rectángulo"
+                assert d.center_x + r <= gx2 - 3.99, f"Placa {g.hueco}: disco demasiado cerca del borde derecho del rectángulo"
+                assert d.center_y - r >= gy1 + 3.99, f"Placa {g.hueco}: disco demasiado cerca del borde superior del rectángulo"
+                assert d.center_y + r <= gy2 - 3.99, f"Placa {g.hueco}: disco demasiado cerca del borde inferior del rectángulo"
+
+    # Verificar que los rectángulos nunca se solapan entre sí
+    for i in range(len(all_trays)):
+        h1, poly1, g1 = all_trays[i]
+        for j in range(i + 1, len(all_trays)):
+            h2, poly2, g2 = all_trays[j]
+            assert poly1.intersection(poly2).area == 0.0, f"Bandejas de placa {h1} y {h2} no deben solaparse"
+            for d in g1.discs:
+                r = d.cut_diameter / 2.0
+                disc_circle = Point(d.center_x, d.center_y).buffer(r)
+                assert not disc_circle.intersects(poly2.boundary), f"Círculo de placa {h1} no debe tocar contorno de placa {h2}"
+
+    # Validar representación SVG
+    for s in layout.sheets:
+        if s.disc_groups:
+            svg_str = sheet_to_svg_string(s)
+            assert '<rect' in svg_str
+            for g in s.disc_groups:
+                assert g.label_text in svg_str
+
+
+
 

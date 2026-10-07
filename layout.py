@@ -448,10 +448,9 @@ def compute_layout(
         separate_sheet_needed = params.discs_separate_sheet
 
         # Estimación de altura requerida para discos
-        label_w = 26.0
-        label_h = 8.0
-        max_d_cut = max((d.diameter + params.kerf) for d in all_discs_list)
-        approx_disc_row_h = max(max_d_cut, label_h)
+        tray_offset = 4.0
+        max_d_cut_all = max((d.diameter + params.kerf) for d in all_discs_list)
+        approx_disc_row_h = max_d_cut_all + 2.0 * tray_offset
 
         # Espacio vertical restante en la hoja actual
         y_after_plates = curr_y + row_h + gap_parts if row_h > 0 else curr_y
@@ -496,18 +495,103 @@ def compute_layout(
             disc_row_h = 0.0
             target_sheet = current_sheet
 
-        # Acomodar cada grupo de discos
+        # Acomodar cada grupo de discos: un rectángulo por cada placa con offset ampliado
+        tray_gap = gap_parts  # Separación entre bandejas adyacentes
+
         for hueco_idx, d_list in groups_to_place:
             grp_label = f"{hueco_idx}→{hueco_idx + 1}"
+            label_w = max(18.0, len(grp_label) * 3.5)
+            max_d_cut = max((d.diameter + params.kerf) for d in d_list)
 
-            # ¿Cabe la etiqueta en la fila actual?
-            if disc_curr_x + label_w > params.sheet_w - margin and disc_curr_x > margin:
+            # Ancho y alto de la bandeja para esta placa
+            discs_w = sum((d.diameter + params.kerf) for d in d_list) + (len(d_list) - 1) * gap_parts
+            content_w = label_w + gap_parts + discs_w
+            tray_w = content_w + 2.0 * tray_offset
+            tray_h = max_d_cut + 2.0 * tray_offset
+
+            # Caso extremo: la placa tiene tantos discos que excede el ancho útil de la hoja
+            if tray_w > (params.sheet_w - 2.0 * margin):
+                if disc_curr_x > margin:
+                    disc_curr_x = margin
+                    disc_curr_y += disc_row_h + tray_gap
+                    disc_row_h = 0.0
+
+                if disc_curr_y + tray_h > params.sheet_h - margin:
+                    target_sheet.calculate_used_dimensions(margin)
+                    current_sheet_idx += 1
+                    target_sheet = SheetLayout(
+                        sheet_index=current_sheet_idx,
+                        sheet_type="discs",
+                        sheet_w=params.sheet_w,
+                        sheet_h=params.sheet_h,
+                        thickness=params.gap if separate_sheet_needed else params.thickness
+                    )
+                    sheets.append(target_sheet)
+                    disc_curr_x = margin
+                    disc_curr_y = margin
+                    disc_row_h = 0.0
+
+                start_x = disc_curr_x
+                start_y = disc_curr_y
+                curr_dx = start_x + tray_offset
+                curr_dy = start_y + tray_offset
+
+                label_x = curr_dx
+                label_y = curr_dy
+                curr_dx += label_w + gap_parts
+
+                group_discs = []
+                max_x_reached = curr_dx
+                row_h_curr = max_d_cut
+
+                for d in d_list:
+                    d_cut = d.diameter + params.kerf
+                    r_cut = d_cut / 2.0
+                    if curr_dx + d_cut > (params.sheet_w - margin - tray_offset):
+                        curr_dx = start_x + tray_offset
+                        curr_dy += row_h_curr + gap_parts
+                        row_h_curr = max_d_cut
+
+                    c_x = curr_dx + r_cut
+                    c_y = curr_dy + r_cut
+                    group_discs.append(PlacedDisc(
+                        disc_id=d.id,
+                        hueco=d.hueco,
+                        center_x=c_x,
+                        center_y=c_y,
+                        cut_diameter=d_cut,
+                        nominal_diameter=d.diameter
+                    ))
+                    curr_dx += d_cut + gap_parts
+                    max_x_reached = max(max_x_reached, curr_dx)
+
+                end_x = max_x_reached + tray_offset
+                end_y = curr_dy + row_h_curr + tray_offset
+                bounds = (start_x, start_y, end_x, end_y)
+
+                group_obj = DiscGroup(
+                    hueco=hueco_idx,
+                    label_text=grp_label,
+                    label_pos=(label_x, label_y),
+                    bounds=bounds,
+                    discs=group_discs
+                )
+                target_sheet.disc_groups.append(group_obj)
+
                 disc_curr_x = margin
-                disc_curr_y += disc_row_h + gap_parts
+                disc_curr_y = end_y + tray_gap
+                disc_row_h = 0.0
+                continue
+
+            # Caso estándar: cabe en una sola fila dentro de su bandeja
+            # ¿Cabe horizontalmente en la fila actual de bandejas?
+            if disc_curr_x + tray_w > params.sheet_w - margin and disc_curr_x > margin:
+                disc_curr_x = margin
+                disc_curr_y += disc_row_h + tray_gap
                 disc_row_h = 0.0
 
-            # ¿Cabe verticalmente?
-            if disc_curr_y + approx_disc_row_h > params.sheet_h - margin:
+            # ¿Cabe verticalmente en la hoja actual?
+            if disc_curr_y + tray_h > params.sheet_h - margin:
                 target_sheet.calculate_used_dimensions(margin)
                 current_sheet_idx += 1
                 target_sheet = SheetLayout(
@@ -522,81 +606,45 @@ def compute_layout(
                 disc_curr_y = margin
                 disc_row_h = 0.0
 
-            # Posición de la etiqueta del grupo
+            tray_min_x = disc_curr_x
+            tray_min_y = disc_curr_y
+            tray_max_x = disc_curr_x + tray_w
+            tray_max_y = disc_curr_y + tray_h
+            bounds = (tray_min_x, tray_min_y, tray_max_x, tray_max_y)
+
+            content_center_y = tray_min_y + tray_h / 2.0
+            label_x = tray_min_x + tray_offset
+            label_y = content_center_y - 1.4
+
             group_obj = DiscGroup(
                 hueco=hueco_idx,
                 label_text=grp_label,
-                label_pos=(disc_curr_x, disc_curr_y + 4.0),
+                label_pos=(label_x, label_y),
+                bounds=bounds,
                 discs=[]
             )
             target_sheet.disc_groups.append(group_obj)
 
-            disc_curr_x += label_w + gap_parts
-            disc_row_h = max(disc_row_h, label_h)
-
+            # Colocar discos dentro de la bandeja con offset seguro
+            d_curr_x = label_x + label_w + gap_parts
             for d in d_list:
                 d_cut = d.diameter + params.kerf
                 r_cut = d_cut / 2.0
-
-                # ¿Cabe horizontalmente?
-                if disc_curr_x + d_cut > params.sheet_w - margin:
-                    disc_curr_x = margin
-                    disc_curr_y += disc_row_h + gap_parts
-                    disc_row_h = 0.0
-
-                # ¿Cabe verticalmente?
-                if disc_curr_y + d_cut > params.sheet_h - margin:
-                    target_sheet.calculate_used_dimensions(margin)
-                    current_sheet_idx += 1
-                    target_sheet = SheetLayout(
-                        sheet_index=current_sheet_idx,
-                        sheet_type="discs",
-                        sheet_w=params.sheet_w,
-                        sheet_h=params.sheet_h,
-                        thickness=params.gap if separate_sheet_needed else params.thickness
-                    )
-                    sheets.append(target_sheet)
-                    disc_curr_x = margin
-                    disc_curr_y = margin
-                    disc_row_h = 0.0
-                    # Reconectar grupo a la nueva hoja
-                    group_obj = DiscGroup(
-                        hueco=hueco_idx,
-                        label_text=f"{grp_label} (cont.)",
-                        label_pos=(disc_curr_x, disc_curr_y + 4.0),
-                        discs=[]
-                    )
-                    target_sheet.disc_groups.append(group_obj)
-                    disc_curr_x += label_w + gap_parts
-                    disc_row_h = max(disc_row_h, label_h)
-
-                center_x = disc_curr_x + r_cut
-                center_y = disc_curr_y + r_cut
+                c_x = d_curr_x + r_cut
+                c_y = content_center_y
 
                 group_obj.discs.append(PlacedDisc(
                     disc_id=d.id,
                     hueco=d.hueco,
-                    center_x=center_x,
-                    center_y=center_y,
+                    center_x=c_x,
+                    center_y=c_y,
                     cut_diameter=d_cut,
                     nominal_diameter=d.diameter
                 ))
+                d_curr_x += d_cut + gap_parts
 
-                disc_curr_x += d_cut + gap_parts
-                disc_row_h = max(disc_row_h, d_cut)
-
-            # Separador extra al terminar el grupo
-            disc_curr_x += gap_parts * 1.5
-
-        # Calcular límites de bandejas para cada grupo de discos
-        for s in sheets:
-            for g in s.disc_groups:
-                if g.discs:
-                    tray_min_x = min(g.label_pos[0] - 1.5, min(d.center_x - d.cut_diameter / 2.0 for d in g.discs)) - 1.5
-                    tray_min_y = min(g.label_pos[1] - 4.5, min(d.center_y - d.cut_diameter / 2.0 for d in g.discs)) - 1.5
-                    tray_max_x = max(d.center_x + d.cut_diameter / 2.0 for d in g.discs) + 2.0
-                    tray_max_y = max(g.label_pos[1] + 3.0, max(d.center_y + d.cut_diameter / 2.0 for d in g.discs)) + 2.0
-                    g.bounds = (tray_min_x, tray_min_y, tray_max_x, tray_max_y)
+            disc_curr_x = tray_max_x + tray_gap
+            disc_row_h = max(disc_row_h, tray_h)
 
     # Calcular dimensiones usadas de todas las hojas
     for s in sheets:
