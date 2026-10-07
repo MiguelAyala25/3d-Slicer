@@ -21,6 +21,9 @@ class Params:
     disc_diameter: float = 6.0       # mm (por defecto 6.0 mm)
     engrave_clearance: float = 0.3   # mm (por defecto 0.3 mm)
 
+    # Parámetros para rotulado ergonómico
+    scrap_tag_enabled: bool = True   # Rótulo de identificación en material sobrante (fuera del corte)
+
     @property
     def disc_thickness(self) -> float:
         """El grosor del disco es exactamente igual a la separación entre placas."""

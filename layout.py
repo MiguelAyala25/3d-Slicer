@@ -43,6 +43,16 @@ class EngraveCircle:
 
 
 @dataclass
+class ScrapTag:
+    """Etiqueta grabada en el material de desecho de la hoja (fuera del corte)."""
+    text: str
+    text_pos: Tuple[float, float]
+    arrow_start: Tuple[float, float]
+    arrow_end: Tuple[float, float]
+    font_size: float = 2.8
+
+
+@dataclass
 class PlacedPlate:
     """Placa posicionada en una hoja de material."""
     plate_idx: int
@@ -54,6 +64,7 @@ class PlacedPlate:
     h: float
     label_text: str
     label_pos: Tuple[float, float]
+    scrap_tag: Optional[ScrapTag] = None
     engrave_circles: List[EngraveCircle] = field(default_factory=list)
     font_size: float = 3.0
 
@@ -75,6 +86,7 @@ class DiscGroup:
     hueco: int
     label_text: str           # ej. "0→1", "1→2"
     label_pos: Tuple[float, float]
+    bounds: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)  # Bounding box de la bandeja
     discs: List[PlacedDisc] = field(default_factory=list)
 
 
@@ -105,14 +117,19 @@ class SheetLayout:
             has_elements = True
             max_x = max(max_x, plate.bounds[2])
             max_y = max(max_y, plate.bounds[3])
-            # Considerar también el label
+            # Considerar también el label y el scrap_tag
             max_x = max(max_x, plate.label_pos[0] + 30.0)
             max_y = max(max_y, plate.label_pos[1] + 5.0)
+            if plate.scrap_tag:
+                max_x = max(max_x, plate.scrap_tag.text_pos[0] + 15.0)
 
         for group in self.disc_groups:
             has_elements = True
             max_x = max(max_x, group.label_pos[0] + 25.0)
             max_y = max(max_y, group.label_pos[1] + 6.0)
+            if group.bounds != (0.0, 0.0, 0.0, 0.0):
+                max_x = max(max_x, group.bounds[2])
+                max_y = max(max_y, group.bounds[3])
             for d in group.discs:
                 r = d.cut_diameter / 2.0
                 max_x = max(max_x, d.center_x + r)
@@ -372,6 +389,28 @@ def compute_layout(
                 circles=engrave_circles
             )
 
+            # Generar ScrapTag en material sobrante (fuera del contorno de corte de la placa)
+            scrap_tag = None
+            if getattr(params, 'scrap_tag_enabled', True):
+                st_text = f"PLACA {i}" if w >= 18.0 else (f"P{i}" if w >= 10.0 else f"{i}")
+                center_tag_x = curr_x + w / 2.0
+                if curr_y >= 3.5:
+                    st_pos_y = curr_y - 2.8
+                    arr_start = (center_tag_x, curr_y - 2.2)
+                    arr_end = (center_tag_x, curr_y - 0.6)
+                else:
+                    st_pos_y = curr_y + h + 3.0
+                    arr_start = (center_tag_x, curr_y + h + 2.2)
+                    arr_end = (center_tag_x, curr_y + h + 0.6)
+
+                scrap_tag = ScrapTag(
+                    text=st_text,
+                    text_pos=(center_tag_x, st_pos_y),
+                    arrow_start=arr_start,
+                    arrow_end=arr_end,
+                    font_size=2.8
+                )
+
             plate_obj = PlacedPlate(
                 plate_idx=i,
                 polygons=placed_polys,
@@ -382,6 +421,7 @@ def compute_layout(
                 h=h,
                 label_text=lbl_text,
                 label_pos=lbl_pos,
+                scrap_tag=scrap_tag,
                 engrave_circles=engrave_circles,
                 font_size=lbl_fsize
             )
@@ -547,6 +587,16 @@ def compute_layout(
 
             # Separador extra al terminar el grupo
             disc_curr_x += gap_parts * 1.5
+
+        # Calcular límites de bandejas para cada grupo de discos
+        for s in sheets:
+            for g in s.disc_groups:
+                if g.discs:
+                    tray_min_x = min(g.label_pos[0] - 1.5, min(d.center_x - d.cut_diameter / 2.0 for d in g.discs)) - 1.5
+                    tray_min_y = min(g.label_pos[1] - 4.5, min(d.center_y - d.cut_diameter / 2.0 for d in g.discs)) - 1.5
+                    tray_max_x = max(d.center_x + d.cut_diameter / 2.0 for d in g.discs) + 2.0
+                    tray_max_y = max(g.label_pos[1] + 3.0, max(d.center_y + d.cut_diameter / 2.0 for d in g.discs)) + 2.0
+                    g.bounds = (tray_min_x, tray_min_y, tray_max_x, tray_max_y)
 
     # Calcular dimensiones usadas de todas las hojas
     for s in sheets:

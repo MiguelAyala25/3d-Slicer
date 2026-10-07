@@ -85,8 +85,9 @@ def sheet_to_svg_string(sheet: SheetLayout, preview_mode: bool = False) -> str:
         style=f"fill:none; stroke:#0000FF; stroke-width:{engrave_stroke_width};"
     )
 
-    # Círculos grabados en placas (sólidos para hueco k, punteados para hueco k-1)
+    # Círculos grabados en placas y etiquetas en material sobrante (Scrap Tags)
     for plate in sheet.placed_plates:
+        # Círculos grabados (sólidos para hueco k, punteados para hueco k-1)
         for circle_info in plate.engrave_circles:
             r = circle_info.diameter / 2.0
             if circle_info.is_dashed:
@@ -102,6 +103,57 @@ def sheet_to_svg_string(sheet: SheetLayout, preview_mode: bool = False) -> str:
                     center=(circle_info.center_x, circle_info.center_y),
                     r=r
                 ))
+
+        # Scrap Tag en material sobrante (fuera de la placa de corte)
+        if getattr(plate, 'scrap_tag', None) is not None:
+            st = plate.scrap_tag
+            font_size_str = f"{st.font_size:.2f}" if preview_mode else f"{st.font_size:.2f}mm"
+            group_engrave.add(dwg.text(
+                st.text,
+                insert=(st.text_pos[0], st.text_pos[1]),
+                fill="#0000FF",
+                stroke="none",
+                font_size=font_size_str,
+                font_family="Arial, Helvetica, sans-serif",
+                font_weight="bold",
+                text_anchor="middle"
+            ))
+            # Flecha / línea indicadora hacia la placa
+            group_engrave.add(dwg.line(
+                start=st.arrow_start,
+                end=st.arrow_end,
+                stroke="#0000FF",
+                stroke_width=engrave_stroke_width
+            ))
+
+    # Bandejas y etiquetas para grupos de discos
+    for group in sheet.disc_groups:
+        font_size_grp = "2.6" if preview_mode else "2.8mm"
+        group_engrave.add(dwg.text(
+            group.label_text,
+            insert=(group.label_pos[0], group.label_pos[1]),
+            fill="#0000FF",
+            stroke="none",
+            font_size=font_size_grp,
+            font_family="Arial, Helvetica, sans-serif",
+            font_weight="bold",
+            dominant_baseline="hanging"
+        ))
+
+        # Recuadro perimetral grabado de la bandeja de discos
+        if hasattr(group, 'bounds') and group.bounds != (0.0, 0.0, 0.0, 0.0):
+            gx, gy, g_maxx, g_maxy = group.bounds
+            gw = max(1.0, g_maxx - gx)
+            gh = max(1.0, g_maxy - gy)
+            group_engrave.add(dwg.rect(
+                insert=(gx, gy),
+                size=(gw, gh),
+                rx=1.5,
+                ry=1.5,
+                stroke="#0000FF",
+                stroke_width=engrave_stroke_width,
+                fill="none"
+            ))
 
     dwg.add(group_cut)
     dwg.add(group_engrave)

@@ -119,8 +119,12 @@ def test_export_svg_colors_and_layers():
     assert 'stroke:#FF0000' in svg_str
     # Capa grabado (azul)
     assert 'stroke:#0000FF' in svg_str
-    # Sin texto intrusivo que tape o invada las piezas
-    assert '<text' not in svg_str
+    # Texto de Scrap Tag grabado en el material sobrante
+    assert 'PLACA 0' in svg_str
+    # Validar que el Scrap Tag está fuera de la placa de corte (en el margen)
+    plate = layout.sheets[0].placed_plates[0]
+    assert plate.scrap_tag is not None
+    assert plate.scrap_tag.text_pos[1] < plate.y
 
 
 def test_export_engrave_circles_solid_and_dashed():
@@ -180,7 +184,10 @@ def test_export_discs_with_kerf():
 
     # Radio compensado de corte: 3.1
     assert 'r="3.1"' in svg_str
-    assert '<text' not in svg_str
+    # Etiqueta grabada del grupo de discos
+    assert '0→1' in svg_str
+    # Recuadro perimetral grabado de la bandeja
+    assert '<rect' in svg_str
 
 
 def test_export_layout_to_multiple_files(tmp_path):
@@ -213,4 +220,49 @@ def test_export_layout_to_multiple_files(tmp_path):
     assert all(os.path.exists(f) for f in files)
     assert "hoja_1_placas.svg" in files[0]
     assert "hoja_2_discos.svg" in files[1]
+
+
+def test_scrap_tags_geometry_never_intersects_plates():
+    """Valida que los Scrap Tags estén estrictamente fuera de los contornos de corte."""
+    from params import Params
+    from layout import compute_layout
+    from exporter import sheet_to_svg_string
+    from shapely.geometry import Point
+
+    # 3 placas
+    p0 = [Polygon([(0, 0), (60, 0), (60, 40), (0, 40)])]
+    p1 = [Polygon([(0, 0), (50, 0), (50, 50), (0, 50)])]
+    p2 = [Polygon([(0, 0), (70, 0), (70, 30), (0, 30)])]
+    res = SliceResult(
+        polygons=[p0, p1, p2],
+        empty_plates=[],
+        original_bounds=(0, 50),
+        assembled_height=50.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    params = Params(sheet_w=600.0, sheet_h=400.0, sheet_margin=10.0, part_gap=5.0)
+    layout = compute_layout(res, params)
+    sheet = layout.sheets[0]
+
+    assert len(sheet.placed_plates) == 3
+    for plate in sheet.placed_plates:
+        assert plate.scrap_tag is not None
+        assert f"PLACA {plate.plate_idx}" == plate.scrap_tag.text
+
+        # La posición del texto y la flecha NO debe estar dentro de ningún polígono de la placa
+        pt_text = Point(plate.scrap_tag.text_pos[0], plate.scrap_tag.text_pos[1])
+        pt_arrow_start = Point(plate.scrap_tag.arrow_start[0], plate.scrap_tag.arrow_start[1])
+        pt_arrow_end = Point(plate.scrap_tag.arrow_end[0], plate.scrap_tag.arrow_end[1])
+
+        for poly in plate.polygons:
+            assert not poly.contains(pt_text), f"El texto de la placa {plate.plate_idx} no debe estar dentro del corte"
+            assert not poly.contains(pt_arrow_start)
+            assert not poly.contains(pt_arrow_end)
+
+    svg_str = sheet_to_svg_string(sheet)
+    assert "PLACA 0" in svg_str
+    assert "PLACA 1" in svg_str
+    assert "PLACA 2" in svg_str
+
 

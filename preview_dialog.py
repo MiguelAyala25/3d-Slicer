@@ -258,7 +258,7 @@ class PreviewDialog(QDialog):
         )
         header_hint = QLabel(
             "<span style='color: #555;'>Corte: <b style='color:#d32f2f;'>Rojo</b> | "
-            "Grabado: <b style='color:#1976d2;'>Azul</b> (sólido: encima, punteado: abajo) | "
+            "Grabado: <b style='color:#1976d2;'>Azul</b> (círculos sólidos/punteados y rótulos en material sobrante) | "
             "Arrastra para desplazar, rueda para zoom</span>"
         )
 
