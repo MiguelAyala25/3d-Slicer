@@ -92,7 +92,7 @@ class SmoothGLView(GLViewWidget):
             self.set_view_top()
             ev.accept()
             return
-        elif ev.key() in (Qt.Key_3, Qt.Key_S):
+        elif ev.key() in (Qt.Key_3, Qt.Key_L):
             self.set_view_side()
             ev.accept()
             return
@@ -694,7 +694,7 @@ class SlicedGLView(SmoothGLView):
             self.set_view_top()
             event.accept()
             return
-        elif event.key() in (Qt.Key_3, Qt.Key_S):
+        elif event.key() in (Qt.Key_3, Qt.Key_L):
             self.set_view_side()
             event.accept()
             return
@@ -706,11 +706,11 @@ class SlicedGLView(SmoothGLView):
             self.set_view_3d()
             event.accept()
             return
-        elif event.key() in (Qt.Key_Up, Qt.Key_Right, Qt.Key_BracketRight):
+        elif event.key() in (Qt.Key_Up, Qt.Key_Right, Qt.Key_BracketRight, Qt.Key_W):
             self.next_floor()
             event.accept()
             return
-        elif event.key() in (Qt.Key_Down, Qt.Key_Left, Qt.Key_BracketLeft):
+        elif event.key() in (Qt.Key_Down, Qt.Key_Left, Qt.Key_BracketLeft, Qt.Key_S):
             self.prev_floor()
             event.accept()
             return
@@ -818,7 +818,7 @@ class SculptureViewer(QWidget):
         self.btn_view_top.setToolTip("Vista superior alineada (Numpad 7 o Tecla T)")
 
         self.btn_view_side = QPushButton("➡ Lado (3)")
-        self.btn_view_side.setToolTip("Vista lateral alineada (Numpad 3 o Tecla S)")
+        self.btn_view_side.setToolTip("Vista lateral alineada (Numpad 3 o Tecla L)")
 
         self.btn_view_front = QPushButton("⏺ Frente (1)")
         self.btn_view_front.setToolTip("Vista frontal alineada (Numpad 1 o Tecla F)")
@@ -890,10 +890,14 @@ class SculptureViewer(QWidget):
             self.spin_selected_diam.setEnabled(True)
             self.btn_delete_disc.setEnabled(True)
         else:
+            self.spin_selected_diam.blockSignals(True)
+            self.spin_selected_diam.setValue(self.view_sliced.default_disc_diameter)
+            self.spin_selected_diam.blockSignals(False)
             self.spin_selected_diam.setEnabled(False)
             self.btn_delete_disc.setEnabled(False)
 
     def _on_selected_diam_changed(self, val: float):
+        self.set_default_disc_diameter(val)
         self.view_sliced.update_selected_disc_diameter(val)
 
     def _update_floor_label(self, floor_idx: int):

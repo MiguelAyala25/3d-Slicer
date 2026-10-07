@@ -21,7 +21,13 @@ from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QDesktopServices
 from PySide6.QtSvg import QSvgRenderer
 
 from layout import LayoutResult, SheetLayout
-from exporter import sheet_to_svg_string, export_layout_to_svg_files, export_sheet_to_svg
+from exporter import (
+    sheet_to_svg_string,
+    export_layout_to_svg_files,
+    export_sheet_to_svg,
+    export_sheet_to_dxf,
+    export_layout_to_dxf_files
+)
 
 
 class SvgSheetItem(QGraphicsItem):
@@ -170,7 +176,7 @@ class SheetTabWidget(QWidget):
         btn_fit = QPushButton("🔍 Ajustar")
         btn_fit.setFixedWidth(75)
 
-        self.btn_export_this = QPushButton("💾 Exportar esta hoja (.svg)")
+        self.btn_export_this = QPushButton("💾 Exportar esta hoja (.dxf)")
         self.btn_export_this.setStyleSheet("""
             QPushButton {
                 background-color: #1976d2;
@@ -202,29 +208,35 @@ class SheetTabWidget(QWidget):
         layout.addWidget(self.viewer, stretch=1)
 
     def _on_export_sheet(self):
-        """Exporta esta hoja individual a un archivo SVG seleccionado por el usuario."""
+        """Exporta esta hoja individual a un archivo DXF (o SVG si seleccionado)."""
         tipo_str = "discos" if self.sheet.sheet_type == "discs" else "placas"
-        default_name = f"escultura_hoja_{self.sheet.sheet_index + 1}_{tipo_str}.svg"
+        default_name = f"escultura_hoja_{self.sheet.sheet_index + 1}_{tipo_str}.dxf"
         path, _ = QFileDialog.getSaveFileName(
             self,
-            f"Exportar Hoja {self.sheet.sheet_index + 1} como SVG",
+            f"Exportar Hoja {self.sheet.sheet_index + 1} como DXF",
             default_name,
-            "Archivos SVG (*.svg)"
+            "Archivos DXF (*.dxf);;Archivos SVG (*.svg)"
         )
         if not path:
             return
-        if not path.lower().endswith(".svg"):
-            path += ".svg"
 
         try:
-            export_sheet_to_svg(self.sheet, path)
+            if path.lower().endswith(".svg"):
+                export_sheet_to_svg(self.sheet, path)
+                formato = "SVG"
+            else:
+                if not path.lower().endswith(".dxf"):
+                    path += ".dxf"
+                export_sheet_to_dxf(self.sheet, path)
+                formato = "DXF"
+
             QMessageBox.information(
                 self,
                 "Exportación Exitosa",
-                f"Hoja {self.sheet.sheet_index + 1} exportada exitosamente en:\n{path}"
+                f"Hoja {self.sheet.sheet_index + 1} exportada exitosamente en formato {formato}:\n{path}"
             )
         except Exception as e:
-            QMessageBox.critical(self, "Error al exportar hoja", f"No se pudo guardar el archivo SVG:\n{e}")
+            QMessageBox.critical(self, "Error al exportar hoja", f"No se pudo guardar el archivo:\n{e}")
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -240,7 +252,7 @@ class PreviewDialog(QDialog):
         self.layout = layout
         self.exported_files: List[str] = []
 
-        self.setWindowTitle("Vista Previa de Exportación SVG — Planos Seriados")
+        self.setWindowTitle("Vista Previa de Exportación DXF — Planos Seriados")
         self.resize(1100, 750)
         self.setMinimumSize(850, 580)
 
@@ -262,7 +274,7 @@ class PreviewDialog(QDialog):
             "Arrastra para desplazar, rueda para zoom</span>"
         )
 
-        self.btn_header_export_current = QPushButton("💾 Exportar hoja activa (.svg)")
+        self.btn_header_export_current = QPushButton("💾 Exportar hoja activa (.dxf)")
         self.btn_header_export_current.setStyleSheet("""
             QPushButton {
                 background-color: #1976d2;
@@ -276,7 +288,7 @@ class PreviewDialog(QDialog):
             }
         """)
 
-        self.btn_header_export_all = QPushButton("📁 Exportar todas las hojas...")
+        self.btn_header_export_all = QPushButton("📁 Exportar todas las hojas (.dxf)...")
         self.btn_header_export_all.setStyleSheet("""
             QPushButton {
                 background-color: #2e7d32;
@@ -325,7 +337,7 @@ class PreviewDialog(QDialog):
         lbl_summary = QLabel(f"<b>Medidas usadas:</b> {sheets_summary}")
         lbl_summary.setStyleSheet("color: #444; font-size: 11px;")
 
-        self.btn_export_current = QPushButton("💾 Exportar hoja actual (.svg)")
+        self.btn_export_current = QPushButton("💾 Exportar hoja actual (.dxf)")
         self.btn_export_current.setStyleSheet("""
             QPushButton {
                 background-color: #1976d2;
@@ -339,7 +351,7 @@ class PreviewDialog(QDialog):
             }
         """)
 
-        self.btn_export_all = QPushButton("📁 Exportar todas las hojas a carpeta...")
+        self.btn_export_all = QPushButton("📁 Exportar todas las hojas a carpeta (.dxf)...")
         self.btn_export_all.setStyleSheet("""
             QPushButton {
                 background-color: #2e7d32;
@@ -382,29 +394,29 @@ class PreviewDialog(QDialog):
             current_widget._on_export_sheet()
 
     def _on_export_all(self):
-        """Abre selector de carpeta y exporta todos los archivos SVG."""
+        """Abre selector de carpeta y exporta todos los archivos DXF."""
         chosen_dir = QFileDialog.getExistingDirectory(
             self,
-            "Seleccionar carpeta de destino para todos los archivos SVG",
+            "Seleccionar carpeta de destino para todos los archivos DXF",
             ""
         )
         if not chosen_dir:
             return
 
         try:
-            files = export_layout_to_svg_files(self.layout, chosen_dir, base_name="escultura")
+            files = export_layout_to_dxf_files(self.layout, chosen_dir, base_name="escultura")
             self.exported_files = files
 
             filenames_str = "\n".join(f"• {os.path.basename(f)}" for f in files)
             QMessageBox.information(
                 self,
                 "Exportación Exitosa",
-                f"Se han exportado exitosamente {len(files)} archivo(s) SVG en:\n{chosen_dir}\n\n{filenames_str}"
+                f"Se han exportado exitosamente {len(files)} archivo(s) DXF en:\n{chosen_dir}\n\n{filenames_str}"
             )
             self.accept()
         except Exception as e:
             QMessageBox.critical(
                 self,
                 "Error al exportar",
-                f"No se pudieron guardar los archivos SVG:\n{e}"
+                f"No se pudieron guardar los archivos DXF:\n{e}"
             )

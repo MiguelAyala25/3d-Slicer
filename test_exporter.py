@@ -266,3 +266,176 @@ def test_scrap_tags_geometry_never_intersects_plates():
     assert "PLACA 2" in svg_str
 
 
+def test_export_dxf_invalid_inputs():
+    from exporter import export_dxf
+    ok, msg = export_dxf(None, "dummy.dxf")
+    assert not ok and "inválido" in msg
+
+    empty_res = SliceResult(
+        polygons=[None, None],
+        empty_plates=[0, 1],
+        original_bounds=(0, 10),
+        assembled_height=10.0,
+        auto_scale=1.0,
+        warnings=["Vacio"]
+    )
+    ok, msg = export_dxf(empty_res, "dummy.dxf")
+    assert not ok and "No hay placas válidas" in msg
+
+    ok, msg = export_dxf(empty_res, "")
+    assert not ok
+
+
+def test_export_dxf_box(tmp_path):
+    import ezdxf
+    from exporter import export_dxf
+    box = trimesh.creation.box(extents=[20, 20, 20])
+    res_box = slice_mesh(box, plates=5, gap=2.0, thickness=3.0, axis='z')
+
+    dxf_box_path = str(tmp_path / "tmp_test_box.dxf")
+    ok, path = export_dxf(res_box, dxf_box_path, margin_mm=10.0)
+    assert ok and os.path.exists(dxf_box_path)
+
+    doc = ezdxf.readfile(dxf_box_path)
+    assert doc.header['$INSUNITS'] == 4  # mm
+    assert "CORTE" in doc.layers
+    assert "GRABADO" in doc.layers
+
+    msp = doc.modelspace()
+    polylines = msp.query('LWPOLYLINE[layer=="CORTE"]')
+    assert len(polylines) == 5
+    for poly in polylines:
+        assert poly.is_closed
+
+
+def test_export_dxf_torus_holes(tmp_path):
+    import ezdxf
+    from exporter import export_dxf
+    torus = trimesh.creation.torus(major_radius=20, minor_radius=5)
+    res_torus = slice_mesh(torus, plates=3, gap=2.0, thickness=3.0, axis='z')
+
+    dxf_torus_path = str(tmp_path / "tmp_test_torus.dxf")
+    ok, _ = export_dxf(res_torus, dxf_torus_path)
+    assert ok and os.path.exists(dxf_torus_path)
+
+    doc = ezdxf.readfile(dxf_torus_path)
+    msp = doc.modelspace()
+    polylines = msp.query('LWPOLYLINE[layer=="CORTE"]')
+    # Donut slices have an outer ring and an inner hole -> multiple polylines per slice
+    assert len(polylines) >= 3
+
+
+def test_export_dxf_colors_and_layers(tmp_path):
+    import ezdxf
+    from params import Params
+    from layout import compute_layout
+    from exporter import export_sheet_to_dxf
+
+    p0 = [Polygon([(0, 0), (50, 0), (50, 50), (0, 50)])]
+    res = SliceResult(
+        polygons=[p0],
+        empty_plates=[],
+        original_bounds=(0, 50),
+        assembled_height=50.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    params = Params(sheet_w=600.0, sheet_h=400.0)
+    layout = compute_layout(res, params)
+
+    dxf_path = str(tmp_path / "test_layers.dxf")
+    export_sheet_to_dxf(layout.sheets[0], dxf_path)
+
+    doc = ezdxf.readfile(dxf_path)
+    assert doc.layers.get("CORTE").color == 1  # Rojo
+    assert doc.layers.get("GRABADO").color == 5  # Azul
+
+    msp = doc.modelspace()
+    texts = msp.query('TEXT[layer=="GRABADO"]')
+    assert any("PLACA 0" in t.dxf.text for t in texts)
+
+    lines = msp.query('LINE[layer=="GRABADO"]')
+    assert len(lines) >= 1  # Scrap tag arrow
+
+
+def test_export_dxf_engrave_circles_solid_and_dashed(tmp_path):
+    import ezdxf
+    from params import Params
+    from discs import DiscManager
+    from layout import compute_layout
+    from exporter import export_sheet_to_dxf
+
+    p0 = [Polygon([(0, 0), (60, 0), (60, 60), (0, 60)])]
+    p1 = [Polygon([(0, 0), (60, 0), (60, 60), (0, 60)])]
+    res = SliceResult(
+        polygons=[p0, p1],
+        empty_plates=[],
+        original_bounds=(0, 60),
+        assembled_height=60.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    dm = DiscManager()
+    dm.add_disc(hueco=0, x=30.0, y=30.0, diameter=6.0, max_gap=0)
+
+    params = Params(sheet_w=600.0, sheet_h=400.0, engrave_clearance=0.3)
+    layout = compute_layout(res, params, dm)
+
+    dxf_path = str(tmp_path / "test_circles.dxf")
+    export_sheet_to_dxf(layout.sheets[0], dxf_path)
+
+    doc = ezdxf.readfile(dxf_path)
+    msp = doc.modelspace()
+    circles = msp.query('CIRCLE[layer=="GRABADO"]')
+    # Placa 0 tiene círculo sólido (hueco 0, arriba), Placa 1 tiene punteado (hueco 0, abajo)
+    assert len(circles) == 2
+    # Radio esperado = (6.0 + 0.3) / 2 = 3.15
+    for c in circles:
+        assert round(c.dxf.radius, 2) == 3.15
+
+    dashed = [c for c in circles if c.dxf.linetype == "DASHED"]
+    solid = [c for c in circles if c.dxf.linetype != "DASHED"]
+    assert len(dashed) == 1
+    assert len(solid) == 1
+
+
+def test_export_layout_to_dxf_files(tmp_path):
+    import ezdxf
+    from params import Params
+    from discs import DiscManager
+    from layout import compute_layout
+    from exporter import export_layout_to_dxf_files
+
+    params = Params(sheet_w=600.0, sheet_h=400.0, thickness=3.0, gap=5.0)
+    p0 = [Polygon([(0, 0), (40, 0), (40, 40), (0, 40)])]
+    res = SliceResult(
+        polygons=[p0],
+        empty_plates=[],
+        original_bounds=(0, 40),
+        assembled_height=40.0,
+        auto_scale=1.0,
+        warnings=[]
+    )
+    dm = DiscManager()
+    dm.add_disc(hueco=0, x=10.0, y=10.0, diameter=6.0, max_gap=0)
+
+    layout = compute_layout(res, params, dm)
+    assert layout.total_sheets == 2
+
+    out_dir = str(tmp_path / "dxf_out")
+    files = export_layout_to_dxf_files(layout, out_dir, base_name="test_proj")
+    assert len(files) == 2
+    assert all(os.path.exists(f) for f in files)
+    assert "hoja_1_placas.dxf" in files[0]
+    assert "hoja_2_discos.dxf" in files[1]
+
+    # Validar hoja de discos
+    doc_discs = ezdxf.readfile(files[1])
+    msp = doc_discs.modelspace()
+    cut_circles = msp.query('CIRCLE[layer=="CORTE"]')
+    assert len(cut_circles) == 1
+    rects = msp.query('LWPOLYLINE[layer=="GRABADO"]')
+    assert len(rects) >= 1  # Bandeja de discos
+
+
+

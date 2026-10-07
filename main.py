@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QWidget, Q
 
 from validator import validate_file, validate_params, validate_mesh
 from slicer import slice_mesh
-from exporter import export_svg
+from exporter import export_svg, export_dxf
 from viewer import SculptureViewer
 from ui import ControlPanel
 from params import Params
@@ -209,14 +209,19 @@ class MainWindow(QMainWindow):
                 f"y se muestran como líneas. Esto no afecta la exportación."
             )
 
-    def _on_export_requested(self, format_type: str = 'svg', file_path: Optional[str] = None):
+    def _on_export_requested(self, format_type: str = 'dxf', file_path: Optional[str] = None):
         if self._result is None:
             self.panel.show_error("Primero aplicá el corte antes de exportar.")
             return
 
         if file_path:
             # Exportación directa a ruta fija (usado en tests automáticos y scripts)
-            ok, msg = export_svg(self._result, file_path, params=self._current_params if isinstance(self._current_params, Params) else None, disc_manager=self.disc_manager)
+            active_params = self._current_params if isinstance(self._current_params, Params) else None
+            if file_path.lower().endswith(".svg") or format_type == 'svg':
+                ok, msg = export_svg(self._result, file_path, params=active_params, disc_manager=self.disc_manager)
+            else:
+                ok, msg = export_dxf(self._result, file_path, params=active_params, disc_manager=self.disc_manager)
+
             if ok:
                 QMessageBox.information(self, "Exportación exitosa", f"Archivo guardado en:\n{msg}")
             else:

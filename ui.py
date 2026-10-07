@@ -227,9 +227,10 @@ class ControlPanel(QWidget):
         layout.addSpacing(12)
         layout.addWidget(QLabel("<b>Exportar</b>"))
 
-        self.btn_export_svg = QPushButton("Exportar SVG")
-        self.btn_export_svg.setEnabled(False)
-        layout.addWidget(self.btn_export_svg)
+        self.btn_export_dxf = QPushButton("Exportar DXF")
+        self.btn_export_dxf.setEnabled(False)
+        self.btn_export_svg = self.btn_export_dxf  # Alias de retrocompatibilidad
+        layout.addWidget(self.btn_export_dxf)
 
         # --- Sección: Advertencias ---
         self.lbl_warnings = QLabel("")
@@ -242,7 +243,7 @@ class ControlPanel(QWidget):
         self.btn_apply.clicked.connect(self._on_apply_clicked)
         self.btn_save_project.clicked.connect(self.save_project_requested.emit)
         self.btn_load_project.clicked.connect(self.load_project_requested.emit)
-        self.btn_export_svg.clicked.connect(lambda: self.export_requested.emit('svg'))
+        self.btn_export_dxf.clicked.connect(lambda: self.export_requested.emit('dxf'))
 
         # Lógica de sincronización de separación vs grosor
         self.spin_thickness.valueChanged.connect(self._on_thickness_changed)
