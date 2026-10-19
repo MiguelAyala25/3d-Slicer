@@ -99,7 +99,7 @@ class ControlPanel(QWidget):
         # --- Sección: Cargar archivo ---
         layout.addWidget(QLabel("<b>Modelo 3D</b>"))
 
-        self.btn_load = QPushButton("Cargar OBJ / STL...")
+        self.btn_load = QPushButton("Cargar modelo 3D...")
         self.lbl_file = QLabel("Ningún archivo cargado")
         self.lbl_file.setWordWrap(True)
 
@@ -303,7 +303,10 @@ class ControlPanel(QWidget):
 
     def _on_load_clicked(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Cargar modelo 3D", "", "Modelos 3D (*.obj *.stl)"
+            self,
+            "Cargar modelo 3D",
+            "",
+            "Modelos 3D (*.obj *.stl *.3mf *.ply);;Todos los archivos (*.*)"
         )
         if path:
             self.file_loaded.emit(path)

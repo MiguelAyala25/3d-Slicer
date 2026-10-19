@@ -300,6 +300,9 @@ def test_export_dxf_box(tmp_path):
     assert doc.header['$INSUNITS'] == 4  # mm
     assert "CORTE" in doc.layers
     assert "GRABADO" in doc.layers
+    assert doc.header['$EXTMIN'] == (0.0, 0.0, 0.0)
+    assert doc.header['$EXTMAX'][0] > 0.0
+    assert doc.header['$EXTMAX'][1] > 0.0
 
     msp = doc.modelspace()
     polylines = msp.query('LWPOLYLINE[layer=="CORTE"]')
@@ -385,18 +388,22 @@ def test_export_dxf_engrave_circles_solid_and_dashed(tmp_path):
     export_sheet_to_dxf(layout.sheets[0], dxf_path)
 
     doc = ezdxf.readfile(dxf_path)
-    msp = doc.modelspace()
-    circles = msp.query('CIRCLE[layer=="GRABADO"]')
-    # Placa 0 tiene círculo sólido (hueco 0, arriba), Placa 1 tiene punteado (hueco 0, abajo)
-    assert len(circles) == 2
-    # Radio esperado = (6.0 + 0.3) / 2 = 3.15
-    for c in circles:
-        assert round(c.dxf.radius, 2) == 3.15
+    assert doc.header['$EXTMIN'] == (0.0, 0.0, 0.0)
+    assert doc.header['$EXTMAX'] == (600.0, 400.0, 0.0)
 
-    dashed = [c for c in circles if c.dxf.linetype == "DASHED"]
-    solid = [c for c in circles if c.dxf.linetype != "DASHED"]
-    assert len(dashed) == 1
-    assert len(solid) == 1
+    msp = doc.modelspace()
+    solid_circles = msp.query('CIRCLE[layer=="GRABADO"]')
+    # Placa 0 tiene círculo sólido (hueco 0, arriba)
+    assert len(solid_circles) == 1
+    assert round(solid_circles[0].dxf.radius, 2) == 3.15
+    # Comprobar inversión de Y (y_dxf = 400 - y_svg)
+    assert round(solid_circles[0].dxf.center.y, 1) == 360.0
+
+    # Placa 1 tiene círculo punteado (hueco 0, abajo) segmentado en arcos reales
+    dashed_arcs = msp.query('ARC[layer=="GRABADO"]')
+    assert len(dashed_arcs) >= 4
+    for a in dashed_arcs:
+        assert round(a.dxf.radius, 2) == 3.15
 
 
 def test_export_layout_to_dxf_files(tmp_path):
@@ -431,11 +438,19 @@ def test_export_layout_to_dxf_files(tmp_path):
 
     # Validar hoja de discos
     doc_discs = ezdxf.readfile(files[1])
+    assert doc_discs.header['$EXTMIN'] == (0.0, 0.0, 0.0)
+    assert doc_discs.header['$EXTMAX'] == (600.0, 400.0, 0.0)
+
     msp = doc_discs.modelspace()
     cut_circles = msp.query('CIRCLE[layer=="CORTE"]')
     assert len(cut_circles) == 1
+    # Coordenada Y en DXF debe estar invertida: y_dxf = 400 - y_layout > 0
+    assert 0.0 <= cut_circles[0].dxf.center.y <= 400.0
+
     rects = msp.query('LWPOLYLINE[layer=="GRABADO"]')
     assert len(rects) >= 1  # Bandeja de discos
+    for pt in rects[0]:
+        assert 0.0 <= pt[1] <= 400.0
 
 
 def test_disc_trays_single_rect_per_plate_and_widened_offset():

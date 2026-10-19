@@ -24,4 +24,9 @@ test_*.obj
 test_*.stl
 *.dxf
 *.svg
+save*.json
+*.png
+!assets/
 !samples/
+CAR-PEUGEOT 206 - Copy.obj
+

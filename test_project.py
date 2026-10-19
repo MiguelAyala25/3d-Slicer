@@ -31,11 +31,12 @@ def test_project_dict_roundtrip():
 
     # Cargar en un gestor nuevo
     new_manager = DiscManager()
-    plates, thickness, gap = load_project_from_dict(data, new_manager)
+    plates, thickness, gap, axis = load_project_from_dict(data, new_manager)
 
     assert plates == 12
     assert thickness == 3.0
     assert gap == 4.5
+    assert axis == "z"
     assert len(new_manager.discs) == 2
 
     d1 = new_manager.get_disc(id1)
@@ -53,16 +54,17 @@ def test_save_and_load_file_roundtrip(tmp_path):
     manager.add_disc(hueco=2, x=1.0, y=2.0, diameter=5.5)
 
     filepath = str(tmp_path / "test_project.json")
-    save_project(filepath, plates=8, thickness=2.5, gap=2.5, disc_manager=manager)
+    save_project(filepath, plates=8, thickness=2.5, gap=2.5, disc_manager=manager, axis='x')
 
     assert os.path.exists(filepath)
 
     loaded_manager = DiscManager()
-    plates, thickness, gap = load_project(filepath, loaded_manager)
+    plates, thickness, gap, axis = load_project(filepath, loaded_manager)
 
     assert plates == 8
     assert thickness == 2.5
     assert gap == 2.5
+    assert axis == 'x'
     assert len(loaded_manager.discs) == 1
     assert loaded_manager.discs[0].diameter == 5.5
 
@@ -91,3 +93,11 @@ def test_params_compatibility_check():
         loaded_plates=10, loaded_gap=4.0,
         current_plates=10, current_gap=3.0
     ) is False
+
+    # Eje diferente -> incompatible
+    assert check_params_compatibility(
+        loaded_plates=10, loaded_gap=3.0,
+        current_plates=10, current_gap=3.0,
+        loaded_axis='x', current_axis='z'
+    ) is False
+

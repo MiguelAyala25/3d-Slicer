@@ -18,10 +18,11 @@ import pyqtgraph as pg
 import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import GLViewWidget, GLMeshItem, GLLinePlotItem
 from PySide6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QDoubleSpinBox
+    QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QLabel, QDoubleSpinBox,
+    QSlider, QFrame
 )
 from PySide6.QtCore import Signal, Qt, QPoint
-from PySide6.QtGui import QVector3D
+from PySide6.QtGui import QVector3D, QColor
 from shapely.geometry import Point
 import trimesh
 
@@ -61,17 +62,30 @@ class SmoothGLView(GLViewWidget):
     GLViewWidget con navegación simplificada de 3 inputs:
     - Control + Arrastre: Pan (funcionalidad de la manita)
     - Scroll del mouse: Zoom infinito suave
-    - Arrastre del mouse: Giro / órbita de cámara
+    - Arrastre del mouse: Giro / órbita de cámara libre en 360°
     """
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFocusPolicy(Qt.StrongFocus)
         self.setMouseTracking(True)
+        self.setBackgroundColor(pg.mkColor(32, 32, 37))
         self._last_mouse_pos = None
+
+    def orbit(self, azim: float, elev: float):
+        """
+        Órbita libre continua en 360 grados sin topes invisibles ni restricciones artificiales.
+        """
+        self.opts['elevation'] = (self.opts['elevation'] + elev) % 360.0
+        self.opts['azimuth'] = (self.opts['azimuth'] + azim) % 360.0
+        self.update()
 
     def set_view_top(self):
         """Vista superior alineada (desde arriba en Z, estilo Blender Numpad 7)."""
         self.setCameraPosition(elevation=89.99, azimuth=-90.0)
+
+    def set_view_bottom(self):
+        """Vista inferior alineada (desde abajo en Z, estilo Blender Ctrl+Numpad 7)."""
+        self.setCameraPosition(elevation=269.99, azimuth=-90.0)
 
     def set_view_side(self):
         """Vista lateral alineada (desde el lado YZ, estilo Blender Numpad 3)."""
@@ -89,7 +103,10 @@ class SmoothGLView(GLViewWidget):
         if ev.key() == Qt.Key_Control:
             self.setCursor(Qt.OpenHandCursor)
         if ev.key() in (Qt.Key_7, Qt.Key_T):
-            self.set_view_top()
+            if ev.modifiers() & Qt.ControlModifier:
+                self.set_view_bottom()
+            else:
+                self.set_view_top()
             ev.accept()
             return
         elif ev.key() in (Qt.Key_3, Qt.Key_L):
@@ -391,6 +408,7 @@ class SlicedGLView(SmoothGLView):
             vertexes=verts,
             faces=faces,
             smooth=True,
+            computeNormals=False,
             drawEdges=True,
             edgeColor=(0.15, 0.1, 0.05, 0.8),
             glOptions='translucent'
@@ -541,6 +559,7 @@ class SlicedGLView(SmoothGLView):
                     self.select_disc(clicked_disc.id)
                     self._is_dragging_disc = True
                     self._drag_disc_id = clicked_disc.id
+                    self.disc_manager._save_snapshot()
                     event.accept()
                     return
 
@@ -691,7 +710,10 @@ class SlicedGLView(SmoothGLView):
         if event.key() == Qt.Key_Control:
             self.setCursor(Qt.OpenHandCursor)
         if event.key() in (Qt.Key_7, Qt.Key_T):
-            self.set_view_top()
+            if event.modifiers() & Qt.ControlModifier:
+                self.set_view_bottom()
+            else:
+                self.set_view_top()
             event.accept()
             return
         elif event.key() in (Qt.Key_3, Qt.Key_L):
@@ -718,7 +740,32 @@ class SlicedGLView(SmoothGLView):
             if self.delete_selected_disc():
                 event.accept()
                 return
+        elif event.key() == Qt.Key_Z and (event.modifiers() & Qt.ControlModifier):
+            if event.modifiers() & Qt.ShiftModifier:
+                self.redo()
+            else:
+                self.undo()
+            event.accept()
+            return
+        elif event.key() == Qt.Key_Y and (event.modifiers() & Qt.ControlModifier):
+            self.redo()
+            event.accept()
+            return
         super().keyPressEvent(event)
+
+    def undo(self):
+        if self.disc_manager and self.disc_manager.undo():
+            self.deselect_disc()
+            self.update_discs_render()
+            self.discs_changed.emit()
+            self.status_message.emit("Acción deshecha (Deshacer).")
+
+    def redo(self):
+        if self.disc_manager and self.disc_manager.redo():
+            self.deselect_disc()
+            self.update_discs_render()
+            self.discs_changed.emit()
+            self.status_message.emit("Acción rehecha (Rehacer).")
 
     def keyReleaseEvent(self, event):
         if event.key() == Qt.Key_Control:
@@ -735,53 +782,49 @@ class SlicedGLView(SmoothGLView):
 
 class SculptureViewer(QWidget):
     """
-    Widget con dos vistas lado a lado:
-    - izquierda: mesh original (view_original)
-    - derecha: placas rebanadas y herramientas interactivas de discos 3D (view_sliced)
+    Visor 3D unificado para Escultura de Planos Seriados.
+    Proporciona un viewport amplio a pantalla completa con navegación 360°,
+    slider rápido de pisos, herramientas interactivas de discos, grilla CAD
+    y la capacidad de alternar o superponer la malla 3D original.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.disc_manager: Optional[DiscManager] = None
+        self._mesh: Optional[trimesh.Trimesh] = None
+        self._mesh_item: Optional[GLMeshItem] = None
+        self._showing_slices: bool = False
         self._setup_layout()
 
     def _setup_layout(self):
-        main_layout = QHBoxLayout(self)
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Vista izquierda — modelo original
-        self.view_original = SmoothGLView()
-        self.view_original.setWindowTitle("Modelo Original")
+        # Contenedor superior de herramientas
+        toolbar_frame = QFrame()
+        toolbar_vbox = QVBoxLayout(toolbar_frame)
+        toolbar_vbox.setContentsMargins(10, 6, 10, 6)
+        toolbar_vbox.setSpacing(6)
 
-        # Contenedor derecho: barra de herramientas superior + vista rebanada
-        right_container = QWidget()
-        right_layout = QVBoxLayout(right_container)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(4)
-
-        # Barra de herramientas del visor 3D (2 filas compactas)
+        # Fila 1: Navegación de pisos y herramientas de discos
         toolbar_row1 = QHBoxLayout()
-        toolbar_row1.setContentsMargins(6, 2, 6, 2)
+        toolbar_row1.setContentsMargins(0, 0, 0, 0)
         toolbar_row1.setSpacing(6)
 
         self.lbl_floor = QLabel("Piso activo: 0 / 0")
-        self.lbl_floor.setStyleSheet("font-weight: bold; min-width: 125px;")
 
         self.btn_prev_floor = QPushButton("◀ Piso ant.")
+        self.btn_prev_floor.setToolTip("Subir/bajar al piso anterior (Tecla S o Flecha Abajo)")
+
         self.btn_next_floor = QPushButton("Piso sig. ▶")
+        self.btn_next_floor.setToolTip("Ir al piso siguiente (Tecla W o Flecha Arriba)")
 
         self.btn_solo_piso = QPushButton("Solo piso activo")
         self.btn_solo_piso.setCheckable(True)
 
         self.btn_poner_discos = QPushButton("Poner discos")
         self.btn_poner_discos.setCheckable(True)
-        self.btn_poner_discos.setStyleSheet("""
-            QPushButton:checked {
-                background-color: #e65100;
-                color: white;
-                font-weight: bold;
-            }
-        """)
 
         # Control de diámetro de disco seleccionado
         self.lbl_diam = QLabel("Ø disco:")
@@ -796,6 +839,19 @@ class SculptureViewer(QWidget):
         self.btn_delete_disc = QPushButton("🗑 Borrar disco")
         self.btn_delete_disc.setEnabled(False)
 
+        # Botones Deshacer y Rehacer
+        self.btn_undo = QPushButton("↩")
+        self.btn_undo.setToolTip("Deshacer disco (Ctrl+Z)")
+        self.btn_undo.setFixedWidth(32)
+        self.btn_redo = QPushButton("↪")
+        self.btn_redo.setToolTip("Rehacer disco (Ctrl+Y)")
+        self.btn_redo.setFixedWidth(32)
+
+        # Botón toggle para alternar o superponer el modelo 3D original
+        self.btn_toggle_mesh = QPushButton("👁 Ver modelo original")
+        self.btn_toggle_mesh.setCheckable(True)
+        self.btn_toggle_mesh.setToolTip("Superpone o alterna la malla 3D original con las placas rebanadas")
+
         toolbar_row1.addWidget(self.lbl_floor)
         toolbar_row1.addWidget(self.btn_prev_floor)
         toolbar_row1.addWidget(self.btn_next_floor)
@@ -804,15 +860,18 @@ class SculptureViewer(QWidget):
         toolbar_row1.addWidget(self.lbl_diam)
         toolbar_row1.addWidget(self.spin_selected_diam)
         toolbar_row1.addWidget(self.btn_delete_disc)
+        toolbar_row1.addWidget(self.btn_undo)
+        toolbar_row1.addWidget(self.btn_redo)
         toolbar_row1.addStretch(1)
+        toolbar_row1.addWidget(self.btn_toggle_mesh)
 
         # Fila 2: Botones de vistas predefinidas y ayuda de navegación
         toolbar_row2 = QHBoxLayout()
-        toolbar_row2.setContentsMargins(6, 2, 6, 2)
-        toolbar_row2.setSpacing(4)
+        toolbar_row2.setContentsMargins(0, 0, 0, 0)
+        toolbar_row2.setSpacing(6)
 
-        lbl_vistas = QLabel("Vistas:")
-        lbl_vistas.setStyleSheet("font-weight: bold; color: #444;")
+        lbl_vistas = QLabel("Cámara:")
+        lbl_vistas.setStyleSheet("font-weight: bold;")
 
         self.btn_view_top = QPushButton("⬆ Arriba (7)")
         self.btn_view_top.setToolTip("Vista superior alineada (Numpad 7 o Tecla T)")
@@ -823,30 +882,33 @@ class SculptureViewer(QWidget):
         self.btn_view_front = QPushButton("⏺ Frente (1)")
         self.btn_view_front.setToolTip("Vista frontal alineada (Numpad 1 o Tecla F)")
 
+        self.btn_view_bottom = QPushButton("⬇ Abajo (Ctrl+7)")
+        self.btn_view_bottom.setToolTip("Vista inferior alineada (Ctrl+Numpad 7)")
+
         self.btn_view_3d = QPushButton("🔄 3D (0)")
         self.btn_view_3d.setToolTip("Vista perspectiva 3D (Numpad 0 o Tecla P)")
 
-        self.lbl_status = QLabel("Ctrl: Pan manita | Scroll: Zoom | Arrastre: Girar libremente")
+        self.lbl_status = QLabel("Ctrl + Arrastre: Pan | Scroll: Zoom | Arrastre libre: Órbita 360°")
         self.lbl_status.setStyleSheet("color: #666; font-size: 11px;")
 
         toolbar_row2.addWidget(lbl_vistas)
         toolbar_row2.addWidget(self.btn_view_top)
         toolbar_row2.addWidget(self.btn_view_side)
         toolbar_row2.addWidget(self.btn_view_front)
+        toolbar_row2.addWidget(self.btn_view_bottom)
         toolbar_row2.addWidget(self.btn_view_3d)
         toolbar_row2.addSpacing(10)
         toolbar_row2.addWidget(self.lbl_status, stretch=1)
 
-        right_layout.addLayout(toolbar_row1)
-        right_layout.addLayout(toolbar_row2)
+        toolbar_vbox.addLayout(toolbar_row1)
+        toolbar_vbox.addLayout(toolbar_row2)
+        main_layout.addWidget(toolbar_frame)
 
-        # Vista derecha interactiva
+        # Visor 3D único y espacioso
         self.view_sliced = SlicedGLView()
-        self.view_sliced.setWindowTitle("Resultado Rebanado")
-        right_layout.addWidget(self.view_sliced, stretch=1)
-
-        main_layout.addWidget(self.view_original, stretch=1)
-        main_layout.addWidget(right_container, stretch=1)
+        self.view_sliced.setWindowTitle("Visor 3D")
+        self.view_original = self.view_sliced  # Alias para compatibilidad con código existente
+        main_layout.addWidget(self.view_sliced, stretch=1)
 
         # Conectar controles con view_sliced
         self.btn_prev_floor.clicked.connect(self.view_sliced.prev_floor)
@@ -854,11 +916,15 @@ class SculptureViewer(QWidget):
         self.btn_solo_piso.toggled.connect(self._on_solo_piso_toggled)
         self.btn_poner_discos.toggled.connect(self._on_poner_discos_toggled)
         self.btn_delete_disc.clicked.connect(self.view_sliced.delete_selected_disc)
+        self.btn_undo.clicked.connect(self.view_sliced.undo)
+        self.btn_redo.clicked.connect(self.view_sliced.redo)
         self.spin_selected_diam.valueChanged.connect(self._on_selected_diam_changed)
+        self.btn_toggle_mesh.toggled.connect(self._on_toggle_mesh_toggled)
 
         self.btn_view_top.clicked.connect(self.view_sliced.set_view_top)
         self.btn_view_side.clicked.connect(self.view_sliced.set_view_side)
         self.btn_view_front.clicked.connect(self.view_sliced.set_view_front)
+        self.btn_view_bottom.clicked.connect(self.view_sliced.set_view_bottom)
         self.btn_view_3d.clicked.connect(self.view_sliced.set_view_3d)
 
         self.view_sliced.floor_changed.connect(self._update_floor_label)
@@ -871,6 +937,9 @@ class SculptureViewer(QWidget):
 
     def set_default_disc_diameter(self, diameter: float):
         self.view_sliced.default_disc_diameter = diameter
+
+    def _on_slider_floor_changed(self, value: int):
+        self.view_sliced.set_active_floor(value)
 
     def _on_solo_piso_toggled(self, checked: bool):
         self.view_sliced.set_only_active_floor(checked)
@@ -907,9 +976,27 @@ class SculptureViewer(QWidget):
         else:
             self.lbl_floor.setText("Piso activo: 0 / 0")
 
+    def _on_toggle_mesh_toggled(self, checked: bool):
+        """Alterna visibilidad de la malla original sobre el visor."""
+        if self._mesh_item is None:
+            return
+        if checked:
+            self._mesh_item.setVisible(True)
+            self.btn_toggle_mesh.setText("👁 Ocultar malla original")
+        else:
+            # Si estamos mostrando placas cortadas, ocultar la malla
+            if self._showing_slices:
+                self._mesh_item.setVisible(False)
+                self.btn_toggle_mesh.setText("👁 Ver modelo original")
+            else:
+                self._mesh_item.setVisible(True)
+                self.btn_toggle_mesh.setText("👁 Modelo original")
+
     def show_original_mesh(self, mesh: trimesh.Trimesh):
-        """Renderiza el mesh original en la vista izquierda."""
-        self.view_original.clear()
+        """Renderiza el mesh original en el visor único."""
+        self._mesh = mesh
+        self._showing_slices = False
+        self.view_sliced.clear()
 
         verts = mesh.vertices.astype(np.float32)
         faces = mesh.faces.astype(np.uint32)
@@ -917,25 +1004,44 @@ class SculptureViewer(QWidget):
         colors[:, :3] = [0.7, 0.85, 1.0]
         colors[:, 3] = 0.7
 
-        mesh_item = GLMeshItem(
+        self._mesh_item = GLMeshItem(
             vertexes=verts,
             faces=faces,
             faceColors=colors,
             smooth=True,
+            computeNormals=False,  # sin shader las normales no se usan; pyqtgraph las calcula con un bucle Python (6 s en 450k caras)
             drawEdges=True,
             edgeColor=(0.3, 0.5, 0.8, 1.0),
             glOptions='translucent'
         )
-        self.view_original.addItem(mesh_item)
-        self._fit_camera(self.view_original, mesh.bounding_box)
+        self.view_sliced.addItem(self._mesh_item)
+        self._fit_camera(self.view_sliced, mesh.bounding_box)
+
+        # Ajustar controles para modo vista previa de malla
+        self.lbl_floor.setText("Vista Previa 3D")
+        self.btn_prev_floor.setEnabled(False)
+        self.btn_next_floor.setEnabled(False)
+        self.btn_solo_piso.setEnabled(False)
+        self.btn_poner_discos.setEnabled(False)
+        self.btn_toggle_mesh.setChecked(False)
+        self.btn_toggle_mesh.setEnabled(False)
+        self.lbl_status.setText("Modelo 3D cargado. Ajustá los parámetros y presioná 'Aplicar corte'.")
 
     def show_sliced_result(self, result: SliceResult, thickness: float, gap: float) -> int:
         """
-        Renderiza las placas como sólidos extruidos y prepara la interacción 3D.
+        Renderiza las placas rebanadas como sólidos extruidos en el visor principal.
         Retorna el conteo de polígonos que cayeron a wireframe.
         """
+        self._showing_slices = True
         self.view_sliced.clear()
+        self._mesh_item = None
         wireframe_count = 0
+
+        # Habilitar controles de corte y discos
+        self.btn_prev_floor.setEnabled(True)
+        self.btn_next_floor.setEnabled(True)
+        self.btn_solo_piso.setEnabled(True)
+        self.btn_poner_discos.setEnabled(True)
 
         valid_plates = [plist for plist in result.polygons if plist is not None]
         self.view_sliced.plates_polygons = valid_plates
@@ -966,6 +1072,7 @@ class SculptureViewer(QWidget):
                     vertexes=verts,
                     faces=faces,
                     smooth=False,
+                    computeNormals=False,
                     drawEdges=True,
                     edgeColor=(0.0, 0.0, 0.0, 0.5),
                     glOptions='translucent'
@@ -973,6 +1080,38 @@ class SculptureViewer(QWidget):
                 item.setColor((*base_rgb, 1.0))
                 self.view_sliced.addItem(item)
                 self.view_sliced._plate_items.append((i, item, base_rgb))
+
+        # Crear y añadir la malla original como item superpuesto transparente
+        if self._mesh is not None:
+            # Escalar y alinear la malla igual que el rebanado para que coincida exactamente
+            m_copy = self._mesh.copy()
+            m_copy.vertices -= m_copy.bounds.mean(axis=0)
+            m_copy.apply_scale(result.auto_scale)
+            # Alinear base de la malla con la base de las placas (z = 0)
+            min_z = float(m_copy.bounds[0][2])
+            m_copy.apply_translation([0.0, 0.0, -min_z])
+
+            verts = m_copy.vertices.astype(np.float32)
+            faces = m_copy.faces.astype(np.uint32)
+            colors = np.ones((len(faces), 4), dtype=np.float32)
+            colors[:, :3] = [0.75, 0.88, 1.0]
+            colors[:, 3] = 0.22  # Silueta fantasma transparente
+
+            self._mesh_item = GLMeshItem(
+                vertexes=verts,
+                faces=faces,
+                faceColors=colors,
+                smooth=True,
+                computeNormals=False,
+                drawEdges=True,
+                edgeColor=(0.4, 0.6, 0.9, 0.35),
+                glOptions='translucent'
+            )
+            self._mesh_item.setVisible(False)
+            self.view_sliced.addItem(self._mesh_item)
+            self.btn_toggle_mesh.setEnabled(True)
+            self.btn_toggle_mesh.setChecked(False)
+            self.btn_toggle_mesh.setText("👁 Ver modelo original")
 
         self.view_sliced.set_active_floor(0)
         self._update_floor_label(0)
@@ -1008,3 +1147,5 @@ class SculptureViewer(QWidget):
         extent = max(max_x - min_x, max_y - min_y, result.assembled_height, 1.0)
         view.setCameraPosition(distance=extent * 2.0, elevation=30, azimuth=45)
         view.opts['center'] = pg.Vector(float(center_x), float(center_y), float(center_z))
+
+

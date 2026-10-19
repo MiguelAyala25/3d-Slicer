@@ -8,6 +8,7 @@ import os
 from typing import Optional
 import trimesh
 import json
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMainWindow, QHBoxLayout, QWidget, QFileDialog, QMessageBox
 
 from validator import validate_file, validate_params, validate_mesh
@@ -76,24 +77,40 @@ class MainWindow(QMainWindow):
             self.panel.show_error(msg)
             return
 
-        # 2. Cargar mesh
+        # 2. Cargar mesh (UNA sola lectura del archivo; antes se leía dos veces)
+        self.panel.lbl_file.setText("Cargando modelo…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
         try:
-            mesh = trimesh.load(path, force='mesh')
-            if isinstance(mesh, trimesh.Scene):
-                if len(mesh.geometry) == 0:
+            n_objects = 1
+            try:
+                loaded = trimesh.load(path)
+            except Exception:
+                loaded = None
+
+            if isinstance(loaded, trimesh.Scene):
+                geoms = [g for g in loaded.dump() if isinstance(g, trimesh.Trimesh)]
+                n_objects = len(loaded.geometry)
+                if not geoms:
+                    QApplication.restoreOverrideCursor()
                     self.panel.show_error("El modelo cargado no tiene geometría (0 vértices).")
                     return
-                mesh = trimesh.util.concatenate(list(mesh.geometry.values()))
-        except Exception:
-            self.panel.show_error("No se pudo leer el archivo. Verificá que sea un OBJ o STL válido.")
-            return
+                mesh = geoms[0] if len(geoms) == 1 else trimesh.util.concatenate(geoms)
+            else:
+                mesh = loaded
 
-        if mesh is None or not isinstance(mesh, trimesh.Trimesh):
-            self.panel.show_error("No se pudo leer el archivo. Verificá que sea un OBJ o STL válido.")
-            return
+            if mesh is None or not isinstance(mesh, trimesh.Trimesh):
+                QApplication.restoreOverrideCursor()
+                self.panel.show_error("No se pudo leer el archivo. Verificá que sea un OBJ o STL válido.")
+                return
 
-        # 3. Validar mesh
-        ok, msg, repaired = validate_mesh(mesh)
+            # 3. Validar mesh
+            ok, msg, repaired = validate_mesh(mesh)
+        finally:
+            # restoreOverrideCursor es idempotente si ya no hay override activo
+            while QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+
         if not ok:
             self.panel.show_error(msg)
             return
@@ -112,19 +129,14 @@ class MainWindow(QMainWindow):
                 f"Podría estar en metros. Verificá las unidades del archivo."
             )
 
-        # Detección informativa sobre múltiples objetos
+        # Detección informativa sobre múltiples objetos (sin releer el archivo)
         multi_obj_warning = ""
-        try:
-            scene = trimesh.load(path)
-            if hasattr(scene, 'geometry') and len(scene.geometry) > 1:
-                n_objs = len(scene.geometry)
-                multi_obj_warning = (
-                    f"El archivo contiene {n_objs} objetos. Se usarán todos. "
-                    f"Si hay objetos no deseados (suelo, luces), limpiá el modelo "
-                    f"en Blender y dejá solo el objeto deseado."
-                )
-        except Exception:
-            pass  # Si falla la detección, el mesh ya se cargó correctamente
+        if n_objects > 1:
+            multi_obj_warning = (
+                f"El archivo contiene {n_objects} objetos. Se usarán todos. "
+                f"Si hay objetos no deseados (suelo, luces), limpiá el modelo "
+                f"en Blender y dejá solo el objeto deseado."
+            )
 
         # 4. Guardar y mostrar en el visor
         self._mesh = mesh
@@ -195,9 +207,15 @@ class MainWindow(QMainWindow):
 
         # Guardar resultado y actualizar UI
         self._result = result
-        self._current_params = p
 
-        self.disc_manager.clear()
+        # Si ya había discos, solo remover los que queden fuera del rango de placas
+        max_valid_gap = p.plates - 2
+        if len(self.disc_manager.discs) > 0:
+            self.disc_manager.discs = [
+                d for d in self.disc_manager.discs if d.hueco <= max_valid_gap
+            ]
+
+        self._current_params = p
         self.viewer.set_default_disc_diameter(p.disc_diameter)
         self.panel.set_result_info(result, p.plates, p.gap, p.thickness)
         wireframe_count = self.viewer.show_sliced_result(result, p.thickness, p.gap)
@@ -255,7 +273,8 @@ class MainWindow(QMainWindow):
                 plates=p.plates,
                 thickness=p.thickness,
                 gap=p.gap,
-                disc_manager=self.disc_manager
+                disc_manager=self.disc_manager,
+                axis=p.axis
             )
             QMessageBox.information(self, "Guardado exitoso", f"Proyecto guardado correctamente en:\n{path}")
         except Exception as e:
@@ -265,7 +284,9 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, "Cargar proyecto", "", "Proyecto JSON (*.json)")
         if not path:
             return
+        self._load_project_from_path(path)
 
+    def _load_project_from_path(self, path: str):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -276,10 +297,17 @@ class MainWindow(QMainWindow):
         loaded_plates = int(data.get("plates", 10))
         loaded_gap = float(data.get("gap", 3.0))
         loaded_thickness = float(data.get("thickness", 3.0))
+        loaded_axis = str(data.get("axis", "z")).lower()
 
         current_plates = self.panel.spin_plates.value()
         current_gap = self.panel.spin_gap.value()
-        is_compatible = check_params_compatibility(loaded_plates, loaded_gap, current_plates, current_gap)
+        axis_map_rev = {'z': 0, 'x': 1, 'y': 2}
+        current_axis = ['z', 'x', 'y'][self.panel.combo_axis.currentIndex()]
+
+        is_compatible = check_params_compatibility(
+            loaded_plates, loaded_gap, current_plates, current_gap,
+            loaded_axis=loaded_axis, current_axis=current_axis
+        )
 
         if not is_compatible:
             reply = QMessageBox.question(
@@ -295,6 +323,8 @@ class MainWindow(QMainWindow):
             self.panel.spin_plates.setValue(loaded_plates)
             self.panel.spin_thickness.setValue(loaded_thickness)
             self.panel.spin_gap.setValue(loaded_gap)
+            if loaded_axis in axis_map_rev:
+                self.panel.combo_axis.setCurrentIndex(axis_map_rev[loaded_axis])
 
             if self._mesh is not None:
                 self._on_params_changed()

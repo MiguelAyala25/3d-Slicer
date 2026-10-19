@@ -433,4 +433,43 @@ def test_sculpture_viewer_view_buttons():
     viewer.btn_view_3d.click()
     assert abs(viewer.view_sliced.opts['elevation'] - 30.0) < 0.05
 
+    # Click en botón Vista Abajo
+    viewer.btn_view_bottom.click()
+    assert abs(viewer.view_sliced.opts['elevation'] - 269.99) < 0.05
+
+
+def test_mesh_overlay_and_undo_buttons():
+    import trimesh
+    from slicer import slice_mesh
+    mesh = trimesh.creation.box(extents=[50, 50, 50])
+    res = slice_mesh(mesh, plates=5, gap=3.0, thickness=3.0, axis='z')
+
+    viewer = SculptureViewer()
+    dm = DiscManager()
+    viewer.set_disc_manager(dm)
+    viewer.show_original_mesh(mesh)
+    assert viewer._mesh_item is not None
+    assert viewer._mesh_item.opts['computeNormals'] is False
+    assert not viewer.btn_toggle_mesh.isEnabled()
+
+    viewer.show_sliced_result(res, thickness=3.0, gap=3.0)
+    assert viewer.btn_toggle_mesh.isEnabled()
+    assert viewer._mesh_item.opts['computeNormals'] is False
+
+    # Toggle mesh overlay
+    viewer.btn_toggle_mesh.click()
+    assert viewer.btn_toggle_mesh.isChecked()
+    assert viewer._mesh_item.visible()
+    viewer.btn_toggle_mesh.click()
+    assert not viewer.btn_toggle_mesh.isChecked()
+    assert not viewer._mesh_item.visible()
+
+    # Undo/Redo via buttons
+    dm.add_disc(0, 0.0, 0.0, 20.0)
+    assert viewer.btn_undo.isEnabled()
+    viewer.btn_undo.click()
+    assert len(dm.discs) == 0
+    assert viewer.btn_redo.isEnabled()
+    viewer.btn_redo.click()
+    assert len(dm.discs) == 1
 

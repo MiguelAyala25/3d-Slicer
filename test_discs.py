@@ -110,3 +110,25 @@ def test_total_independence_edit_move_delete():
     manager.remove_disc(id1)
     assert manager.get_disc(id1) is None
     assert manager.get_disc(id2) is not None
+
+
+def test_undo_and_redo():
+    manager = DiscManager()
+    id1 = manager.add_disc(hueco=0, x=10.0, y=10.0, diameter=6.0)
+    assert len(manager.discs) == 1
+
+    # Deshacer creación de disco
+    assert manager.undo() is True
+    assert len(manager.discs) == 0
+
+    # Rehacer creación de disco
+    assert manager.redo() is True
+    assert len(manager.discs) == 1
+    assert manager.get_disc(id1) is not None
+
+    # Modificar diámetro y deshacer
+    manager.set_diameter(id1, 12.0)
+    assert manager.get_disc(id1).diameter == 12.0
+    manager.undo()
+    assert manager.get_disc(id1).diameter == 6.0
+

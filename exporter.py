@@ -20,6 +20,7 @@ Reglas del proyecto:
 """
 
 from typing import Tuple, List, Optional
+import math
 import os
 import svgwrite
 import ezdxf
@@ -34,6 +35,17 @@ from layout import SheetLayout, LayoutResult, compute_layout
 def _clean_poly_points(coords) -> List[Tuple[float, float]]:
     """Convierte coordenadas a lista de tuplas (x, y) float, omitiendo punto final redundante."""
     pts = [(float(x), float(y)) for x, y in coords]
+    if len(pts) > 1 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    return pts
+
+
+def _clean_poly_points_dxf(coords, sheet_h: float) -> List[Tuple[float, float]]:
+    """
+    Convierte coordenadas a lista de tuplas (x, sheet_h - y) float para DXF (inversión de eje Y),
+    omitiendo punto final redundante.
+    """
+    pts = [(float(x), float(sheet_h) - float(y)) for x, y in coords]
     if len(pts) > 1 and pts[0] == pts[-1]:
         pts = pts[:-1]
     return pts
@@ -257,13 +269,29 @@ def sheet_to_dxf(sheet: SheetLayout) -> ezdxf.document.Drawing:
     """
     Genera un objeto Drawing de ezdxf con las capas CORTE y GRABADO
     para corte láser a escala 1:1 en milímetros.
+    Aplica inversión del eje Y (y_dxf = sheet_h - y) para compatibilidad con el sistema
+    cartesiano estándar de CAD/DXF e Inkscape, define límites reales ($EXTMIN, $EXTMAX)
+    y segmenta círculos punteados en arcos reales para compatibilidad total con corte láser.
     """
     doc = ezdxf.new("R2010", setup=True)
     doc.header['$INSUNITS'] = 4  # 4 = mm
     doc.header['$MEASUREMENT'] = 1  # 1 = Métrico
     doc.header['$LIMMIN'] = (0.0, 0.0)
-    doc.header['$LIMMAX'] = (float(sheet.sheet_w), float(sheet.sheet_h))
+    sheet_w_val = float(sheet.sheet_w)
+    sheet_h_val = float(sheet.sheet_h)
+    doc.header['$EXTMIN'] = (0.0, 0.0, 0.0)
+    doc.header['$EXTMAX'] = (sheet_w_val, sheet_h_val, 0.0)
+    doc.header['$LTSCALE'] = 1.0
 
+    # ezdxf reescribe $EXTMIN y $EXTMAX en doc.update_extents() al guardar con los límites del modelspace
+    # (que por defecto son 1e20 y -1e20). Aseguramos que se mantengan las dimensiones reales de la lámina:
+    def _apply_real_extents():
+        doc.header['$EXTMIN'] = (0.0, 0.0, 0.0)
+        doc.header['$EXTMAX'] = (sheet_w_val, sheet_h_val, 0.0)
+
+    doc.update_extents = _apply_real_extents
+
+    sh = sheet_h_val
     msp = doc.modelspace()
 
     # Capas estándar de corte láser:
@@ -280,24 +308,24 @@ def sheet_to_dxf(sheet: SheetLayout) -> ezdxf.document.Drawing:
         doc.layers.get("GRABADO").color = 5
 
     # 1. ELEMENTOS DE CORTE (Rojo)
-    # Contornos de placas (exteriores e interiores/huecos)
+    # Contornos de placas (exteriores e interiores/huecos) con Y invertida
     for plate in sheet.placed_plates:
         for polygon in plate.polygons:
-            ext_pts = _clean_poly_points(polygon.exterior.coords)
+            ext_pts = _clean_poly_points_dxf(polygon.exterior.coords, sh)
             if len(ext_pts) >= 2:
                 msp.add_lwpolyline(ext_pts, close=True, dxfattribs={"layer": "CORTE", "color": 1})
 
             for interior in polygon.interiors:
-                int_pts = _clean_poly_points(interior.coords)
+                int_pts = _clean_poly_points_dxf(interior.coords, sh)
                 if len(int_pts) >= 2:
                     msp.add_lwpolyline(int_pts, close=True, dxfattribs={"layer": "CORTE", "color": 1})
 
-    # Círculos de corte de discos (con kerf compensado)
+    # Círculos de corte de discos (con kerf compensado) con Y invertida
     for group in sheet.disc_groups:
         for disc in group.discs:
             r = float(disc.cut_diameter) / 2.0
             msp.add_circle(
-                center=(float(disc.center_x), float(disc.center_y)),
+                center=(float(disc.center_x), sh - float(disc.center_y)),
                 radius=r,
                 dxfattribs={"layer": "CORTE", "color": 1}
             )
@@ -307,16 +335,35 @@ def sheet_to_dxf(sheet: SheetLayout) -> ezdxf.document.Drawing:
         # Círculos grabados en placas (sólidos para hueco k, punteados para hueco k-1)
         for circle_info in plate.engrave_circles:
             r = float(circle_info.diameter) / 2.0
-            dxfattribs = {"layer": "GRABADO", "color": 5}
+            cx = float(circle_info.center_x)
+            cy = sh - float(circle_info.center_y)
             if circle_info.is_dashed:
-                dxfattribs["linetype"] = "DASHED"
-            msp.add_circle(
-                center=(float(circle_info.center_x), float(circle_info.center_y)),
-                radius=r,
-                dxfattribs=dxfattribs
-            )
+                # Círculo punteado: segmentar en arcos reales para compatibilidad total con Inkscape y láser
+                circ = 2.0 * math.pi * r
+                dash_len = 1.5
+                gap_len = 1.0
+                period = dash_len + gap_len
+                num_segments = max(4, round(circ / period))
+                step_deg = 360.0 / num_segments
+                dash_deg = step_deg * (dash_len / period)
+                for seg_i in range(num_segments):
+                    start_angle = seg_i * step_deg
+                    end_angle = start_angle + dash_deg
+                    msp.add_arc(
+                        center=(cx, cy),
+                        radius=r,
+                        start_angle=start_angle,
+                        end_angle=end_angle,
+                        dxfattribs={"layer": "GRABADO", "color": 5}
+                    )
+            else:
+                msp.add_circle(
+                    center=(cx, cy),
+                    radius=r,
+                    dxfattribs={"layer": "GRABADO", "color": 5}
+                )
 
-        # Scrap Tag en material sobrante (rótulo y flecha indicadora)
+        # Scrap Tag en material sobrante (rótulo y flecha indicadora) con Y invertida
         if getattr(plate, 'scrap_tag', None) is not None:
             st = plate.scrap_tag
             txt = msp.add_text(
@@ -328,12 +375,12 @@ def sheet_to_dxf(sheet: SheetLayout) -> ezdxf.document.Drawing:
                 }
             )
             txt.set_placement(
-                (float(st.text_pos[0]), float(st.text_pos[1])),
+                (float(st.text_pos[0]), sh - float(st.text_pos[1])),
                 align=TextEntityAlignment.MIDDLE_CENTER
             )
             msp.add_line(
-                start=(float(st.arrow_start[0]), float(st.arrow_start[1])),
-                end=(float(st.arrow_end[0]), float(st.arrow_end[1])),
+                start=(float(st.arrow_start[0]), sh - float(st.arrow_start[1])),
+                end=(float(st.arrow_end[0]), sh - float(st.arrow_end[1])),
                 dxfattribs={"layer": "GRABADO", "color": 5}
             )
 
@@ -349,16 +396,21 @@ def sheet_to_dxf(sheet: SheetLayout) -> ezdxf.document.Drawing:
             }
         )
         txt.set_placement(
-            (float(group.label_pos[0]), float(group.label_pos[1])),
+            (float(group.label_pos[0]), sh - float(group.label_pos[1])),
             align=TextEntityAlignment.TOP_LEFT
         )
 
-        # Recuadro perimetral grabado de la bandeja de discos
+        # Recuadro perimetral grabado de la bandeja de discos con Y invertida
         if hasattr(group, 'bounds') and group.bounds != (0.0, 0.0, 0.0, 0.0):
             gx, gy, g_maxx, g_maxy = group.bounds
             gw = max(1.0, g_maxx - gx)
             gh = max(1.0, g_maxy - gy)
-            rect_pts = [(gx, gy), (gx + gw, gy), (gx + gw, gy + gh), (gx, gy + gh)]
+            rect_pts = [
+                (gx, sh - gy),
+                (gx + gw, sh - gy),
+                (gx + gw, sh - (gy + gh)),
+                (gx, sh - (gy + gh))
+            ]
             msp.add_lwpolyline(
                 rect_pts,
                 close=True,

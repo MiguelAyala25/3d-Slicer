@@ -58,7 +58,7 @@ def test_file_validations():
         if os.path.exists(temp_txt):
             os.remove(temp_txt)
 
-    # 1.3 Extensión válida (.obj y .stl)
+    # 1.3 Extensión válida (.obj, .stl, .3mf, .ply)
     temp_obj = "temp_valid.obj"
     with open(temp_obj, "w", encoding="utf-8") as f:
         f.write("# valid dummy obj\nv 0 0 0\n")
@@ -68,6 +68,17 @@ def test_file_validations():
     finally:
         if os.path.exists(temp_obj):
             os.remove(temp_obj)
+
+    for ext in (".stl", ".3mf", ".ply"):
+        temp_path = f"temp_valid{ext}"
+        box = trimesh.creation.box(extents=[10, 10, 10])
+        box.export(temp_path)
+        try:
+            ok, msg = validate_file(temp_path)
+            assert ok and msg == "", f"Debe pasar con extension {ext}: {msg}"
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
 
     print("[OK] Validaciones de archivo verificadas.")
 
@@ -144,6 +155,30 @@ def test_mesh_validations():
     assert ok and msg == "" and not repaired
 
     print("[OK] Validaciones de mesh verificadas.")
+
+
+def test_validate_mesh_large_multibody_is_fast():
+    import time
+    # 60 cajas abiertas separadas → 60 piezas > REPAIR_MAX_BODIES (50)
+    parts = []
+    for i in range(60):
+        b = trimesh.creation.box(extents=[1, 1, 1])
+        b = trimesh.Trimesh(vertices=b.vertices + [i * 3, 0, 0], faces=b.faces[:-1])
+        parts.append(b)
+    mesh = trimesh.util.concatenate(parts)
+    n_faces_before = len(mesh.faces)
+
+    t0 = time.perf_counter()
+    ok, msg, repaired = validate_mesh(mesh)
+    elapsed = time.perf_counter() - t0
+
+    assert ok
+    assert not repaired
+    assert "huecos que no pudieron repararse" in msg
+    assert "se omitió la reparación automática" in msg
+    assert len(mesh.faces) == n_faces_before, "No debe mutar la malla cuando se omite la reparación"
+    assert elapsed < 2.0, f"validate_mesh tardó {elapsed:.2f}s"
+    print("[OK] test_validate_mesh_large_multibody_is_fast completado velozmente.")
 
 
 def test_slicer_error_cases():
@@ -354,9 +389,11 @@ def test_main_window_ux_and_error_table():
                     os.remove(giant_obj)
 
             # CASO 14: Archivo con múltiples objetos (Info en panel)
-            mock_scene = MagicMock()
-            mock_scene.geometry = {"obj1": trimesh.creation.box(), "obj2": trimesh.creation.box()}
-            with patch("trimesh.load", side_effect=[good_box, mock_scene]):
+            box_a = trimesh.creation.box(extents=[10, 10, 10])
+            box_b = trimesh.creation.box(extents=[10, 10, 10])
+            box_b.apply_translation([30, 0, 0])
+            multi_scene = trimesh.Scene({"obj1": box_a, "obj2": box_b})
+            with patch("trimesh.load", return_value=multi_scene):
                 window._on_file_loaded(valid_obj)
                 assert "contiene" in window.panel.lbl_warnings.text()
                 assert "objetos" in window.panel.lbl_warnings.text()
@@ -391,6 +428,7 @@ def run_tests():
     test_file_validations()
     test_param_validations()
     test_mesh_validations()
+    test_validate_mesh_large_multibody_is_fast()
     test_slicer_error_cases()
     test_exporter_error_cases()
     test_main_window_ux_and_error_table()

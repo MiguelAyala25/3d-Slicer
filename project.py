@@ -16,6 +16,7 @@ def project_to_dict(
     thickness: float,
     gap: float,
     disc_manager: DiscManager,
+    axis: str = 'z',
     version: str = PROJECT_VERSION
 ) -> Dict[str, Any]:
     """Serializa la configuración del proyecto y sus discos a un diccionario."""
@@ -24,6 +25,7 @@ def project_to_dict(
         "plates": plates,
         "thickness": float(thickness),
         "gap": float(gap),
+        "axis": axis,
         "discs": [
             {
                 "id": d.id,
@@ -42,10 +44,11 @@ def save_project(
     plates: int,
     thickness: float,
     gap: float,
-    disc_manager: DiscManager
+    disc_manager: DiscManager,
+    axis: str = 'z'
 ) -> None:
     """Guarda el proyecto en un archivo JSON."""
-    data = project_to_dict(plates, thickness, gap, disc_manager)
+    data = project_to_dict(plates, thickness, gap, disc_manager, axis=axis)
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
@@ -53,14 +56,15 @@ def save_project(
 def load_project_from_dict(
     data: Dict[str, Any],
     disc_manager: DiscManager
-) -> Tuple[int, float, float]:
+) -> Tuple[int, float, float, str]:
     """
-    Carga los discos en disc_manager a partir de un diccionario y retorna (plates, thickness, gap).
+    Carga los discos en disc_manager a partir de un diccionario y retorna (plates, thickness, gap, axis).
     Restaura los IDs y actualiza _next_id del gestor.
     """
     plates = int(data.get("plates", 10))
     thickness = float(data.get("thickness", 3.0))
     gap = float(data.get("gap", 3.0))
+    axis = str(data.get("axis", "z"))
 
     disc_manager.clear()
     max_id = 0
@@ -77,13 +81,13 @@ def load_project_from_dict(
             max_id = disc.id
     disc_manager._next_id = max_id + 1
 
-    return plates, thickness, gap
+    return plates, thickness, gap, axis
 
 
 def load_project(
     filepath: str,
     disc_manager: DiscManager
-) -> Tuple[int, float, float]:
+) -> Tuple[int, float, float, str]:
     """Lee un archivo JSON y carga su contenido en disc_manager."""
     with open(filepath, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -94,7 +98,9 @@ def check_params_compatibility(
     loaded_plates: int,
     loaded_gap: float,
     current_plates: int,
-    current_gap: float
+    current_gap: float,
+    loaded_axis: Optional[str] = None,
+    current_axis: Optional[str] = None
 ) -> bool:
     """
     Comprueba si los parámetros cargados coinciden con los actuales.
@@ -103,5 +109,7 @@ def check_params_compatibility(
     if loaded_plates != current_plates:
         return False
     if abs(loaded_gap - current_gap) > 0.01:
+        return False
+    if loaded_axis and current_axis and loaded_axis.lower() != current_axis.lower():
         return False
     return True
