@@ -158,6 +158,7 @@ export function SlicedPlatesView() {
             position={[0, 0, item.zCenter]}
           >
             <mesh
+              key={`mesh-${item.plateIndex}-${isCurrent}`}
               geometry={item.meshGeometry}
               // En modo colocación (modeAddDiscs) o en placas no activas, desactivar raycast para no interceptar el plano Z_top
               raycast={modeAddDiscs ? NOOP_RAYCAST : undefined}
@@ -177,17 +178,21 @@ export function SlicedPlatesView() {
               <meshStandardMaterial
                 color={isCurrent ? '#6366F1' : item.color}
                 wireframe={wireframe}
-                transparent={!isCurrent}
+                transparent={true}
                 opacity={opacity}
                 depthWrite={isCurrent}
                 roughness={0.45}
                 metalness={0.1}
               />
             </mesh>
-            <lineSegments geometry={item.edgesGeometry} raycast={NOOP_RAYCAST}>
+            <lineSegments
+              key={`lines-${item.plateIndex}-${isCurrent}-${isNextUpper}`}
+              geometry={item.edgesGeometry}
+              raycast={NOOP_RAYCAST}
+            >
               <lineBasicMaterial
                 color={isCurrent ? '#E0E7FF' : isNextUpper ? '#F59E0B' : '#3F3F46'}
-                transparent={!isCurrent}
+                transparent={true}
                 opacity={isCurrent ? 0.95 : isNextUpper ? 0.65 : 0.25}
               />
             </lineSegments>

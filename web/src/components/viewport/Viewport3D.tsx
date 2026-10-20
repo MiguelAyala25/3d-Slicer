@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { GizmoHelper, GizmoViewport, Grid } from '@react-three/drei';
 import * as THREE from 'three';
@@ -9,6 +10,15 @@ import { InteractiveDiscsView } from './InteractiveDiscsView';
 
 export function Viewport3D() {
   const viewMode = useSculptureStore((s) => s.viewMode);
+  const [isCompact, setIsCompact] = useState(
+    typeof window !== 'undefined' ? window.innerWidth < 1100 : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => setIsCompact(window.innerWidth < 1100);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   return (
     <div className="relative w-full h-full bg-[#09090B]">
@@ -53,7 +63,10 @@ export function Viewport3D() {
 
         <CameraRig />
 
-        <GizmoHelper alignment="bottom-right" margin={[72, 72]}>
+        <GizmoHelper
+          alignment="top-right"
+          margin={isCompact ? [72, 72] : [360, 60]}
+        >
           <GizmoViewport
             axisColors={['#EF4444', '#22C55E', '#3B82F6']}
             labelColor="#F4F4F5"

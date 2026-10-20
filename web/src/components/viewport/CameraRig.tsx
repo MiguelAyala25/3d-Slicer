@@ -15,9 +15,16 @@ export function CameraRig() {
 
   useEffect(() => {
     let span = 220;
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+
     if (sliceResult) {
       const [[minX, minY], [maxX, maxY]] = sliceResult.scaledBounds;
       span = Math.max(maxX - minX, maxY - minY, sliceResult.scaledHeight, 50);
+      cx = (minX + maxX) * 0.5;
+      cy = (minY + maxY) * 0.5;
+      cz = sliceResult.scaledHeight * 0.5;
     } else if (meshMetadata) {
       span = Math.max(...meshMetadata.extents, 50);
     }
@@ -30,21 +37,21 @@ export function CameraRig() {
     // Evitar colinealidad con up=(0,0,1) en vistas Top y Bottom
     if (preset === 'top') {
       camera.up.set(0, 1, 0);
-      camera.position.set(0, -1e-4 * dist, dist);
+      camera.position.set(cx, cy - 1e-4 * dist, cz + dist);
     } else if (preset === 'bottom') {
       camera.up.set(0, 1, 0);
-      camera.position.set(0, -1e-4 * dist, -dist);
+      camera.position.set(cx, cy - 1e-4 * dist, cz - dist);
     } else {
       camera.up.set(0, 0, 1);
-      if (preset === 'front') camera.position.set(0, -dist, 0);
-      else if (preset === 'back') camera.position.set(0, dist, 0);
-      else if (preset === 'left') camera.position.set(-dist, 0, 0);
-      else if (preset === 'right') camera.position.set(dist, 0, 0);
-      else camera.position.set(dist * 0.75, -dist * 0.75, dist * 0.65);
+      if (preset === 'front') camera.position.set(cx, cy - dist, cz);
+      else if (preset === 'back') camera.position.set(cx, cy + dist, cz);
+      else if (preset === 'left') camera.position.set(cx - dist, cy, cz);
+      else if (preset === 'right') camera.position.set(cx + dist, cy, cz);
+      else camera.position.set(cx + dist * 0.75, cy - dist * 0.75, cz + dist * 0.65);
     }
 
     if (controlsRef.current) {
-      controlsRef.current.target.set(0, 0, 0);
+      controlsRef.current.target.set(cx, cy, cz);
       controlsRef.current.update();
     }
   }, [preset, trigger, sliceResult, meshMetadata, camera]);

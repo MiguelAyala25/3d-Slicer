@@ -120,6 +120,27 @@ let workerInstance: Worker | null = null;
 let currentMeshId = 0;
 let latestJobId = 0;
 
+function getOrCreateWorker(): Worker | null {
+  if (typeof window === 'undefined' || typeof Worker === 'undefined') {
+    return null;
+  }
+  if (!workerInstance) {
+    try {
+      workerInstance = new Worker(
+        new URL('../worker/slicer.worker.ts', import.meta.url),
+        { type: 'module' }
+      );
+    } catch {
+      workerInstance = null;
+    }
+  }
+  return workerInstance;
+}
+
+if (typeof window !== 'undefined') {
+  getOrCreateWorker();
+}
+
 function getNextNonEmptyFloor(
   plates: SliceResult['plates'],
   fromFloor: number,
@@ -254,19 +275,14 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
         const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
         const clonedPositions = new Float32Array(posAttr.array);
 
-        if (typeof Worker !== 'undefined') {
-          if (!workerInstance) {
-            workerInstance = new Worker(
-              new URL('../worker/slicer.worker.ts', import.meta.url),
-              { type: 'module' }
-            );
-          }
+        const worker = getOrCreateWorker();
+        if (worker) {
           const msg: WorkerRequest = {
             type: 'SET_MESH',
             meshId: currentMeshId,
             positions: clonedPositions,
           };
-          workerInstance.postMessage(msg, [clonedPositions.buffer]);
+          worker.postMessage(msg, [clonedPositions.buffer]);
         }
 
         manager.clearAll(false);
@@ -277,6 +293,7 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
           meshMetadata: metadata,
           sliceResult: null,
           isResultDirty: false,
+          activeFloor: 0,
           viewMode: 'original',
           modeAddDiscs: false,
           discs: [],
@@ -367,12 +384,14 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
         );
       };
 
-      if (typeof Worker !== 'undefined' && workerInstance) {
+      const worker = getOrCreateWorker();
+      if (worker) {
         await new Promise<void>((resolve) => {
           const handler = (ev: MessageEvent<WorkerResponse>) => {
             const data = ev.data;
             if (data.jobId !== jobId) return;
-            workerInstance?.removeEventListener('message', handler);
+            worker.removeEventListener('message', handler);
+            worker.removeEventListener('error', errorHandler);
             if (data.type === 'SLICE_SUCCESS') {
               applySliceOutcome(data.result, data.durationMs);
             } else {
@@ -384,14 +403,25 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
             }
             resolve();
           };
-          workerInstance!.addEventListener('message', handler);
+          const errorHandler = (err: ErrorEvent) => {
+            worker.removeEventListener('message', handler);
+            worker.removeEventListener('error', errorHandler);
+            set({
+              isSlicing: false,
+              errorMessage: err.message || 'Error en el worker de corte',
+              statusMessage: 'Error durante el corte',
+            });
+            resolve();
+          };
+          worker.addEventListener('message', handler);
+          worker.addEventListener('error', errorHandler);
           const req: WorkerRequest = {
             type: 'SLICE',
             jobId,
             meshId,
             params: paramsSnapshot,
           };
-          workerInstance!.postMessage(req);
+          worker.postMessage(req);
         });
       } else {
         // Fallback síncrono (entorno de pruebas Vitest / jsdom)
@@ -498,7 +528,15 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
           sliceResult.plates
         );
         if (ok) {
-          set({ errorMessage: null });
+          try {
+            manager.setDefaultDiameter(newDiameter);
+          } catch {
+            // Ignorado si no es válido
+          }
+          set((s) => ({
+            errorMessage: null,
+            params: { ...s.params, discDiameter: newDiameter },
+          }));
           syncDiscsState(
             `Diámetro de disco #${selectedDiscId} actualizado a Ø${newDiameter.toFixed(1)} mm`
           );

@@ -99,7 +99,7 @@ describe('validator & params', () => {
     expect(PARAM_BOUNDS.sheetMargin).toEqual({ min: 0.0, max: 200.0, step: 1.0 });
     expect(PARAM_BOUNDS.partGap).toEqual({ min: 0.0, max: 100.0, step: 1.0 });
     expect(PARAM_BOUNDS.kerf).toEqual({ min: 0.0, max: 5.0, step: 0.01 });
-    expect(PARAM_BOUNDS.discDiameter).toEqual({ min: 1.0, max: 50.0, step: 1.0 });
+    expect(PARAM_BOUNDS.discDiameter).toEqual({ min: 1.0, max: 5000.0, step: 1.0 });
     expect(PARAM_BOUNDS.engraveClearance).toEqual({ min: 0.0, max: 10.0, step: 0.1 });
 
     expect(getDiscThickness(DEFAULT_PARAMS)).toBe(3.0);

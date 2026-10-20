@@ -12,7 +12,7 @@ export const PARAM_BOUNDS = {
   sheetMargin: { min: 0.0, max: 200.0, step: 1.0 },
   partGap: { min: 0.0, max: 100.0, step: 1.0 },
   kerf: { min: 0.0, max: 5.0, step: 0.01 },
-  discDiameter: { min: 1.0, max: 50.0, step: 1.0 },
+  discDiameter: { min: 1.0, max: 5000.0, step: 1.0 },
   engraveClearance: { min: 0.0, max: 10.0, step: 0.1 },
 } as const;
 
