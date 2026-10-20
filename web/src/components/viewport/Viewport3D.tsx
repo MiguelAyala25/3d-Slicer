@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { GizmoHelper, GizmoViewport, Grid } from '@react-three/drei';
+import { Loader2 } from 'lucide-react';
 import * as THREE from 'three';
 import { useSculptureStore } from '../../store/useSculptureStore';
 import { CameraRig } from './CameraRig';
@@ -10,6 +11,11 @@ import { InteractiveDiscsView } from './InteractiveDiscsView';
 
 export function Viewport3D() {
   const viewMode = useSculptureStore((s) => s.viewMode);
+  const isLoadingMesh = useSculptureStore((s) => s.isLoadingMesh);
+  const isSlicing = useSculptureStore((s) => s.isSlicing);
+  const meshMetadata = useSculptureStore((s) => s.meshMetadata);
+  const statusMessage = useSculptureStore((s) => s.statusMessage);
+
   const [isCompact, setIsCompact] = useState(
     typeof window !== 'undefined' ? window.innerWidth < 1100 : false
   );
@@ -22,6 +28,33 @@ export function Viewport3D() {
 
   return (
     <div className="relative w-full h-full bg-[#09090B]">
+      {/* Overlay con spinner para modelos pesados y proceso de corte */}
+      {(isLoadingMesh || isSlicing) && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="viewport-loading-overlay"
+          className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none bg-black/45 backdrop-blur-[3px] transition-opacity duration-300"
+        >
+          <div className="hud-surface rounded-2xl px-6 py-5 flex flex-col items-center gap-3.5 shadow-2xl border border-white/[0.12] bg-[#121216]/95 max-w-sm text-center">
+            <div className="relative flex items-center justify-center w-12 h-12">
+              <span className="w-10 h-10 rounded-full border-2 border-[#0A84FF]/25 animate-ping absolute" />
+              <Loader2 className="w-8 h-8 text-[#0A84FF] animate-spin" />
+            </div>
+            <div className="flex flex-col gap-1 items-center">
+              <h3 className="text-sm font-semibold text-[#F4F4F5] tracking-tight">
+                {isLoadingMesh ? 'Cargando modelo 3D...' : 'Calculando corte...'}
+              </h3>
+              <p className="text-xs text-[#A1A1AA] max-w-[260px] truncate">
+                {isLoadingMesh
+                  ? (meshMetadata?.fileName ?? 'Analizando y validando geometría...')
+                  : statusMessage}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Canvas
         dpr={[1, 2]}
         gl={{

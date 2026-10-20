@@ -50,6 +50,7 @@ export interface SculptureState {
   meshMetadata: MeshMetadata | null;
   sliceResult: SliceResult | null;
   isSlicing: boolean;
+  isLoadingMesh: boolean;
   lastSliceAxis: Axis | null;
   lastSliceDurationMs: number | null;
 
@@ -84,7 +85,8 @@ export interface SculptureState {
 
   // Acciones
   setParam: <K extends keyof SculptureParams>(key: K, value: SculptureParams[K]) => void;
-  loadMeshArrayBuffer: (buffer: ArrayBuffer, fileName: string, autoSlice?: boolean) => void;
+  setIsLoadingMesh: (loading: boolean) => void;
+  loadMeshArrayBuffer: (buffer: ArrayBuffer, fileName: string, autoSlice?: boolean) => Promise<void>;
   runSlice: () => Promise<void>;
   setViewMode: (mode: ViewMode) => void;
   toggleWireframe: () => void;
@@ -197,6 +199,7 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
     meshMetadata: null,
     sliceResult: null,
     isSlicing: false,
+    isLoadingMesh: false,
     lastSliceAxis: null,
     lastSliceDurationMs: null,
 
@@ -263,7 +266,16 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
       );
     },
 
-    loadMeshArrayBuffer: (buffer, fileName, autoSlice = false) => {
+    setIsLoadingMesh: (loading) => set({ isLoadingMesh: loading }),
+
+    loadMeshArrayBuffer: async (buffer, fileName, autoSlice = false) => {
+      set({
+        isLoadingMesh: true,
+        statusMessage: `Cargando ${fileName}...`,
+      });
+      // Permitir que el ciclo de eventos de React dibuje el spinner antes del análisis de geometría
+      await new Promise((resolve) => setTimeout(resolve, 30));
+
       try {
         const prevGeom = get().meshGeometry;
         const { geometry, metadata } = loadMeshFromBuffer(buffer, fileName);
@@ -304,13 +316,15 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
           statusMessage: `Modelo cargado: ${fileName} (${metadata.faceCount.toLocaleString()} caras)`,
           cameraPreset: 'iso',
           cameraPresetTrigger: get().cameraPresetTrigger + 1,
+          isLoadingMesh: false,
         });
 
         if (autoSlice) {
-          void get().runSlice();
+          await get().runSlice();
         }
       } catch (err) {
         set({
+          isLoadingMesh: false,
           errorMessage: err instanceof Error ? err.message : String(err),
         });
       }
@@ -602,7 +616,7 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
       set({ pendingAutosave: null });
 
       if (pending.meshRecord) {
-        get().loadMeshArrayBuffer(
+        await get().loadMeshArrayBuffer(
           pending.meshRecord.buffer,
           pending.meshRecord.fileName,
           false

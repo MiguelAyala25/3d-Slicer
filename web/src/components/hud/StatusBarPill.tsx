@@ -1,4 +1,4 @@
-import { AlertCircle, Info, X } from 'lucide-react';
+import { AlertCircle, Info, Loader2, X } from 'lucide-react';
 import { useSculptureStore } from '../../store/useSculptureStore';
 
 export interface StatusBarPillProps {
@@ -8,7 +8,11 @@ export interface StatusBarPillProps {
 export function StatusBarPill({ className = '' }: StatusBarPillProps) {
   const statusMessage = useSculptureStore((s) => s.statusMessage);
   const errorMessage = useSculptureStore((s) => s.errorMessage);
+  const isLoadingMesh = useSculptureStore((s) => s.isLoadingMesh);
+  const isSlicing = useSculptureStore((s) => s.isSlicing);
   const clearError = useSculptureStore((s) => s.clearError);
+
+  const isBusy = isLoadingMesh || isSlicing;
 
   return (
     <div
@@ -35,7 +39,11 @@ export function StatusBarPill({ className = '' }: StatusBarPillProps) {
       )}
 
       <div className="hud-surface rounded-full px-3 py-1.5 text-xs text-[#A1A1AA] flex items-center gap-1.5 shadow hud-text-selectable">
-        <Info className="w-3.5 h-3.5 text-[#0A84FF] shrink-0" />
+        {isBusy ? (
+          <Loader2 className="w-3.5 h-3.5 text-[#0A84FF] animate-spin shrink-0" />
+        ) : (
+          <Info className="w-3.5 h-3.5 text-[#0A84FF] shrink-0" />
+        )}
         <span className="truncate">{statusMessage}</span>
       </div>
     </div>

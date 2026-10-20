@@ -2,6 +2,7 @@ import { useRef, type ChangeEvent } from 'react';
 import {
   Box,
   FolderOpen,
+  Loader2,
   RotateCcw,
   Save,
   Upload,
@@ -24,6 +25,8 @@ export function TopProjectBar({ className = '' }: TopProjectBarProps) {
   const meshMetadata = useSculptureStore((s) => s.meshMetadata);
   const params = useSculptureStore((s) => s.params);
   const pendingAutosave = useSculptureStore((s) => s.pendingAutosave);
+  const isLoadingMesh = useSculptureStore((s) => s.isLoadingMesh);
+  const isSlicing = useSculptureStore((s) => s.isSlicing);
   const loadMeshArrayBuffer = useSculptureStore((s) => s.loadMeshArrayBuffer);
   const exportProjectJsonString = useSculptureStore(
     (s) => s.exportProjectJsonString
@@ -41,9 +44,12 @@ export function TopProjectBar({ className = '' }: TopProjectBarProps) {
   const handleMeshFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const buffer = await file.arrayBuffer();
-    loadMeshArrayBuffer(buffer, file.name, true);
-    e.target.value = '';
+    try {
+      const buffer = await file.arrayBuffer();
+      await loadMeshArrayBuffer(buffer, file.name, true);
+    } finally {
+      e.target.value = '';
+    }
   };
 
   const handleProjectFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -114,11 +120,16 @@ export function TopProjectBar({ className = '' }: TopProjectBarProps) {
 
         <button
           type="button"
+          disabled={isLoadingMesh || isSlicing}
           onClick={() => meshInputRef.current?.click()}
-          className="h-8 coarse:min-h-10 px-2.5 rounded-md bg-[#0A84FF] hover:bg-[#0070E0] text-xs font-medium text-white flex items-center gap-1.5 select-none"
+          className="h-8 coarse:min-h-10 px-2.5 rounded-md bg-[#0A84FF] hover:bg-[#0070E0] disabled:opacity-60 text-xs font-medium text-white flex items-center gap-1.5 select-none transition-colors"
         >
-          <Upload className="w-3.5 h-3.5" />
-          <span>Cargar modelo 3D</span>
+          {isLoadingMesh ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Upload className="w-3.5 h-3.5" />
+          )}
+          <span>{isLoadingMesh ? 'Cargando...' : 'Cargar modelo 3D'}</span>
         </button>
 
         <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#1C1C21] border border-white/[0.08] text-xs text-[#A1A1AA] hud-text-selectable">
