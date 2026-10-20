@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #09090B;
+    color: #F4F4F5;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+}
+
+.font-mono-tabular {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-surface {
+  background-color: rgba(18, 18, 21, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.hud-text-selectable {
+  user-select: text;
+}
