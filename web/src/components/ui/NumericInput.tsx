@@ -15,6 +15,17 @@ export interface NumericInputProps {
   onChange: (newValue: number) => void;
 }
 
+function formatDisplayValue(val: number, step: number): string {
+  if (!Number.isFinite(val)) return '';
+  if (Number.isInteger(step)) {
+    return String(Math.round(val));
+  }
+  const stepStr = String(step);
+  const dotIndex = stepStr.indexOf('.');
+  const decimals = dotIndex >= 0 ? stepStr.length - dotIndex - 1 : 1;
+  return Number(val.toFixed(Math.min(decimals, 3))).toString();
+}
+
 export function NumericInput({
   label,
   value,
@@ -30,14 +41,14 @@ export function NumericInput({
   onChange,
 }: NumericInputProps) {
   const inputId = useId();
-  const [draft, setDraft] = useState<string>(String(value));
+  const [draft, setDraft] = useState<string>(() => formatDisplayValue(value, step));
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCommittedRef = useRef<number>(value);
 
   useEffect(() => {
-    setDraft(String(value));
+    setDraft(formatDisplayValue(value, step));
     lastCommittedRef.current = value;
-  }, [value, resetKey]);
+  }, [value, resetKey, step]);
 
   useEffect(() => {
     return () => {
@@ -56,7 +67,7 @@ export function NumericInput({
     const rounded = Number.isInteger(step)
       ? Math.round(clamped)
       : Number(clamped.toFixed(3));
-    setDraft(String(rounded));
+    setDraft(formatDisplayValue(rounded, step));
     if (Math.abs(rounded - lastCommittedRef.current) > 1e-6) {
       lastCommittedRef.current = rounded;
       onChange(rounded);
@@ -66,7 +77,7 @@ export function NumericInput({
   const commitDraft = () => {
     const parsed = Number.parseFloat(draft);
     if (!Number.isFinite(parsed)) {
-      setDraft(String(value));
+      setDraft(formatDisplayValue(value, step));
       return;
     }
     commitValue(parsed);
@@ -138,7 +149,7 @@ export function NumericInput({
                 clearTimeout(debounceTimerRef.current);
                 debounceTimerRef.current = null;
               }
-              setDraft(String(value));
+              setDraft(formatDisplayValue(value, step));
               e.currentTarget.blur();
             }
           }}
