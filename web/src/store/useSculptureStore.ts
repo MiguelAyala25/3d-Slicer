@@ -18,7 +18,7 @@ import {
 import { createDiscsSlice, type DiscsSlice } from './discsSlice';
 import {
   checkParamsCompatibility,
-  serializeProjectJson,
+  serializeProject,
   type ParsedProjectData,
 } from '../core/project';
 import {
@@ -256,7 +256,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
       // Autosave automático si hay malla cargada
       if (state.meshGeometry && state.meshFileName) {
-        saveProjectToLocalStorage(get().params, get().discs, state.meshFileName);
+        saveProjectToLocalStorage(get().params, get().discs, state.meshFileName, get().build);
       }
     },
 
@@ -369,7 +369,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }));
 
         if (state.meshFileName) {
-          saveProjectToLocalStorage(get().params, get().discs, state.meshFileName);
+          saveProjectToLocalStorage(get().params, get().discs, state.meshFileName, get().build);
         }
       };
 
@@ -486,7 +486,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       });
 
       if (state.meshGeometry && state.meshFileName) {
-        saveProjectToLocalStorage(get().params, get().discs, state.meshFileName);
+        saveProjectToLocalStorage(get().params, get().discs, state.meshFileName, get().build);
       }
     },
 
@@ -590,6 +590,10 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }));
       }
 
+      if (get().meshGeometry && get().meshFileName) {
+        saveProjectToLocalStorage(get().params, get().discs, get().meshFileName, get().build);
+      }
+
       return { needsConfirmation: false, discCount: 0 };
     },
 
@@ -629,9 +633,10 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }
         await get().importProjectFromParsed(
           {
-            version: '1.0',
+            version: snapshot.build.jointId === 'none' ? '2.0' : '1.0',
             params: snapshot.params,
             discs: snapshot.discs,
+            build: snapshot.build,
           },
           true
         );
@@ -654,25 +659,28 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     },
 
     exportProjectJsonString: () => {
-      const { params, discs } = get();
-      return serializeProjectJson(params, discs);
+      const { params, discs, build } = get();
+      return serializeProject(params, build, discs);
     },
 
     importProjectFromParsed: async (parsed, forceAdapt = false) => {
       const state = get();
       const mergedParams: SculptureParams = {
         ...state.params,
-        plates: parsed.params.plates,
-        thickness: parsed.params.thickness,
-        gap: parsed.params.gap,
-        axis: parsed.params.axis,
+        ...parsed.params,
       };
-      const compatible = checkParamsCompatibility(mergedParams, state.params);
+      const compatible = checkParamsCompatibility(
+        mergedParams,
+        state.params,
+        parsed.build,
+        state.build
+      );
       if (!compatible && !forceAdapt && state.sliceResult !== null) {
         return { needsConfirmation: true };
       }
 
       set({
+        build: { ...parsed.build },
         params: mergedParams,
         gapManuallyEdited:
           Math.abs(mergedParams.gap - mergedParams.thickness) > 0.01,
@@ -684,18 +692,29 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       }
 
       const manager = get().discManager;
-      manager.loadDiscsFromProject(parsed.discs);
-      const currentSlice = get().sliceResult;
-      if (currentSlice) {
-        manager.purgeInvalidDiscs(currentSlice.plates);
+      if (parsed.build.jointId === 'discs') {
+        manager.loadDiscsFromProject(parsed.discs);
+        const currentSlice = get().sliceResult;
+        if (currentSlice) {
+          manager.purgeInvalidDiscs(currentSlice.plates);
+        }
+        set({
+          discs: manager.getAllDiscs(),
+          canUndo: manager.canUndo(),
+          canRedo: manager.canRedo(),
+          selectedDiscId: null,
+          statusMessage: 'Proyecto cargado correctamente',
+        });
+      } else {
+        manager.loadDiscsFromProject([]);
+        set({
+          discs: [],
+          canUndo: false,
+          canRedo: false,
+          selectedDiscId: null,
+          statusMessage: 'Proyecto cargado correctamente',
+        });
       }
-      set({
-        discs: manager.getAllDiscs(),
-        canUndo: manager.canUndo(),
-        canRedo: manager.canRedo(),
-        selectedDiscId: null,
-        statusMessage: 'Proyecto cargado correctamente',
-      });
       return { needsConfirmation: false };
     },
 

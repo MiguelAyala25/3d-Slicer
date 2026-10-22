@@ -1,6 +1,7 @@
-import { serializeProjectJson, parseProjectJson } from './project';
+import { serializeProject, parseProjectJson } from './project';
 import { DEFAULT_PARAMS } from './params';
 import { validateParams } from './validator';
+import { DEFAULT_BUILD, type BuildConfig } from './build/types';
 import type { Disc, SculptureParams } from '../types/sculpture';
 
 export const LOCAL_STORAGE_KEY = 'sculpture_web_autosave_v1';
@@ -19,6 +20,7 @@ export interface AutosaveSessionSnapshot {
   discs: Disc[];
   meshFileName: string | null;
   savedAt: number;
+  build: BuildConfig;
 }
 
 interface RawAutosaveEnvelope {
@@ -26,19 +28,22 @@ interface RawAutosaveEnvelope {
   fullParams: SculptureParams;
   meshFileName: string | null;
   savedAt: number;
+  build?: BuildConfig;
 }
 
 export function saveProjectToLocalStorage(
   params: SculptureParams,
   discs: Disc[],
-  meshFileName: string | null
+  meshFileName: string | null,
+  build: BuildConfig = DEFAULT_BUILD
 ): void {
   try {
     const envelope: RawAutosaveEnvelope = {
-      projectJson: serializeProjectJson(params, discs),
+      projectJson: serializeProject(params, build, discs),
       fullParams: { ...params },
       meshFileName,
       savedAt: Date.now(),
+      build,
     };
     window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(envelope));
   } catch {
@@ -58,11 +63,13 @@ export function loadProjectFromLocalStorage(): AutosaveSessionSnapshot | null {
     };
     validateParams(baseParams);
     const project = parseProjectJson(parsed.projectJson, baseParams);
+    const build = parsed.build ?? project.build;
     return {
       params: project.params,
       discs: project.discs,
       meshFileName: typeof parsed.meshFileName === 'string' ? parsed.meshFileName : null,
       savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now(),
+      build,
     };
   } catch {
     return null;
@@ -99,7 +106,6 @@ export async function clearAutosaveStorage(): Promise<void> {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    db.close();
   } catch {
     // noop
   }
@@ -117,16 +123,15 @@ export async function saveMeshBufferToIndexedDB(
       const store = tx.objectStore(IDB_STORE);
       const record: StoredMeshRecord = {
         fileName,
-        buffer: buffer.slice(0),
+        buffer,
         savedAt: Date.now(),
       };
       store.put(record, IDB_KEY);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    db.close();
   } catch {
-    // Si IndexedDB no está disponible (ej. jsdom), no interrumpir el flujo
+    // noop
   }
 }
 
@@ -134,15 +139,13 @@ export async function loadMeshBufferFromIndexedDB(): Promise<StoredMeshRecord | 
   try {
     if (typeof window === 'undefined' || !window.indexedDB) return null;
     const db = await openMeshDatabase();
-    const record = await new Promise<StoredMeshRecord | null>((resolve, reject) => {
+    return await new Promise<StoredMeshRecord | null>((resolve) => {
       const tx = db.transaction(IDB_STORE, 'readonly');
       const store = tx.objectStore(IDB_STORE);
-      const getReq = store.get(IDB_KEY);
-      getReq.onsuccess = () => resolve((getReq.result as StoredMeshRecord) ?? null);
-      getReq.onerror = () => reject(getReq.error);
+      const req = store.get(IDB_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
     });
-    db.close();
-    return record;
   } catch {
     return null;
   }
