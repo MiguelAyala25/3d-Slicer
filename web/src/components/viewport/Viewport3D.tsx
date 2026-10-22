@@ -16,7 +16,7 @@ export function Viewport3D() {
   const meshMetadata = useSculptureStore((s) => s.meshMetadata);
   const statusMessage = useSculptureStore((s) => s.statusMessage);
   const build = useSculptureStore((s) => s.build);
-  const JointViewportLayer = JOINT_UI[build.jointId]?.ViewportLayer;
+  const JointViewportLayer = build.jointId ? JOINT_UI[build.jointId]?.ViewportLayer : undefined;
 
   const [isCompact, setIsCompact] = useState(
     typeof window !== 'undefined' ? window.innerWidth < 1100 : false

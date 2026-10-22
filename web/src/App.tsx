@@ -23,7 +23,7 @@ export default function App() {
     (s) => s.checkAutosaveOnStartup
   );
   const build = useSculptureStore((s) => s.build);
-  const JointDock = JOINT_UI[build.jointId]?.Dock;
+  const JointDock = build.jointId ? JOINT_UI[build.jointId]?.Dock : undefined;
 
   // Corrección #5f: Detectar sesión guardada para mostrar banner "Restaurar sesión / Descartar".
   // Prohibido sobrescribir el estado sin preguntar al usuario.

@@ -1,9 +1,37 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 
 const FIXTURE_PATH = fileURLToPath(
   new URL('../fixtures/test_l_block.obj', import.meta.url)
 );
+
+async function loadMeshAndSlice(
+  page: Page,
+  options: { technique?: string; joint?: string } = {}
+) {
+  await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
+  await expect(page.getByText('test_l_block.obj', { exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  const technique = options.technique ?? 'stacked';
+  const joint = options.joint ?? 'discs';
+
+  const techSelect = page.locator('[data-testid="select-technique"]');
+  if ((await techSelect.inputValue()) !== technique) {
+    await techSelect.selectOption(technique);
+  }
+
+  const jointSelect = page.locator('[data-testid="select-joint"]');
+  if (
+    (await jointSelect.isVisible()) &&
+    (await jointSelect.inputValue()) !== joint
+  ) {
+    await jointSelect.selectOption(joint);
+  }
+
+  await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+}
 
 test.describe('Sculpture Studio E2E Acceptance Suite', () => {
   test('1. Total offline loading: loads mesh and slices without any external network requests', async ({
@@ -19,12 +47,7 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     await page.waitForLoadState('networkidle');
     await context.setOffline(true);
 
-    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
-
-    await expect(page.locator('text=test_l_block.obj')).toBeVisible({
-      timeout: 10_000,
-    });
-    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+    await loadMeshAndSlice(page);
 
     const nonLocalFailed = externalRequests.filter(
       (url) => !url.includes('localhost') && !url.includes('127.0.0.1')
@@ -36,8 +59,7 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     page,
   }) => {
     await page.goto('/');
-    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
-    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+    await loadMeshAndSlice(page);
 
     const canvas = page.locator('canvas');
     const box = await canvas.boundingBox();
@@ -77,8 +99,7 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     page,
   }) => {
     await page.goto('/');
-    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
-    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+    await loadMeshAndSlice(page);
 
     // Fuera de inputs: 'w' avanza piso
     await page.keyboard.press('w');
@@ -106,8 +127,7 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     page,
   }) => {
     await page.goto('/');
-    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
-    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+    await loadMeshAndSlice(page);
 
     // Colocar un disco
     await page.click('[data-testid="toggle-add-discs"]');
@@ -137,8 +157,7 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     page,
   }) => {
     await page.goto('/');
-    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
-    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+    await loadMeshAndSlice(page);
 
     // Abrir modal de corte
     await page.click('button:has-text("Vista previa y exportar")');
@@ -200,29 +219,47 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
       page.locator('text=Etiquetar sobrante aprovechable')
     ).toBeVisible();
 
+    // Before technique selection: subcontrols are hidden
+    await expect(page.locator('text=Eje de corte')).not.toBeVisible();
+    await expect(page.locator('text=Número de placas')).not.toBeVisible();
+    await expect(page.locator('[data-testid="select-joint"]')).not.toBeVisible();
+
     // A-3: disabled options ending in (próximamente)
     const waffleOption = page.locator('option[value="waffle"]');
     await expect(waffleOption).toBeDisabled();
     await expect(waffleOption).toHaveText(/waffle.*\(próximamente\)/i);
 
+    // Select stacked technique
+    await page.selectOption('[data-testid="select-technique"]', 'stacked');
+
+    // Subcontrols under technique appear
+    await expect(page.locator('text=Eje de corte')).toBeVisible();
+    await expect(page.locator('text=Número de placas')).toBeVisible();
+    await expect(page.locator('[data-testid="select-joint"]')).toBeVisible();
+
+    // Before joint selection: disc options are hidden
+    await expect(page.locator('text=Diámetro por defecto')).not.toBeVisible();
+
+    // Check joint disabled options
     const rodOption = page.locator('option[value="rod"]');
     await expect(rodOption).toBeDisabled();
     await expect(rodOption).toHaveText(/varilla.*\(próximamente\)/i);
 
-    // A-2: default diameter input exists with discs joint
+    // Select discs joint -> default diameter appears
+    await page.selectOption('[data-testid="select-joint"]', 'discs');
     await expect(page.locator('text=Diámetro por defecto')).toBeVisible();
 
-    // Switch to none joint -> default diameter input should not exist
+    // Switch to none joint -> default diameter input should not exist and pegado text is visible
     await page.selectOption('[data-testid="select-joint"]', 'none');
     await expect(page.locator('text=Diámetro por defecto')).not.toBeVisible();
+    await expect(page.locator('text=Las placas se apilan pegadas')).toBeVisible();
   });
 
   test('7. Joint change with placed discs: confirmation dialog and undo/redo boundary', async ({
     page,
   }) => {
     await page.goto('/');
-    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
-    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+    await loadMeshAndSlice(page);
 
     // Enable add discs mode
     await page.click('[data-testid="toggle-add-discs"]');
@@ -270,8 +307,7 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     page,
   }) => {
     await page.goto('/');
-    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
-    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+    await loadMeshAndSlice(page);
 
     const altoInput = page.getByTestId('dim-alto');
     const platesInput = page.getByLabel('Número de placas');
@@ -316,14 +352,9 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     page,
   }) => {
     await page.goto('/');
-    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
-    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+    await loadMeshAndSlice(page, { technique: 'stacked', joint: 'none' });
 
-    // Switch to 'none' joint
-    await page.selectOption('[data-testid="select-joint"]', 'none');
-
-    // Click 'Aplicar corte'
-    await page.click('button:has-text("Rebanar (actualizar)"), button:has-text("Aplicar corte")');
+    // Slicing occurs automatically on joint change, so no "Aplicar corte" button needed
     await expect(page.locator('text=Piso 0')).toBeVisible();
 
     // Click 'Vista previa y exportar'

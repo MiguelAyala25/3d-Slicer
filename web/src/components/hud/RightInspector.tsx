@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { SlidersHorizontal } from 'lucide-react';
-import { ApplySliceButton } from './inspector/ApplySliceButton';
 import { MaterialSection } from './inspector/MaterialSection';
 import { ModelSection } from './inspector/ModelSection';
 import { ResultSection } from './inspector/ResultSection';
@@ -36,7 +35,6 @@ export function RightInspector({ className = '' }: RightInspectorProps) {
         <ModelSection />
         <MaterialSection />
         <TechniqueSection />
-        <ApplySliceButton />
         <ResultSection />
       </aside>
     </>

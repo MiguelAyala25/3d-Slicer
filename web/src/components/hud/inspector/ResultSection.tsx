@@ -1,10 +1,11 @@
-import { AlertTriangle, FileOutput } from 'lucide-react';
+import { AlertTriangle, FileOutput, Loader2 } from 'lucide-react';
 import { useSculptureStore } from '../../../store/useSculptureStore';
 
 export function ResultSection() {
   const build = useSculptureStore((s) => s.build);
   const meshMetadata = useSculptureStore((s) => s.meshMetadata);
   const sliceResult = useSculptureStore((s) => s.sliceResult);
+  const isSlicing = useSculptureStore((s) => s.isSlicing);
   const discs = useSculptureStore((s) => s.discs);
   const openSheetPreviewModal = useSculptureStore(
     (s) => s.openSheetPreviewModal
@@ -32,7 +33,12 @@ export function ResultSection() {
         Resultado
       </h2>
 
-      {sliceResult ? (
+      {isSlicing ? (
+        <div className="flex items-center gap-2 p-2.5 rounded-md bg-[#1C1C21] border border-white/[0.08] text-xs text-[#A1A1AA]">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0A84FF]" />
+          <span>Rebanando modelo...</span>
+        </div>
+      ) : sliceResult ? (
         <div className="flex flex-col gap-1 text-xs font-mono-tabular text-[#F4F4F5] bg-[#1C1C21] p-2.5 rounded-md border border-white/[0.08]">
           <div className="flex justify-between">
             <span className="text-[#A1A1AA]">Placas válidas:</span>
@@ -68,7 +74,7 @@ export function ResultSection() {
         </div>
       ) : (
         <p className="text-xs text-[#9CA3AF]">
-          Sin corte activo. Carga un modelo y pulsa «Aplicar corte».
+          Sin corte activo. Carga un modelo 3D para comenzar.
         </p>
       )}
 
@@ -94,7 +100,7 @@ export function ResultSection() {
 
       <button
         type="button"
-        disabled={!sliceResult}
+        disabled={!sliceResult || isSlicing}
         onClick={openSheetPreviewModal}
         className="mt-1 w-full h-9 coarse:min-h-10 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-xs font-semibold text-white flex items-center justify-center gap-1.5 shadow select-none"
       >

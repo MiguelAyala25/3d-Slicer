@@ -12,7 +12,6 @@ const AXES: Axis[] = ['z', 'x', 'y'];
 export function TechniqueSection() {
   const build = useSculptureStore((s) => s.build);
   const params = useSculptureStore((s) => s.params);
-  const isResultDirty = useSculptureStore((s) => s.isResultDirty);
   const setTechnique = useSculptureStore((s) => s.setTechnique);
   const setJoint = useSculptureStore((s) => s.setJoint);
   const setParam = useSculptureStore((s) => s.setParam);
@@ -31,7 +30,8 @@ export function TechniqueSection() {
     disabledReason: j.unavailableReason,
   }));
 
-  const handleJointChange = (newJointId: JointId) => {
+  const handleJointChange = (newJointId: JointId | '') => {
+    if (!newJointId) return;
     const res = setJoint(newJointId);
     if (res.needsConfirmation) {
       const ok = window.confirm(
@@ -43,7 +43,7 @@ export function TechniqueSection() {
     }
   };
 
-  const JointOptions = JOINT_UI[build.jointId]?.Options;
+  const JointOptions = build.jointId ? JOINT_UI[build.jointId]?.Options : undefined;
 
   return (
     <section data-testid="section-technique" className="flex flex-col gap-2.5">
@@ -51,18 +51,16 @@ export function TechniqueSection() {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA] select-none">
           Técnica de construcción
         </h2>
-        {isResultDirty && (
-          <span className="text-[11px] font-medium text-amber-400">
-            Desactualizado
-          </span>
-        )}
       </div>
 
-      <SelectField<TechniqueId>
+      <SelectField<TechniqueId | ''>
         label="Técnica"
         value={build.techniqueId}
         options={techniqueOptions}
-        onChange={(v) => setTechnique(v)}
+        placeholder="Selecciona una técnica..."
+        onChange={(v) => {
+          if (v) setTechnique(v);
+        }}
         testId="select-technique"
       />
 
@@ -99,11 +97,12 @@ export function TechniqueSection() {
             onChange={(v) => setParam('plates', v)}
           />
 
-          <SelectField<JointId>
+          <SelectField<JointId | ''>
             label="Unión"
             value={build.jointId}
             options={jointOptions}
-            onChange={handleJointChange}
+            placeholder="Selecciona una unión..."
+            onChange={(v) => handleJointChange(v)}
             testId="select-joint"
           />
 
@@ -113,7 +112,7 @@ export function TechniqueSection() {
             </p>
           )}
 
-          {JointOptions && <JointOptions />}
+          {build.jointId === 'discs' && JointOptions && <JointOptions />}
         </>
       )}
     </section>

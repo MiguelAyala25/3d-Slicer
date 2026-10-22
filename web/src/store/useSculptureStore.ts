@@ -4,7 +4,12 @@ import { DEFAULT_PARAMS } from '../core/params';
 import { loadMeshFromBuffer } from '../core/meshLoader';
 import { generateSheetLayouts } from '../core/layout';
 import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
-import { DEFAULT_BUILD, type BuildConfig, type JointId, type TechniqueId } from '../core/build/types';
+import {
+  INITIAL_BUILD,
+  type BuildConfig,
+  type JointId,
+  type TechniqueId,
+} from '../core/build/types';
 import { getJoint } from '../core/build/registry';
 import { validateBuildParams } from '../core/build/validateBuild';
 import { ValidationError } from '../core/validator';
@@ -169,7 +174,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     ...discsSlice,
 
     params: { ...DEFAULT_PARAMS },
-    build: { ...DEFAULT_BUILD },
+    build: { ...INITIAL_BUILD },
     gapManuallyEdited: false,
     isResultDirty: false,
     modelExtents: null,
@@ -258,6 +263,17 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       if (state.meshGeometry && state.meshFileName) {
         saveProjectToLocalStorage(get().params, get().discs, state.meshFileName, get().build);
       }
+
+      // Auto-slice si el cambio afecta al corte
+      const sliceAffectingKeys = ['plates', 'thickness', 'gap', 'axis'];
+      if (
+        sliceAffectingKeys.includes(key as string) &&
+        state.meshGeometry &&
+        get().build.techniqueId === 'stacked' &&
+        (get().build.jointId === 'none' || get().build.jointId === 'discs')
+      ) {
+        void get().runSlice();
+      }
     },
 
     setIsLoadingMesh: (loading) => set({ isLoadingMesh: loading }),
@@ -310,7 +326,11 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           // Fallback silencioso si IndexedDB falla
         });
 
-        if (autoSlice) {
+        if (
+          autoSlice &&
+          get().build.techniqueId === 'stacked' &&
+          (get().build.jointId === 'none' || get().build.jointId === 'discs')
+        ) {
           await get().runSlice();
         }
       } catch (err) {
@@ -325,6 +345,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     runSlice: async () => {
       const state = get();
       if (!state.meshGeometry) return;
+      if (!state.build.techniqueId || !state.build.jointId) return;
 
       const paramsSnapshot = { ...state.params };
       try {
@@ -488,6 +509,14 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       if (state.meshGeometry && state.meshFileName) {
         saveProjectToLocalStorage(get().params, get().discs, state.meshFileName, get().build);
       }
+
+      if (
+        state.meshGeometry &&
+        get().build.techniqueId === 'stacked' &&
+        (get().build.jointId === 'none' || get().build.jointId === 'discs')
+      ) {
+        void get().runSlice();
+      }
     },
 
     setTechnique: (id) => {
@@ -498,6 +527,13 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         throw new ValidationError(`Técnica desconocida: '${id}'.`);
       }
       set((s) => ({ build: { ...s.build, techniqueId: id } }));
+      if (
+        get().meshGeometry &&
+        get().build.techniqueId === 'stacked' &&
+        (get().build.jointId === 'none' || get().build.jointId === 'discs')
+      ) {
+        void get().runSlice();
+      }
     },
 
     setJoint: (id, opts) => {
@@ -592,6 +628,14 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
       if (get().meshGeometry && get().meshFileName) {
         saveProjectToLocalStorage(get().params, get().discs, get().meshFileName, get().build);
+      }
+
+      if (
+        get().meshGeometry &&
+        get().build.techniqueId === 'stacked' &&
+        (get().build.jointId === 'none' || get().build.jointId === 'discs')
+      ) {
+        void get().runSlice();
       }
 
       return { needsConfirmation: false, discCount: 0 };
