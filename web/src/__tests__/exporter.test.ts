@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import DxfParser from 'dxf-parser';
 import { generateSheetSvg } from '../core/svgExporter';
 import { generateSheetDxf, exportAllSheetsZip } from '../core/dxfExporter';
-import { generateLayouts } from '../core/layout';
+import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
 import { sliceMesh } from '../core/slicer';
 import { loadMeshFromBuffer } from '../core/meshLoader';
 import { DEFAULT_PARAMS } from '../core/params';
@@ -44,7 +44,7 @@ describe('exporters (SVG & DXF AC1015)', () => {
     { id: 2, gapIndex: 1, x: -7.5, y: 0.0, diameter: 6.0 },
   ];
 
-  const sheets = generateLayouts(sliceResult, testDiscs, testParams);
+  const sheets = generateDiscsLayouts(sliceResult, testDiscs, testParams);
   const sheet0 = sheets[0];
 
   it('chirality and CAD frame matching between SVG and DXF (Corrections #6 & A1)', () => {

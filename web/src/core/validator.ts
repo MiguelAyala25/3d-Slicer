@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three-stdlib';
 import { PARAM_BOUNDS } from './params';
-import type { MeshMetadata, SculptureParams } from '../types/sculpture';
+import type { CoreParams, MeshMetadata } from '../types/sculpture';
 
 export const SUPPORTED_EXTENSIONS = new Set(['.obj', '.stl', '.3mf', '.ply']);
 export const MAX_FILE_SIZE_BYTES = 150 * 1024 * 1024; // 150 MB
@@ -39,7 +39,7 @@ export function validateFileExtension(fileName: string, byteLength?: number): st
   return ext;
 }
 
-export function validateParams(params: SculptureParams): void {
+export function validateParams(params: CoreParams): void {
   if (
     !Number.isInteger(params.plates) ||
     params.plates < PARAM_BOUNDS.plates.min ||
@@ -70,15 +70,6 @@ export function validateParams(params: SculptureParams): void {
   if (!['x', 'y', 'z'].includes(params.axis)) {
     throw new ValidationError(
       `El eje de corte debe ser 'x', 'y' o 'z' (recibido: '${params.axis}').`
-    );
-  }
-  if (
-    !Number.isFinite(params.discDiameter) ||
-    params.discDiameter < PARAM_BOUNDS.discDiameter.min ||
-    params.discDiameter > PARAM_BOUNDS.discDiameter.max
-  ) {
-    throw new ValidationError(
-      `El diámetro del disco debe estar entre ${PARAM_BOUNDS.discDiameter.min} y ${PARAM_BOUNDS.discDiameter.max} mm (recibido: ${params.discDiameter}).`
     );
   }
   if (
@@ -123,15 +114,6 @@ export function validateParams(params: SculptureParams): void {
   ) {
     throw new ValidationError(
       `El kerf debe estar entre ${PARAM_BOUNDS.kerf.min} y ${PARAM_BOUNDS.kerf.max} mm (recibido: ${params.kerf}).`
-    );
-  }
-  if (
-    !Number.isFinite(params.engraveClearance) ||
-    params.engraveClearance < PARAM_BOUNDS.engraveClearance.min ||
-    params.engraveClearance > PARAM_BOUNDS.engraveClearance.max
-  ) {
-    throw new ValidationError(
-      `La holgura de grabado debe estar entre ${PARAM_BOUNDS.engraveClearance.min} y ${PARAM_BOUNDS.engraveClearance.max} mm (recibido: ${params.engraveClearance}).`
     );
   }
   if (typeof params.scrapTagEnabled !== 'boolean') {

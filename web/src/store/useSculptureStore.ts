@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 import * as THREE from 'three';
 import { DEFAULT_PARAMS } from '../core/params';
-import { DiscManager } from '../core/discs';
 import { loadMeshFromBuffer } from '../core/meshLoader';
-import { generateLayouts } from '../core/layout';
+import { generateSheetLayouts } from '../core/layout';
+import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
+import { DEFAULT_BUILD, type BuildConfig, type JointId, type TechniqueId } from '../core/build/types';
+import { getJoint } from '../core/build/registry';
+import { ValidationError } from '../core/validator';
+import { PARAM_BOUNDS } from '../core/params';
+import { createDiscsSlice, type DiscsSlice } from './discsSlice';
 import {
   checkParamsCompatibility,
-  parseProjectJson,
   serializeProjectJson,
   type ParsedProjectData,
 } from '../core/project';
@@ -22,7 +26,6 @@ import {
 import { sliceMesh } from '../core/slicer';
 import type {
   Axis,
-  Disc,
   MeshMetadata,
   SculptureParams,
   SheetLayout,
@@ -42,15 +45,17 @@ export interface PendingAutosaveSession {
 export interface SculptureState {
   // Parámetros y banderas
   params: SculptureParams;
+  build: BuildConfig;
   gapManuallyEdited: boolean;
   isResultDirty: boolean;
 
   // Malla y corte
   meshGeometry: THREE.BufferGeometry | null;
   meshMetadata: MeshMetadata | null;
-  sliceResult: SliceResult | null;
-  isSlicing: boolean;
+  meshFileName: string | null;
   isLoadingMesh: boolean;
+  isSlicing: boolean;
+  sliceResult: SliceResult | null;
   lastSliceAxis: Axis | null;
   lastSliceDurationMs: number | null;
 
@@ -59,14 +64,6 @@ export interface SculptureState {
   wireframe: boolean;
   showAllFloors: boolean;
   activeFloor: number; // Índice físico 0 .. params.plates - 1
-
-  // Discos e interacción
-  modeAddDiscs: boolean;
-  discManager: DiscManager;
-  discs: Disc[];
-  selectedDiscId: number | null;
-  canUndo: boolean;
-  canRedo: boolean;
 
   // Cámara
   cameraPreset: CameraPreset;
@@ -82,8 +79,9 @@ export interface SculptureState {
   // Mensajes de estado y errores
   statusMessage: string;
   errorMessage: string | null;
+}
 
-  // Acciones
+export interface SculptureActions {
   setParam: <K extends keyof SculptureParams>(key: K, value: SculptureParams[K]) => void;
   setIsLoadingMesh: (loading: boolean) => void;
   loadMeshArrayBuffer: (buffer: ArrayBuffer, fileName: string, autoSlice?: boolean) => Promise<void>;
@@ -94,18 +92,8 @@ export interface SculptureState {
   setActiveFloor: (floorIndex: number) => void;
   stepFloor: (delta: 1 | -1) => void;
   setCameraPreset: (preset: CameraPreset) => void;
-
-  // Acciones de discos
-  setModeAddDiscs: (enabled: boolean) => void;
-  addDiscAtActiveFloor: (x: number, y: number) => void;
-  commitDiscMove: (discId: number, startX: number, startY: number, finalX: number, finalY: number) => boolean;
-  selectDisc: (discId: number | null) => void;
-  updateSelectedDiscDiameter: (newDiameter: number) => void;
-  deleteSelectedDisc: () => void;
-  clearActiveFloorDiscs: () => void;
-  clearAllDiscs: () => void;
-  undoDiscs: () => void;
-  redoDiscs: () => void;
+  setTechnique: (id: TechniqueId) => void;
+  setJoint: (id: JointId, opts?: { confirmed?: boolean }) => { needsConfirmation: boolean; discCount: number };
 
   // Proyecto, autosave y exportación
   checkAutosaveOnStartup: () => Promise<void>;
@@ -117,6 +105,8 @@ export interface SculptureState {
   closeSheetPreviewModal: () => void;
   clearError: () => void;
 }
+
+export type SculptureStore = SculptureState & SculptureActions & DiscsSlice;
 
 let workerInstance: Worker | null = null;
 let currentMeshId = 0;
@@ -139,64 +129,38 @@ function getOrCreateWorker(): Worker | null {
   return workerInstance;
 }
 
-if (typeof window !== 'undefined') {
-  getOrCreateWorker();
-}
-
 function getNextNonEmptyFloor(
   plates: SliceResult['plates'],
-  fromFloor: number,
+  current: number,
   delta: 1 | -1
 ): number {
-  let idx = fromFloor + delta;
-  while (idx >= 0 && idx < plates.length) {
+  const n = plates.length;
+  if (n === 0) return 0;
+  let idx = current + delta;
+  while (idx >= 0 && idx < n) {
     if (plates[idx] && plates[idx].length > 0) {
       return idx;
     }
     idx += delta;
   }
-  return fromFloor;
+  return current;
 }
 
-function getFirstNonEmptyFloor(plates: SliceResult['plates']): number {
-  for (let i = 0; i < plates.length; i++) {
-    if (plates[i] && plates[i].length > 0) return i;
-  }
-  return 0;
-}
-
-export const useSculptureStore = create<SculptureState>((set, get) => {
-  const manager = new DiscManager(DEFAULT_PARAMS.discDiameter);
-
-  function syncDiscsState(statusMsg?: string): void {
-    const state = get();
-    const allDiscs = manager.getAllDiscs();
-    const selectedExists =
-      state.selectedDiscId !== null &&
-      allDiscs.some((d) => d.id === state.selectedDiscId);
-
-    set({
-      discs: allDiscs,
-      selectedDiscId: selectedExists ? state.selectedDiscId : null,
-      canUndo: manager.canUndo(),
-      canRedo: manager.canRedo(),
-      ...(statusMsg ? { statusMessage: statusMsg } : {}),
-    });
-
-    saveProjectToLocalStorage(
-      get().params,
-      allDiscs,
-      get().meshMetadata?.fileName ?? null
-    );
-  }
+export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
+  let lastSlicedAxis: Axis | null = null;
+  const discsSlice = createDiscsSlice(set, get, api);
 
   return {
+    ...discsSlice,
+
     params: { ...DEFAULT_PARAMS },
+    build: { ...DEFAULT_BUILD },
     gapManuallyEdited: false,
     isResultDirty: false,
 
     meshGeometry: null,
     meshMetadata: null,
+    meshFileName: null,
     sliceResult: null,
     isSlicing: false,
     isLoadingMesh: false,
@@ -207,13 +171,6 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
     wireframe: false,
     showAllFloors: true,
     activeFloor: 0,
-
-    modeAddDiscs: false,
-    discManager: manager,
-    discs: [],
-    selectedDiscId: null,
-    canUndo: false,
-    canRedo: false,
 
     cameraPreset: 'iso',
     cameraPresetTrigger: 0,
@@ -238,85 +195,61 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
         nextGapEdited = true;
       } else if (key === 'discDiameter') {
         try {
-          manager.setDefaultDiameter(value as number);
+          state.discManager.setDefaultDiameter(value as number);
         } catch {
-          // Validado al aplicar
+          // Ignorado si no es válido aún
         }
       }
-
-      const geometricKeys: Array<keyof SculptureParams> = [
-        'plates',
-        'thickness',
-        'gap',
-        'axis',
-      ];
-      const marksDirty =
-        state.sliceResult !== null && geometricKeys.includes(key);
 
       set({
         params: nextParams,
         gapManuallyEdited: nextGapEdited,
-        isResultDirty: marksDirty ? true : state.isResultDirty,
+        isResultDirty: state.sliceResult !== null,
+        errorMessage: null,
       });
 
-      saveProjectToLocalStorage(
-        nextParams,
-        get().discs,
-        get().meshMetadata?.fileName ?? null
-      );
+      // Autosave automático si hay malla cargada
+      if (state.meshGeometry && state.meshFileName) {
+        saveProjectToLocalStorage(get().params, get().discs, state.meshFileName);
+      }
     },
 
     setIsLoadingMesh: (loading) => set({ isLoadingMesh: loading }),
 
-    loadMeshArrayBuffer: async (buffer, fileName, autoSlice = false) => {
-      set({
-        isLoadingMesh: true,
-        statusMessage: `Cargando ${fileName}...`,
-      });
-      // Permitir que el ciclo de eventos de React dibuje el spinner antes del análisis de geometría
-      await new Promise((resolve) => setTimeout(resolve, 30));
-
+    loadMeshArrayBuffer: async (buffer, fileName, autoSlice = true) => {
+      set({ isLoadingMesh: true, errorMessage: null, statusMessage: `Cargando ${fileName}...` });
       try {
-        const prevGeom = get().meshGeometry;
         const { geometry, metadata } = loadMeshFromBuffer(buffer, fileName);
-        if (prevGeom) {
-          prevGeom.dispose();
-        }
-
         currentMeshId += 1;
-        const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
-        const clonedPositions = new Float32Array(posAttr.array);
+        const meshId = currentMeshId;
 
-        const worker = getOrCreateWorker();
-        if (worker) {
-          const msg: WorkerRequest = {
-            type: 'SET_MESH',
-            meshId: currentMeshId,
-            positions: clonedPositions,
-          };
-          worker.postMessage(msg, [clonedPositions.buffer]);
-        }
-
-        manager.clearAll(false);
-        void saveMeshBufferToIndexedDB(fileName, buffer);
+        get().resetDiscs();
 
         set({
           meshGeometry: geometry,
           meshMetadata: metadata,
+          meshFileName: fileName,
           sliceResult: null,
           isResultDirty: false,
           activeFloor: 0,
-          viewMode: 'original',
-          modeAddDiscs: false,
-          discs: [],
-          selectedDiscId: null,
-          canUndo: false,
-          canRedo: false,
-          errorMessage: null,
-          statusMessage: `Modelo cargado: ${fileName} (${metadata.faceCount.toLocaleString()} caras)`,
-          cameraPreset: 'iso',
-          cameraPresetTrigger: get().cameraPresetTrigger + 1,
           isLoadingMesh: false,
+          statusMessage: `Modelo '${fileName}' cargado (${metadata.vertexCount} vértices, ${metadata.faceCount} triángulos)`,
+        });
+
+        const worker = getOrCreateWorker();
+        if (worker) {
+          const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
+          const transferArray = new Float32Array(posAttr.array);
+          const req: WorkerRequest = {
+            type: 'SET_MESH',
+            meshId,
+            positions: transferArray,
+          };
+          worker.postMessage(req, [transferArray.buffer]);
+        }
+
+        saveMeshBufferToIndexedDB(fileName, buffer).catch(() => {
+          // Fallback silencioso si IndexedDB falla
         });
 
         if (autoSlice) {
@@ -326,92 +259,64 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
         set({
           isLoadingMesh: false,
           errorMessage: err instanceof Error ? err.message : String(err),
+          statusMessage: 'Error al cargar el modelo 3D',
         });
       }
     },
 
     runSlice: async () => {
       const state = get();
-      if (!state.meshGeometry) {
-        set({ errorMessage: 'Primero debes cargar un archivo de malla 3D.' });
-        return;
-      }
+      if (!state.meshGeometry) return;
 
-      const jobId = ++latestJobId;
-      const meshId = currentMeshId;
       const paramsSnapshot = { ...state.params };
-      const prevScaleFactor = state.sliceResult?.scaleFactor ?? null;
-      const axisChanged =
-        state.lastSliceAxis !== null &&
-        state.lastSliceAxis !== paramsSnapshot.axis;
+      latestJobId += 1;
+      const jobId = latestJobId;
+      const meshId = currentMeshId;
 
-      set({
-        isSlicing: true,
-        errorMessage: null,
-        statusMessage: 'Calculando planos de corte...',
-      });
+      set({ isSlicing: true, errorMessage: null, statusMessage: 'Rebanando modelo...' });
 
       const applySliceOutcome = (result: SliceResult, durationMs: number) => {
-        if (jobId !== latestJobId || meshId !== currentMeshId) {
-          return; // Resultado obsoleto descartado
-        }
+        const prevScaleFactor = state.sliceResult?.scaleFactor ?? 0;
+        const axisChanged = state.sliceResult !== null && lastSlicedAxis !== state.params.axis;
+        lastSlicedAxis = state.params.axis;
 
-        let removedDiscs = 0;
-        if (axisChanged) {
-          removedDiscs = manager.getAllDiscs().length;
-          manager.clearAll(true);
-        } else {
-          // Corrección #5c: reescalar (x, y) por newAutoScale / oldAutoScale antes de purgeInvalidDiscs
-          if (prevScaleFactor !== null && prevScaleFactor > 0) {
-            const scaleRatio = result.scaleFactor / prevScaleFactor;
-            manager.rescalePositions(scaleRatio);
-          }
-          removedDiscs = manager.purgeInvalidDiscs(result.plates);
-        }
+        get().onSliceApplied({ axisChanged, prevScaleFactor, result });
 
-        const firstValidFloor = getFirstNonEmptyFloor(result.plates);
-        const currentFloor = get().activeFloor;
-        const nextFloor =
-          currentFloor < result.plates.length &&
-          result.plates[currentFloor]?.length > 0
-            ? currentFloor
-            : firstValidFloor;
+        const firstFloor = getNextNonEmptyFloor(result.plates, 0, 1);
 
-        const validPlatesCount = result.plates.filter((p) => p.length > 0).length;
-        const orphanNotice =
-          removedDiscs > 0
-            ? ` (${removedDiscs} disco(s) fuera de contorno retirados)`
-            : '';
-
-        set({
+        set((s) => ({
           sliceResult: result,
+          lastSliceAxis: paramsSnapshot.axis,
+          lastSliceDurationMs: Math.round(durationMs),
           isSlicing: false,
           isResultDirty: false,
-          lastSliceAxis: paramsSnapshot.axis,
-          lastSliceDurationMs: durationMs,
           viewMode: 'plates',
-          activeFloor: nextFloor,
-        });
+          activeFloor: Math.min(s.activeFloor, result.plates.length - 1) >= 0
+            ? Math.min(s.activeFloor, result.plates.length - 1)
+            : firstFloor,
+          statusMessage: `Corte completado en ${Math.round(durationMs)} ms (${result.plates.length} placas)`,
+        }));
 
-        syncDiscsState(
-          `Corte completado: ${validPlatesCount}/${result.plates.length} placas válidas en ${durationMs.toFixed(0)} ms${orphanNotice}`
-        );
+        if (state.meshFileName) {
+          saveProjectToLocalStorage(get().params, get().discs, state.meshFileName);
+        }
       };
 
       const worker = getOrCreateWorker();
       if (worker) {
         await new Promise<void>((resolve) => {
-          const handler = (ev: MessageEvent<WorkerResponse>) => {
-            const data = ev.data;
-            if (data.jobId !== jobId) return;
+          const handler = (evt: MessageEvent<WorkerResponse>) => {
+            const msg = evt.data;
+            if (msg.jobId !== jobId) return;
             worker.removeEventListener('message', handler);
             worker.removeEventListener('error', errorHandler);
-            if (data.type === 'SLICE_SUCCESS') {
-              applySliceOutcome(data.result, data.durationMs);
+
+            if (msg.type === 'SLICE_SUCCESS') {
+              applySliceOutcome(msg.result, msg.durationMs);
             } else {
               set({
                 isSlicing: false,
-                errorMessage: data.error,
+                errorMessage: msg.error,
                 statusMessage: 'Error durante el corte',
               });
             }
@@ -482,167 +387,126 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
         cameraPresetTrigger: s.cameraPresetTrigger + 1,
       })),
 
-    setModeAddDiscs: (enabled) => set({ modeAddDiscs: enabled }),
+    setTechnique: (id) => {
+      if (id === 'waffle') {
+        throw new ValidationError('La técnica «Waffle» aún no está disponible.');
+      }
+      if (id !== 'stacked') {
+        throw new ValidationError(`Técnica desconocida: '${id}'.`);
+      }
+      set((s) => ({ build: { ...s.build, techniqueId: id } }));
+    },
 
-    addDiscAtActiveFloor: (x, y) => {
-      const { sliceResult, activeFloor, params } = get();
-      if (!sliceResult) return;
-      try {
-        const outcome = manager.addDisc(
-          x,
-          y,
-          activeFloor,
-          sliceResult.plates,
-          params.discDiameter,
-          true
-        );
-        set({ selectedDiscId: outcome.primary.id, errorMessage: null });
-        const copyMsg = outcome.autoCopied
-          ? ` + auto-copia en P${activeFloor + 1}-P${activeFloor + 2}`
-          : '';
-        syncDiscsState(
-          `Disco #${outcome.primary.id} colocado en (${x.toFixed(1)}, ${y.toFixed(1)})${copyMsg}`
-        );
-      } catch (err) {
+    setJoint: (id, opts) => {
+      const joint = getJoint(id);
+      if (!joint.available) {
+        throw new ValidationError(`La unión «${joint.label}» aún no está disponible.`);
+      }
+      const currentJointId = get().build.jointId;
+      if (id === currentJointId) {
+        return { needsConfirmation: false, discCount: 0 };
+      }
+      const discs = get().discs;
+      if (currentJointId === 'discs' && discs.length > 0 && !opts?.confirmed) {
+        return { needsConfirmation: true, discCount: discs.length };
+      }
+
+      if (currentJointId === 'discs') {
+        get().discManager.loadDiscsFromProject([]);
         set({
-          errorMessage: err instanceof Error ? err.message : String(err),
+          selectedDiscId: null,
+          modeAddDiscs: false,
+          discs: [],
+          canUndo: false,
+          canRedo: false,
+          discGapMemory: get().params.gap,
+          discGapManuallyEditedMemory: get().gapManuallyEdited,
         });
       }
-    },
 
-    commitDiscMove: (discId, startX, startY, finalX, finalY) => {
-      const { sliceResult } = get();
-      if (!sliceResult) return false;
-      const movedDist = Math.hypot(finalX - startX, finalY - startY);
-      if (movedDist < 1e-4) return false;
-      const ok = manager.moveDisc(
-        discId,
-        finalX,
-        finalY,
-        sliceResult.plates,
-        true
-      );
-      if (ok) {
-        syncDiscsState(
-          `Disco #${discId} movido a (${finalX.toFixed(1)}, ${finalY.toFixed(1)})`
-        );
+      if (id === 'none') {
+        set((s) => ({
+          build: { ...s.build, jointId: id },
+          params: { ...s.params, gap: 0 },
+          isResultDirty: s.sliceResult !== null,
+        }));
+      } else if (id === 'discs') {
+        const memory = get().discGapMemory;
+        const memoryEdited = get().discGapManuallyEditedMemory;
+        const nextGap =
+          memory !== null && memory >= PARAM_BOUNDS.gap.min
+            ? memory
+            : Math.max(PARAM_BOUNDS.gap.min, get().params.thickness);
+        const nextGapEdited = memory !== null ? memoryEdited : false;
+        set((s) => ({
+          build: { ...s.build, jointId: id },
+          params: { ...s.params, gap: nextGap },
+          gapManuallyEdited: nextGapEdited,
+          isResultDirty: s.sliceResult !== null,
+        }));
       }
-      return ok;
-    },
 
-    selectDisc: (discId) => set({ selectedDiscId: discId }),
-
-    updateSelectedDiscDiameter: (newDiameter) => {
-      const { selectedDiscId, sliceResult } = get();
-      if (selectedDiscId === null || !sliceResult) return;
-      try {
-        const ok = manager.setDiameter(
-          selectedDiscId,
-          newDiameter,
-          sliceResult.plates
-        );
-        if (ok) {
-          try {
-            manager.setDefaultDiameter(newDiameter);
-          } catch {
-            // Ignorado si no es válido
-          }
-          set((s) => ({
-            errorMessage: null,
-            params: { ...s.params, discDiameter: newDiameter },
-          }));
-          syncDiscsState(
-            `Diámetro de disco #${selectedDiscId} actualizado a Ø${newDiameter.toFixed(1)} mm`
-          );
-        }
-      } catch (err) {
-        set({
-          errorMessage: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-
-    deleteSelectedDisc: () => {
-      const { selectedDiscId } = get();
-      if (selectedDiscId === null) return;
-      if (manager.removeDisc(selectedDiscId)) {
-        set({ selectedDiscId: null });
-        syncDiscsState(`Disco #${selectedDiscId} eliminado`);
-      }
-    },
-
-    clearActiveFloorDiscs: () => {
-      const { activeFloor } = get();
-      const count = manager.clearGap(activeFloor);
-      if (count > 0) {
-        set({ selectedDiscId: null });
-        syncDiscsState(
-          `Se eliminaron ${count} disco(s) del piso P${activeFloor}-P${activeFloor + 1}`
-        );
-      }
-    },
-
-    clearAllDiscs: () => {
-      manager.clearAll(true);
-      set({ selectedDiscId: null });
-      syncDiscsState('Todos los discos fueron eliminados');
-    },
-
-    undoDiscs: () => {
-      if (manager.undo()) {
-        syncDiscsState('Deshacer aplicado');
-      }
-    },
-
-    redoDiscs: () => {
-      if (manager.redo()) {
-        syncDiscsState('Rehacer aplicado');
-      }
+      return { needsConfirmation: false, discCount: 0 };
     },
 
     checkAutosaveOnStartup: async () => {
-      const snapshot = loadProjectFromLocalStorage();
-      const meshRecord = await loadMeshBufferFromIndexedDB();
-      if (snapshot || meshRecord) {
-        set({
-          pendingAutosave: { snapshot, meshRecord },
-        });
+      try {
+        const envelope = loadProjectFromLocalStorage();
+        if (!envelope) return;
+        const meshRecord = await loadMeshBufferFromIndexedDB();
+        if (meshRecord && meshRecord.fileName === envelope.meshFileName) {
+          set({
+            pendingAutosave: {
+              snapshot: envelope,
+              meshRecord,
+            },
+          });
+        }
+      } catch {
+        // Ignorado si localStorage o IndexedDB fallan
       }
     },
 
     restoreAutosaveSession: async () => {
-      const pending = get().pendingAutosave;
-      if (!pending) return;
+      const { pendingAutosave } = get();
+      if (!pendingAutosave || !pendingAutosave.snapshot) return;
+
+      const { snapshot, meshRecord } = pendingAutosave;
       set({ pendingAutosave: null });
 
-      if (pending.meshRecord) {
-        await get().loadMeshArrayBuffer(
-          pending.meshRecord.buffer,
-          pending.meshRecord.fileName,
-          false
-        );
-      }
-      if (pending.snapshot) {
+      try {
+        set({ params: { ...snapshot.params }, gapManuallyEdited: true });
+        if (meshRecord) {
+          await get().loadMeshArrayBuffer(
+            meshRecord.buffer,
+            meshRecord.fileName,
+            true
+          );
+        }
         await get().importProjectFromParsed(
           {
             version: '1.0',
-            params: pending.snapshot.params,
-            discs: pending.snapshot.discs,
+            params: snapshot.params,
+            discs: snapshot.discs,
           },
           true
         );
-      } else if (pending.meshRecord) {
-        await get().runSlice();
+        set({ statusMessage: 'Sesión anterior restaurada con éxito' });
+      } catch (err) {
+        set({
+          errorMessage: err instanceof Error ? err.message : String(err),
+          statusMessage: 'Error al restaurar la sesión anterior',
+        });
       }
-      set({ statusMessage: 'Sesión anterior restaurada correctamente' });
     },
 
     discardAutosaveSession: async () => {
-      await clearAutosaveStorage();
-      set({
-        pendingAutosave: null,
-        statusMessage: 'Sesión guardada descartada',
-      });
+      set({ pendingAutosave: null });
+      try {
+        clearAutosaveStorage();
+      } catch {
+        // Ignorado
+      }
     },
 
     exportProjectJsonString: () => {
@@ -674,38 +538,41 @@ export const useSculptureStore = create<SculptureState>((set, get) => {
         await get().runSlice();
       }
 
+      const manager = get().discManager;
       manager.loadDiscsFromProject(parsed.discs);
       const currentSlice = get().sliceResult;
       if (currentSlice) {
         manager.purgeInvalidDiscs(currentSlice.plates);
       }
-      syncDiscsState('Proyecto cargado correctamente');
+      set({
+        discs: manager.getAllDiscs(),
+        canUndo: manager.canUndo(),
+        canRedo: manager.canRedo(),
+        selectedDiscId: null,
+        statusMessage: 'Proyecto cargado correctamente',
+      });
       return { needsConfirmation: false };
     },
 
     openSheetPreviewModal: () => {
-      const { sliceResult, discs, params } = get();
-      if (!sliceResult) {
-        set({ errorMessage: 'Primero debes rebanar el modelo 3D.' });
-        return;
-      }
+      const { sliceResult, discs, params, build } = get();
+      if (!sliceResult) return;
       try {
-        const layouts = generateLayouts(sliceResult, discs, params);
-        set({
-          sheetLayouts: layouts,
-          isPreviewModalOpen: true,
-          errorMessage: null,
-        });
+        const layouts =
+          build.jointId === 'discs'
+            ? generateDiscsLayouts(sliceResult, discs, params)
+            : generateSheetLayouts(sliceResult, params);
+        set({ sheetLayouts: layouts, isPreviewModalOpen: true, errorMessage: null });
       } catch (err) {
         set({
           errorMessage: err instanceof Error ? err.message : String(err),
+          statusMessage: 'Error al generar la distribución de hojas',
         });
       }
     },
 
     closeSheetPreviewModal: () => set({ isPreviewModalOpen: false }),
+
     clearError: () => set({ errorMessage: null }),
   };
 });
-
-export { parseProjectJson };

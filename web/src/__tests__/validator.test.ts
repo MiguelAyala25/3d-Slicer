@@ -6,10 +6,12 @@ import { fileURLToPath } from 'node:url';
 import {
   PARAM_BOUNDS,
   DEFAULT_PARAMS,
+} from '../core/params';
+import {
   getDiscThickness,
   isDiscsSeparateSheet,
   getDiscSheetNotice,
-} from '../core/params';
+} from '../core/joints/discs/discParams';
 import {
   validateFileExtension,
   validateParams,

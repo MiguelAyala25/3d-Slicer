@@ -34,21 +34,8 @@ export const DEFAULT_PARAMS: SculptureParams = {
   scrapTagEnabled: true,
 };
 
-export function getDiscThickness(params: Pick<SculptureParams, 'gap'>): number {
-  return params.gap;
-}
+export const CORE_GAP_BOUNDS = {
+  min: 0,
+  max: PARAM_BOUNDS.gap.max,
+} as const;
 
-export function isDiscsSeparateSheet(
-  params: Pick<SculptureParams, 'gap' | 'thickness'>
-): boolean {
-  return Math.abs(params.gap - params.thickness) > 0.01;
-}
-
-export function getDiscSheetNotice(
-  params: Pick<SculptureParams, 'gap' | 'thickness'>
-): string {
-  if (!isDiscsSeparateSheet(params)) {
-    return 'Discos: misma lámina que placas';
-  }
-  return `Discos: lámina aparte de ${params.gap.toFixed(1)} mm`;
-}

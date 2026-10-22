@@ -4,7 +4,7 @@ import { Viewport3D } from './components/viewport/Viewport3D';
 import { TopProjectBar } from './components/hud/TopProjectBar';
 import { CameraToolbar } from './components/hud/CameraToolbar';
 import { FloorNavigatorHUD } from './components/hud/FloorNavigatorHUD';
-import { DiscsDockHUD } from './components/hud/DiscsDockHUD';
+import { JOINT_UI } from './components/joints/registry';
 import { RightInspector } from './components/hud/RightInspector';
 import { StatusBarPill } from './components/hud/StatusBarPill';
 import { SheetPreviewModal } from './components/modal/SheetPreviewModal';
@@ -22,6 +22,8 @@ export default function App() {
   const checkAutosaveOnStartup = useSculptureStore(
     (s) => s.checkAutosaveOnStartup
   );
+  const build = useSculptureStore((s) => s.build);
+  const JointDock = JOINT_UI[build.jointId]?.Dock;
 
   // Corrección #5f: Detectar sesión guardada para mostrar banner "Restaurar sesión / Descartar".
   // Prohibido sobrescribir el estado sin preguntar al usuario.
@@ -154,7 +156,7 @@ export default function App() {
       <TopProjectBar />
       <CameraToolbar />
       <FloorNavigatorHUD />
-      <DiscsDockHUD />
+      {JointDock && <JointDock />}
       <RightInspector />
       <StatusBarPill />
       <SheetPreviewModal />

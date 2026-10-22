@@ -1,7 +1,7 @@
-import { isDiscInsidePlate, isDiscValidForGap } from './geometry2d';
-import { DEFAULT_PARAMS, PARAM_BOUNDS } from './params';
-import { ValidationError } from './validator';
-import type { Disc, PlateContour } from '../types/sculpture';
+import { isDiscInsidePlate, isDiscValidForGap } from './discGeometry';
+import { DEFAULT_PARAMS, PARAM_BOUNDS } from '../../params';
+import { ValidationError } from '../../validator';
+import type { Disc, PlateContour } from '../../../types/sculpture';
 
 export const MAX_HISTORY = 50;
 

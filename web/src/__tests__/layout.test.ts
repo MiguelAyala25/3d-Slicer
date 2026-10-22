@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { generateLayouts } from '../core/layout';
+import { generateSheetLayouts } from '../core/layout';
+import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
 import { parseProjectJson } from '../core/project';
 import { DEFAULT_PARAMS } from '../core/params';
 import { ValidationError } from '../core/validator';
@@ -59,7 +60,7 @@ describe('layout engine (layout.ts)', () => {
   };
 
   it('matches web/golden/l_block_layout.json for Z axis', () => {
-    const sheets = generateLayouts(mockSliceResultZ, projectData.discs, layoutParams);
+    const sheets = generateDiscsLayouts(mockSliceResultZ, projectData.discs, layoutParams);
 
     // 2 sheets because gap (2.0) !== thickness (3.0)
     expect(sheets.length).toBe(goldenLayoutZ.sheets.length);
@@ -102,13 +103,13 @@ describe('layout engine (layout.ts)', () => {
   });
 
   it('respects scrapTagEnabled toggle', () => {
-    const sheetsWithTag = generateLayouts(mockSliceResultZ, projectData.discs, {
+    const sheetsWithTag = generateDiscsLayouts(mockSliceResultZ, projectData.discs, {
       ...layoutParams,
       scrapTagEnabled: true,
     });
     expect(sheetsWithTag[0].scrapTags.length).toBeGreaterThan(0);
 
-    const sheetsWithoutTag = generateLayouts(mockSliceResultZ, projectData.discs, {
+    const sheetsWithoutTag = generateDiscsLayouts(mockSliceResultZ, projectData.discs, {
       ...layoutParams,
       scrapTagEnabled: false,
     });
@@ -117,12 +118,19 @@ describe('layout engine (layout.ts)', () => {
 
   it('throws ValidationError with exact message when plate exceeds usable area', () => {
     expect(() =>
-      generateLayouts(mockSliceResultZ, projectData.discs, {
+      generateDiscsLayouts(mockSliceResultZ, projectData.discs, {
         ...layoutParams,
         sheetW: 30.0,
         sheetH: 30.0,
         sheetMargin: 10.0, // Usable is 10x10 mm, plate 0 is 23x11.5 mm
       })
     ).toThrow(ValidationError);
+  });
+
+  it('generateSheetLayouts without hooks is strictly identical to generateDiscsLayouts with discs = []', () => {
+    const paramsZeroClearance = { ...layoutParams, engraveClearance: 0 };
+    const sheetsCore = generateSheetLayouts(mockSliceResultZ, paramsZeroClearance);
+    const sheetsDiscsEmpty = generateDiscsLayouts(mockSliceResultZ, [], paramsZeroClearance);
+    expect(sheetsCore).toEqual(sheetsDiscsEmpty);
   });
 });

@@ -5,8 +5,8 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react';
-import { PARAM_BOUNDS } from '../../core/params';
-import { useSculptureStore } from '../../store/useSculptureStore';
+import { PARAM_BOUNDS } from '../../../core/params';
+import { useSculptureStore } from '../../../store/useSculptureStore';
 
 export interface DiscsDockHUDProps {
   className?: string;

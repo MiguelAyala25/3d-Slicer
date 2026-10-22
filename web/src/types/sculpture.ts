@@ -15,6 +15,8 @@ export interface SculptureParams {
   scrapTagEnabled: boolean;  // params.py:33 default true, ui.py:162 boolean
 }
 
+export type CoreParams = Omit<SculptureParams, 'discDiameter' | 'engraveClearance'>;
+
 export type Point2D = [number, number];
 
 export interface PolygonWithHoles {

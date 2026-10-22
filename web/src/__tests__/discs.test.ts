@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DiscManager, MAX_HISTORY } from '../core/discs';
+import { DiscManager, MAX_HISTORY } from '../core/joints/discs/DiscManager';
 import {
   clampDiscPositionToGap,
   isDiscInsidePlate,
   isDiscValidForGap,
-} from '../core/geometry2d';
+} from '../core/joints/discs/discGeometry';
 import { loadMeshFromBuffer } from '../core/meshLoader';
 import { sliceMesh } from '../core/slicer';
 import { DEFAULT_PARAMS } from '../core/params';

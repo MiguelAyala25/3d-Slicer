@@ -1,9 +1,9 @@
 import { useMemo, useRef } from 'react';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
-import { clampDiscPositionToGap } from '../../core/geometry2d';
-import { useSculptureStore } from '../../store/useSculptureStore';
-import type { Disc } from '../../types/sculpture';
+import { clampDiscPositionToGap } from '../../../core/joints/discs/discGeometry';
+import { useSculptureStore } from '../../../store/useSculptureStore';
+import type { Disc } from '../../../types/sculpture';
 
 interface DragState {
   discId: number;

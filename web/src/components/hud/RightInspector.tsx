@@ -7,7 +7,8 @@ import {
   Play,
   SlidersHorizontal,
 } from 'lucide-react';
-import { getDiscSheetNotice, PARAM_BOUNDS } from '../../core/params';
+import { PARAM_BOUNDS } from '../../core/params';
+import { getDiscSheetNotice } from '../../core/joints/discs/discParams';
 import { useSculptureStore } from '../../store/useSculptureStore';
 import type { Axis } from '../../types/sculpture';
 import { Collapsible } from '../ui/Collapsible';

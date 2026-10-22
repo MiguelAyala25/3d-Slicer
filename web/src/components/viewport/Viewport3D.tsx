@@ -7,7 +7,7 @@ import { useSculptureStore } from '../../store/useSculptureStore';
 import { CameraRig } from './CameraRig';
 import { OriginalMeshView } from './OriginalMeshView';
 import { SlicedPlatesView } from './SlicedPlatesView';
-import { InteractiveDiscsView } from './InteractiveDiscsView';
+import { JOINT_UI } from '../joints/registry';
 
 export function Viewport3D() {
   const viewMode = useSculptureStore((s) => s.viewMode);
@@ -15,6 +15,8 @@ export function Viewport3D() {
   const isSlicing = useSculptureStore((s) => s.isSlicing);
   const meshMetadata = useSculptureStore((s) => s.meshMetadata);
   const statusMessage = useSculptureStore((s) => s.statusMessage);
+  const build = useSculptureStore((s) => s.build);
+  const JointViewportLayer = JOINT_UI[build.jointId]?.ViewportLayer;
 
   const [isCompact, setIsCompact] = useState(
     typeof window !== 'undefined' ? window.innerWidth < 1100 : false
@@ -90,7 +92,7 @@ export function Viewport3D() {
         ) : (
           <>
             <SlicedPlatesView />
-            <InteractiveDiscsView />
+            {JointViewportLayer && <JointViewportLayer />}
           </>
         )}
 

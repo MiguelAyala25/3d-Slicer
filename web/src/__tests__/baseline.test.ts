@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadMeshFromBuffer } from '../core/meshLoader';
 import { sliceMesh } from '../core/slicer';
-import { generateLayouts } from '../core/layout';
+import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
 import { generateSheetSvg } from '../core/svgExporter';
 import { generateSheetDxf, getSheetFileBaseName } from '../core/dxfExporter';
 import { serializeProjectJson, parseProjectJson } from '../core/project';
@@ -69,7 +69,7 @@ describe('Baseline 8.0 Outputs (deterministic byte-for-byte snapshots)', () => {
 
   it('Case 1: Plates sheet + separate discs sheet (g != t), scrapTag ON', () => {
     const slice = sliceMesh(lBlockPositions, case1Params);
-    const sheets = generateLayouts(slice, case1Discs, case1Params);
+    const sheets = generateDiscsLayouts(slice, case1Discs, case1Params);
     expect(sheets.length).toBe(2);
     expect(sheets[0].sheetType).toBe('plates');
     expect(sheets[1].sheetType).toBe('discs');
@@ -82,7 +82,7 @@ describe('Baseline 8.0 Outputs (deterministic byte-for-byte snapshots)', () => {
       scrapTagEnabled: false,
     };
     const slice = sliceMesh(lBlockPositions, case2Params);
-    const sheets = generateLayouts(slice, case1Discs, case2Params);
+    const sheets = generateDiscsLayouts(slice, case1Discs, case2Params);
     expect(sheets.length).toBe(2);
     expect(sheets[0].scrapTags.length).toBe(0);
     expect(sheets[1].scrapTags.length).toBe(0);
@@ -99,7 +99,7 @@ describe('Baseline 8.0 Outputs (deterministic byte-for-byte snapshots)', () => {
       scrapTagEnabled: true,
     };
     const slice = sliceMesh(lBlockPositions, case3Params);
-    const sheets = generateLayouts(slice, case1Discs, case3Params);
+    const sheets = generateDiscsLayouts(slice, case1Discs, case3Params);
     expect(sheets.length).toBe(2);
     verifyCaseSheets(path.join(BASELINE_DIR, 'case3'), sheets);
   });
@@ -121,7 +121,7 @@ describe('Baseline 8.0 Outputs (deterministic byte-for-byte snapshots)', () => {
       { id: 2, gapIndex: 1, x: -7.5, y: 0, diameter: 6 },
     ];
     const slice = sliceMesh(lBlockPositions, case4Params);
-    const sheets = generateLayouts(slice, case4Discs, case4Params);
+    const sheets = generateDiscsLayouts(slice, case4Discs, case4Params);
     expect(sheets.length).toBeGreaterThanOrEqual(3);
     for (let i = 0; i < sheets.length; i++) {
       expect(sheets[i].sheetType).toBe('plates');
@@ -134,7 +134,7 @@ describe('Baseline 8.0 Outputs (deterministic byte-for-byte snapshots)', () => {
       ...DEFAULT_PARAMS,
     };
     const slice = sliceMesh(handPositions, case5Params);
-    const sheets = generateLayouts(slice, [], case5Params);
+    const sheets = generateDiscsLayouts(slice, [], case5Params);
     verifyCaseSheets(path.join(BASELINE_DIR, 'case5'), sheets);
   });
 
