@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 
 export interface NumericInputProps {
   label: string;
@@ -9,6 +9,9 @@ export interface NumericInputProps {
   unit?: string;
   disabled?: boolean;
   resetKey?: number;
+  testId?: string;
+  labelRight?: ReactNode;
+  ariaDescribedBy?: string;
   onChange: (newValue: number) => void;
 }
 
@@ -21,6 +24,9 @@ export function NumericInput({
   unit,
   disabled = false,
   resetKey,
+  testId,
+  labelRight,
+  ariaDescribedBy,
   onChange,
 }: NumericInputProps) {
   const inputId = useId();
@@ -48,21 +54,26 @@ export function NumericInput({
 
   return (
     <div className="flex flex-col gap-1">
-      <label
-        htmlFor={inputId}
-        className="text-xs font-medium text-[#A1A1AA] select-none"
-      >
-        {label}
-      </label>
+      <div className="flex items-center justify-between">
+        <label
+          htmlFor={inputId}
+          className="text-xs font-medium text-[#A1A1AA] select-none"
+        >
+          {label}
+        </label>
+        {labelRight}
+      </div>
       <div className="relative flex items-center">
         <input
           id={inputId}
+          data-testid={testId}
           type="number"
           value={draft}
           min={min}
           max={max}
           step={step}
           disabled={disabled}
+          aria-describedby={ariaDescribedBy}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commitDraft}
           onKeyDown={(e) => {

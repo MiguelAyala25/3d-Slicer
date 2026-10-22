@@ -140,6 +140,10 @@ function getOrCreateWorker(): Worker | null {
   return workerInstance;
 }
 
+if (typeof window !== 'undefined') {
+  getOrCreateWorker();
+}
+
 function getNextNonEmptyFloor(
   plates: SliceResult['plates'],
   current: number,

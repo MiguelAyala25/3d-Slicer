@@ -1,6 +1,7 @@
 import type { ComponentType } from 'react';
 import type { JointId } from '../../core/build/types';
 import { DiscsDockHUD } from './discs/DiscsDockHUD';
+import { DiscsJointOptions } from './discs/DiscsJointOptions';
 import { InteractiveDiscsView } from './discs/InteractiveDiscsView';
 
 export interface JointUi {
@@ -11,6 +12,7 @@ export interface JointUi {
 
 export const JOINT_UI: Record<JointId, JointUi> = {
   discs: {
+    Options: DiscsJointOptions,
     Dock: DiscsDockHUD,
     ViewportLayer: InteractiveDiscsView,
   },
