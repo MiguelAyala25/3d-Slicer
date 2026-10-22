@@ -163,4 +163,191 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
       expect(dxfContent).toContain('$INSUNITS');
     }
   });
+
+  test('6. Inspector section order, labels Alto (Z)/Ancho (X)/Largo (Y), Advanced summary and disabled options (A-1 to A-6)', async ({
+    page,
+  }) => {
+    await page.goto('/');
+
+    // A-1: Order of h2 headings
+    const headings = page.locator(
+      'aside[aria-label="Inspector de parámetros y exportación"] h2'
+    );
+    await expect(headings).toHaveText([
+      'Modelo',
+      'Material',
+      'Técnica de construcción',
+      'Resultado',
+    ]);
+
+    // A-6: Dimension labels
+    await expect(page.locator('text=Alto (Z)')).toBeVisible();
+    await expect(page.locator('text=Ancho (X)')).toBeVisible();
+    await expect(page.locator('text=Largo (Y)')).toBeVisible();
+
+    // A-4: Lock button disabled with title
+    const lockBtn = page.locator(
+      'button[title="Escala no uniforme: no disponible"]'
+    );
+    await expect(lockBtn).toBeVisible();
+    await expect(lockBtn).toBeDisabled();
+
+    // A-5: Advanced summary and scrapTag checkbox visible outside
+    await expect(
+      page.locator('text=Margen 10 · Sep. 5 · Kerf 0.15 mm')
+    ).toBeVisible();
+    await expect(
+      page.locator('text=Etiquetar sobrante aprovechable')
+    ).toBeVisible();
+
+    // A-3: disabled options ending in (próximamente)
+    const waffleOption = page.locator('option[value="waffle"]');
+    await expect(waffleOption).toBeDisabled();
+    await expect(waffleOption).toHaveText(/waffle.*\(próximamente\)/i);
+
+    const rodOption = page.locator('option[value="rod"]');
+    await expect(rodOption).toBeDisabled();
+    await expect(rodOption).toHaveText(/varilla.*\(próximamente\)/i);
+
+    // A-2: default diameter input exists with discs joint
+    await expect(page.locator('text=Diámetro por defecto')).toBeVisible();
+
+    // Switch to none joint -> default diameter input should not exist
+    await page.selectOption('[data-testid="select-joint"]', 'none');
+    await expect(page.locator('text=Diámetro por defecto')).not.toBeVisible();
+  });
+
+  test('7. Joint change with placed discs: confirmation dialog and undo/redo boundary', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
+    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+
+    // Enable add discs mode
+    await page.click('[data-testid="toggle-add-discs"]');
+
+    // Switch to top view ('7')
+    await page.keyboard.press('7');
+
+    const canvas = page.locator('canvas');
+    const box = await canvas.boundingBox();
+    if (box) {
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    }
+    await expect(page.getByTestId('total-discs-count')).toHaveText('2');
+
+    // Attempt to switch to 'none' and dismiss confirmation
+    page.once('dialog', (dialog) => dialog.dismiss());
+    await page.selectOption('[data-testid="select-joint"]', 'none');
+
+    // Joint stays at 'discs' and discs count remains 2
+    await expect(page.locator('[data-testid="select-joint"]')).toHaveValue('discs');
+    await expect(page.getByTestId('total-discs-count')).toHaveText('2');
+
+    // Attempt to switch to 'none' and accept confirmation
+    page.once('dialog', (dialog) => dialog.accept());
+    await page.selectOption('[data-testid="select-joint"]', 'none');
+
+    // With 'none', toggle-add-discs and stat-discs-total should not be visible
+    await expect(page.locator('[data-testid="select-joint"]')).toHaveValue('none');
+    await expect(page.locator('[data-testid="toggle-add-discs"]')).not.toBeVisible();
+    await expect(page.locator('[data-testid="stat-discs-total"]')).not.toBeVisible();
+
+    // Ctrl+Z should do nothing
+    await page.keyboard.press('Control+z');
+
+    // Switch back to 'discs'
+    await page.selectOption('[data-testid="select-joint"]', 'discs');
+    await expect(page.getByTestId('total-discs-count')).toHaveText('0');
+
+    // Undo button in dock is disabled
+    const undoButton = page.locator('button[aria-label="Deshacer"]');
+    await expect(undoButton).toBeDisabled();
+  });
+
+  test('8. Size ↔ plates coupling, local draft, and goal preservation', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
+    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+
+    const altoInput = page.getByTestId('dim-alto');
+    const platesInput = page.getByLabel('Número de placas');
+
+    // Initial plates count
+    await expect(platesInput).toHaveValue('10');
+
+    // Write in dim-alto without pressing Enter
+    await altoInput.focus();
+    await altoInput.fill('80');
+
+    // Slicing/plates should not change yet
+    await expect(platesInput).toHaveValue('10');
+    await expect(page.locator('text=/Objetivo: /')).not.toBeVisible();
+
+    // Press Enter to commit
+    await altoInput.press('Enter');
+
+    // Plates should update to new count
+    await expect(page.locator('text=/Objetivo: 80.0 mm/')).toBeVisible();
+    const newPlates = await platesInput.inputValue();
+    expect(Number(newPlates)).not.toBe(10);
+
+    // Change Grosor de placa: goal is preserved and plates recalculates
+    const thicknessInput = page.getByLabel('Grosor de placa');
+    await thicknessInput.focus();
+    await thicknessInput.fill('6');
+    await thicknessInput.press('Enter');
+
+    // Goal is still preserved
+    await expect(page.locator('text=/Objetivo: 80.0 mm/')).toBeVisible();
+
+    // Editing plates clears the goal
+    await platesInput.focus();
+    await platesInput.fill('15');
+    await platesInput.press('Enter');
+
+    await expect(page.locator('text=/Objetivo: /')).not.toBeVisible();
+  });
+
+  test('9. gap = 0 exports without discs and DXF has no circles', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.setInputFiles('[data-testid="mesh-file-input"]', FIXTURE_PATH);
+    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+
+    // Switch to 'none' joint
+    await page.selectOption('[data-testid="select-joint"]', 'none');
+
+    // Click 'Aplicar corte'
+    await page.click('button:has-text("Rebanar (actualizar)"), button:has-text("Aplicar corte")');
+    await expect(page.locator('text=Piso 0')).toBeVisible();
+
+    // Click 'Vista previa y exportar'
+    await page.click('button:has-text("Vista previa y exportar")');
+    await expect(page.locator('[role="dialog"]')).toBeVisible();
+
+    // Only Placas tabs, no Discos tab
+    await expect(page.locator('button[role="tab"]:has-text("Discos")')).not.toBeVisible();
+
+    // Download DXF
+    const downloadPromise = page.waitForEvent('download');
+    await page.click('button:has-text("Exportar esta hoja (.dxf)")');
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toContain('.dxf');
+
+    const stream = await download.createReadStream();
+    if (stream) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const dxfContent = Buffer.concat(chunks).toString('utf-8');
+      expect(dxfContent).toContain('CORTE');
+      expect(dxfContent).not.toContain('\nCIRCLE\n');
+    }
+  });
 });
