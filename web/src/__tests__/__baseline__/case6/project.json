@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "plates": 5,
+  "thickness": 3.0,
+  "gap": 2.0,
+  "axis": "z",
+  "discs": [
+    {
+      "id": 1,
+      "hueco": 0,
+      "x": -7.5,
+      "y": 0.0,
+      "diameter": 5.0
+    },
+    {
+      "id": 2,
+      "hueco": 1,
+      "x": -7.5,
+      "y": 0.0,
+      "diameter": 5.0
+    }
+  ]
+}

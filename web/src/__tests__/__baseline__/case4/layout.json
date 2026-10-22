@@ -1,0 +1,706 @@
+[
+  {
+    "sheetIndex": 0,
+    "sheetType": "plates",
+    "materialThickness": 3,
+    "width": 120,
+    "height": 90,
+    "margin": 10,
+    "kerf": 0.15,
+    "engraveClearance": 0.3,
+    "plates": [
+      {
+        "plateIndex": 0,
+        "xOffset": 10,
+        "yOffset": 10,
+        "width": 69,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                69,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                69,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 2380.5
+          }
+        ],
+        "discs": [
+          {
+            "id": 1,
+            "x": 27,
+            "y": 17.25,
+            "diameter": 6.3,
+            "nominalDiameter": 6,
+            "gapIndex": 0,
+            "isDashed": false
+          }
+        ],
+        "labelText": "P0",
+        "labelX": 44.5,
+        "labelY": 27.25,
+        "labelSize": 4.14,
+        "labelOutside": false
+      }
+    ],
+    "discs": [],
+    "discGroups": [],
+    "scrapTags": [],
+    "usedWidth": 69,
+    "usedHeight": 34.5,
+    "usedAreaMm2": 2380.5,
+    "usableAreaMm2": 7000,
+    "occupancyPct": 34,
+    "remnantWidth": 31,
+    "remnantHeight": 35.5,
+    "remnantAreaMm2": 4619.5
+  },
+  {
+    "sheetIndex": 1,
+    "sheetType": "plates",
+    "materialThickness": 3,
+    "width": 120,
+    "height": 90,
+    "margin": 10,
+    "kerf": 0.15,
+    "engraveClearance": 0.3,
+    "plates": [
+      {
+        "plateIndex": 1,
+        "xOffset": 10,
+        "yOffset": 10,
+        "width": 69,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                69,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                69,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 2380.5
+          }
+        ],
+        "discs": [
+          {
+            "id": 1,
+            "x": 27,
+            "y": 17.25,
+            "diameter": 6.3,
+            "nominalDiameter": 6,
+            "gapIndex": 0,
+            "isDashed": true
+          },
+          {
+            "id": 2,
+            "x": 27,
+            "y": 17.25,
+            "diameter": 6.3,
+            "nominalDiameter": 6,
+            "gapIndex": 1,
+            "isDashed": false
+          }
+        ],
+        "labelText": "P1",
+        "labelX": 44.5,
+        "labelY": 27.25,
+        "labelSize": 4.14,
+        "labelOutside": false
+      }
+    ],
+    "discs": [],
+    "discGroups": [],
+    "scrapTags": [],
+    "usedWidth": 69,
+    "usedHeight": 34.5,
+    "usedAreaMm2": 2380.5,
+    "usableAreaMm2": 7000,
+    "occupancyPct": 34,
+    "remnantWidth": 31,
+    "remnantHeight": 35.5,
+    "remnantAreaMm2": 4619.5
+  },
+  {
+    "sheetIndex": 2,
+    "sheetType": "plates",
+    "materialThickness": 3,
+    "width": 120,
+    "height": 90,
+    "margin": 10,
+    "kerf": 0.15,
+    "engraveClearance": 0.3,
+    "plates": [
+      {
+        "plateIndex": 2,
+        "xOffset": 10,
+        "yOffset": 10,
+        "width": 69,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                69,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                69,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 2380.5
+          }
+        ],
+        "discs": [
+          {
+            "id": 2,
+            "x": 27,
+            "y": 17.25,
+            "diameter": 6.3,
+            "nominalDiameter": 6,
+            "gapIndex": 1,
+            "isDashed": true
+          }
+        ],
+        "labelText": "P2",
+        "labelX": 44.5,
+        "labelY": 27.25,
+        "labelSize": 4.14,
+        "labelOutside": false
+      }
+    ],
+    "discs": [],
+    "discGroups": [],
+    "scrapTags": [],
+    "usedWidth": 69,
+    "usedHeight": 34.5,
+    "usedAreaMm2": 2380.5,
+    "usableAreaMm2": 7000,
+    "occupancyPct": 34,
+    "remnantWidth": 31,
+    "remnantHeight": 35.5,
+    "remnantAreaMm2": 4619.5
+  },
+  {
+    "sheetIndex": 3,
+    "sheetType": "plates",
+    "materialThickness": 3,
+    "width": 120,
+    "height": 90,
+    "margin": 10,
+    "kerf": 0.15,
+    "engraveClearance": 0.3,
+    "plates": [
+      {
+        "plateIndex": 3,
+        "xOffset": 10,
+        "yOffset": 10,
+        "width": 69,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                69,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                69,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 2380.5
+          }
+        ],
+        "discs": [],
+        "labelText": "P3",
+        "labelX": 44.5,
+        "labelY": 27.25,
+        "labelSize": 4.14,
+        "labelOutside": false
+      },
+      {
+        "plateIndex": 4,
+        "xOffset": 84,
+        "yOffset": 10,
+        "width": 23,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                23,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                23,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 793.5
+          }
+        ],
+        "discs": [],
+        "labelText": "P4",
+        "labelX": 95.5,
+        "labelY": 27.25,
+        "labelSize": 2.76,
+        "labelOutside": false
+      }
+    ],
+    "discs": [],
+    "discGroups": [],
+    "scrapTags": [],
+    "usedWidth": 97,
+    "usedHeight": 34.5,
+    "usedAreaMm2": 3346.5,
+    "usableAreaMm2": 7000,
+    "occupancyPct": 47.8,
+    "remnantWidth": 3,
+    "remnantHeight": 35.5,
+    "remnantAreaMm2": 3653.5
+  },
+  {
+    "sheetIndex": 4,
+    "sheetType": "plates",
+    "materialThickness": 3,
+    "width": 120,
+    "height": 90,
+    "margin": 10,
+    "kerf": 0.15,
+    "engraveClearance": 0.3,
+    "plates": [
+      {
+        "plateIndex": 5,
+        "xOffset": 10,
+        "yOffset": 10,
+        "width": 23,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                23,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                23,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 793.5
+          }
+        ],
+        "discs": [],
+        "labelText": "P5",
+        "labelX": 21.5,
+        "labelY": 27.25,
+        "labelSize": 2.76,
+        "labelOutside": false
+      },
+      {
+        "plateIndex": 6,
+        "xOffset": 38,
+        "yOffset": 10,
+        "width": 23,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                23,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                23,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 793.5
+          }
+        ],
+        "discs": [],
+        "labelText": "P6",
+        "labelX": 49.5,
+        "labelY": 27.25,
+        "labelSize": 2.76,
+        "labelOutside": false
+      },
+      {
+        "plateIndex": 7,
+        "xOffset": 66,
+        "yOffset": 10,
+        "width": 23,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                23,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                23,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 793.5
+          }
+        ],
+        "discs": [],
+        "labelText": "P7",
+        "labelX": 77.5,
+        "labelY": 27.25,
+        "labelSize": 2.76,
+        "labelOutside": false
+      }
+    ],
+    "discs": [],
+    "discGroups": [],
+    "scrapTags": [],
+    "usedWidth": 79,
+    "usedHeight": 34.5,
+    "usedAreaMm2": 2725.5,
+    "usableAreaMm2": 7000,
+    "occupancyPct": 38.9,
+    "remnantWidth": 21,
+    "remnantHeight": 35.5,
+    "remnantAreaMm2": 4274.5
+  },
+  {
+    "sheetIndex": 5,
+    "sheetType": "plates",
+    "materialThickness": 3,
+    "width": 120,
+    "height": 90,
+    "margin": 10,
+    "kerf": 0.15,
+    "engraveClearance": 0.3,
+    "plates": [
+      {
+        "plateIndex": 8,
+        "xOffset": 10,
+        "yOffset": 10,
+        "width": 23,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                23,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                23,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 793.5
+          }
+        ],
+        "discs": [],
+        "labelText": "P8",
+        "labelX": 21.5,
+        "labelY": 27.25,
+        "labelSize": 2.76,
+        "labelOutside": false
+      },
+      {
+        "plateIndex": 9,
+        "xOffset": 38,
+        "yOffset": 10,
+        "width": 23,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                23,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                23,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 793.5
+          }
+        ],
+        "discs": [],
+        "labelText": "P9",
+        "labelX": 49.5,
+        "labelY": 27.25,
+        "labelSize": 2.76,
+        "labelOutside": false
+      },
+      {
+        "plateIndex": 10,
+        "xOffset": 66,
+        "yOffset": 10,
+        "width": 23,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                23,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                23,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 793.5
+          }
+        ],
+        "discs": [],
+        "labelText": "P10",
+        "labelX": 77.5,
+        "labelY": 27.25,
+        "labelSize": 2.76,
+        "labelOutside": false
+      }
+    ],
+    "discs": [],
+    "discGroups": [],
+    "scrapTags": [],
+    "usedWidth": 79,
+    "usedHeight": 34.5,
+    "usedAreaMm2": 2725.5,
+    "usableAreaMm2": 7000,
+    "occupancyPct": 38.9,
+    "remnantWidth": 21,
+    "remnantHeight": 35.5,
+    "remnantAreaMm2": 4274.5
+  },
+  {
+    "sheetIndex": 6,
+    "sheetType": "plates",
+    "materialThickness": 3,
+    "width": 120,
+    "height": 90,
+    "margin": 10,
+    "kerf": 0.15,
+    "engraveClearance": 0.3,
+    "plates": [
+      {
+        "plateIndex": 11,
+        "xOffset": 10,
+        "yOffset": 10,
+        "width": 23,
+        "height": 34.5,
+        "polygons": [
+          {
+            "exterior": [
+              [
+                23,
+                34.5
+              ],
+              [
+                0,
+                34.5
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                23,
+                0
+              ]
+            ],
+            "holes": [],
+            "area": 793.5
+          }
+        ],
+        "discs": [],
+        "labelText": "P11",
+        "labelX": 21.5,
+        "labelY": 27.25,
+        "labelSize": 2.76,
+        "labelOutside": false
+      }
+    ],
+    "discs": [
+      {
+        "discId": 1,
+        "gapIndex": 0,
+        "x": 63,
+        "y": 17,
+        "diameter": 6,
+        "label": "D0-1"
+      },
+      {
+        "discId": 2,
+        "gapIndex": 1,
+        "x": 35,
+        "y": 56.5,
+        "diameter": 6,
+        "label": "D1-1"
+      }
+    ],
+    "discGroups": [
+      {
+        "gapIndex": 0,
+        "plateA": 0,
+        "plateB": 1,
+        "label": "P0-P1",
+        "trayX": 38,
+        "trayY": 10,
+        "trayW": 36,
+        "trayH": 14,
+        "labelSepX": 56,
+        "discs": [
+          {
+            "discId": 1,
+            "gapIndex": 0,
+            "x": 63,
+            "y": 17,
+            "diameter": 6,
+            "label": "D0-1"
+          }
+        ]
+      },
+      {
+        "gapIndex": 1,
+        "plateA": 1,
+        "plateB": 2,
+        "label": "P1-P2",
+        "trayX": 10,
+        "trayY": 49.5,
+        "trayW": 36,
+        "trayH": 14,
+        "labelSepX": 28,
+        "discs": [
+          {
+            "discId": 2,
+            "gapIndex": 1,
+            "x": 35,
+            "y": 56.5,
+            "diameter": 6,
+            "label": "D1-1"
+          }
+        ]
+      }
+    ],
+    "scrapTags": [],
+    "usedWidth": 64,
+    "usedHeight": 53.5,
+    "usedAreaMm2": 3424,
+    "usableAreaMm2": 7000,
+    "occupancyPct": 48.9,
+    "remnantWidth": 36,
+    "remnantHeight": 16.5,
+    "remnantAreaMm2": 3576
+  }
+]
