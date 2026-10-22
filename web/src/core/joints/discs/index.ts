@@ -23,6 +23,7 @@ export {
   clampDiscPositionToGap,
   isDiscInsidePlate,
   isDiscValidForGap,
+  isPointOnPlate,
 } from './discGeometry';
 export {
   getDiscSheetNotice,

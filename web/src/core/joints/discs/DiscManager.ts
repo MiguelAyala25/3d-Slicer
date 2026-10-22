@@ -1,4 +1,7 @@
-import { isDiscInsidePlate, isDiscValidForGap } from './discGeometry';
+import {
+  isDiscValidForGap,
+  isPointOnPlate,
+} from './discGeometry';
 import { DEFAULT_PARAMS, PARAM_BOUNDS } from '../../params';
 import { ValidationError } from '../../validator';
 import type { Disc, PlateContour } from '../../../types/sculpture';
@@ -100,14 +103,9 @@ export class DiscManager {
         `El índice de hueco ${gapIndex} está fuera de rango (0 a ${plates.length - 2}).`
       );
     }
-    if (!isDiscInsidePlate(x, y, d, plates[gapIndex])) {
+    if (!isPointOnPlate(x, y, plates[gapIndex])) {
       throw new ValidationError(
-        `El disco (Ø${d} mm) no cabe completamente dentro de la placa inferior P${gapIndex}.`
-      );
-    }
-    if (!isDiscInsidePlate(x, y, d, plates[gapIndex + 1])) {
-      throw new ValidationError(
-        `El disco (Ø${d} mm) no cabe completamente dentro de la placa superior P${gapIndex + 1}.`
+        `El punto seleccionado está fuera de la placa activa P${gapIndex}.`
       );
     }
 
@@ -156,7 +154,7 @@ export class DiscManager {
   ): boolean {
     const target = this.discs.find((d) => d.id === discId);
     if (!target) return false;
-    if (!isDiscValidForGap(newX, newY, target.diameter, target.gapIndex, plates)) {
+    if (!isPointOnPlate(newX, newY, plates[target.gapIndex], 2.0)) {
       return false;
     }
     if (Math.abs(target.x - newX) < 1e-6 && Math.abs(target.y - newY) < 1e-6) {
@@ -186,7 +184,10 @@ export class DiscManager {
     }
     const target = this.discs.find((d) => d.id === discId);
     if (!target) return false;
-    if (!isDiscValidForGap(target.x, target.y, newDiameter, target.gapIndex, plates)) {
+    if (
+      newDiameter > target.diameter &&
+      !isDiscValidForGap(target.x, target.y, newDiameter, target.gapIndex, plates)
+    ) {
       throw new ValidationError(
         `El diámetro Ø${newDiameter} mm excede el borde de las placas P${target.gapIndex}/P${target.gapIndex + 1} en la posición actual.`
       );
@@ -245,7 +246,11 @@ export class DiscManager {
     const valid: Disc[] = [];
     let removedCount = 0;
     for (const d of this.discs) {
-      if (isDiscValidForGap(d.x, d.y, d.diameter, d.gapIndex, plates)) {
+      if (
+        d.gapIndex >= 0 &&
+        d.gapIndex < plates.length - 1 &&
+        isPointOnPlate(d.x, d.y, plates[d.gapIndex], 1.0)
+      ) {
         valid.push(d);
       } else {
         removedCount++;

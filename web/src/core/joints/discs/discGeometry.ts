@@ -9,6 +9,36 @@ import {
 import type { PlateContour, Point2D } from '../../../types/sculpture';
 
 /**
+ * Verifica si un punto (x, y) cae sobre el material de una placa,
+ * con una tolerancia de borde opcional en mm (por defecto 1.0 mm, coincidiendo con viewer.py:680).
+ */
+export function isPointOnPlate(
+  x: number,
+  y: number,
+  plate: PlateContour,
+  tolerance = 1.0
+): boolean {
+  if (!plate || plate.length === 0) return false;
+  for (const poly of plate) {
+    if (pointInPolygonWithHoles(x, y, poly)) {
+      return true;
+    }
+    const distExt = distanceToRing(x, y, poly.exterior);
+    if (distExt <= tolerance) {
+      let insideHole = false;
+      for (const hole of poly.holes) {
+        if (pointInRing(x, y, hole) && distanceToRing(x, y, hole) > tolerance) {
+          insideHole = true;
+          break;
+        }
+      }
+      if (!insideHole) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Verifica que el disco completo de centro (x, y) y diámetro `diameter`
  * caiga íntegramente dentro del material de al menos un polígono de la placa.
  */

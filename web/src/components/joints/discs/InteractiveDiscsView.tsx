@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
-import { clampDiscPositionToGap } from '../../../core/joints/discs/discGeometry';
+import { isPointOnPlate } from '../../../core/joints/discs/discGeometry';
 import { useSculptureStore } from '../../../store/useSculptureStore';
 import type { Disc } from '../../../types/sculpture';
 
@@ -96,21 +96,14 @@ export function InteractiveDiscsView() {
     const hit = new THREE.Vector3();
     if (!e.ray.intersectPlane(activeMathPlane, hit)) return;
 
-    // Corrección #5d: proyectar al punto válido más cercano con clampDiscPositionToGap
-    // para que un arrastre rápido pegado al borde se deslice sin congelarse.
-    const [clampedX, clampedY] = clampDiscPositionToGap(
-      hit.x,
-      hit.y,
-      drag.currentX,
-      drag.currentY,
-      drag.diameter,
-      drag.gapIndex,
-      sliceResult.plates
-    );
-    drag.currentX = clampedX;
-    drag.currentY = clampedY;
-    drag.meshGroup.position.x = clampedX;
-    drag.meshGroup.position.y = clampedY;
+    // Mover el disco suavemente siguiendo el cursor sobre la placa activa sin barrera ni fuerza repulsiva
+    const activePlate = sliceResult.plates[drag.gapIndex];
+    if (activePlate && isPointOnPlate(hit.x, hit.y, activePlate, 2.0)) {
+      drag.currentX = hit.x;
+      drag.currentY = hit.y;
+      drag.meshGroup.position.x = hit.x;
+      drag.meshGroup.position.y = hit.y;
+    }
   };
 
   const handleGlobalPointerUp = (e: ThreeEvent<PointerEvent>) => {

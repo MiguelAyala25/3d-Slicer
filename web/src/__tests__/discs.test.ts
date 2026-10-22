@@ -190,4 +190,27 @@ describe('discs & geometry2d', () => {
     // Undoing should work without crash
     expect(dm.undo()).toBe(true);
   });
+
+  it('allows placing and moving small circles near edges without artificial barriers', () => {
+    const dm = new DiscManager(6.0);
+    // Square plate 20x20 (halfSize 10)
+    const plates: PlateContour[] = [
+      createSquarePlate(10),
+      createSquarePlate(10),
+    ];
+
+    // Disc diameter 0.5 mm placed at (9.5, 0.0), which is 0.5 mm from the edge
+    const outcomeSmall = dm.addDisc(9.5, 0.0, 0, plates, 0.5, false);
+    expect(outcomeSmall.primary).toBeDefined();
+    expect(outcomeSmall.primary.diameter).toBe(0.5);
+    expect(outcomeSmall.primary.x).toBe(9.5);
+
+    // Can shrink diameter down to 0.1 mm
+    expect(dm.setDiameter(outcomeSmall.primary.id, 0.1, plates)).toBe(true);
+    expect(dm.getAllDiscs()[0].diameter).toBe(0.1);
+
+    // Can move disc right along the edge (x=9.8) without being rejected
+    expect(dm.moveDisc(outcomeSmall.primary.id, 9.8, 0.0, plates)).toBe(true);
+    expect(dm.getAllDiscs()[0].x).toBe(9.8);
+  });
 });

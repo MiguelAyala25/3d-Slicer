@@ -10,7 +10,7 @@ export interface SculptureParams {
   sheetMargin: number;       // params.py:21 default 10.0, ui.py:136 [0.0..200.0]
   partGap: number;           // params.py:22 default 5.0, ui.py:142 [0.0..100.0]
   kerf: number;              // params.py:25 default 0.15, ui.py:148 [0.0..5.0]
-  discDiameter: number;      // params.py:28 default 6.0, [1.0..5000.0]
+  discDiameter: number;      // params.py:28 default 6.0, [0.1..5000.0]
   engraveClearance: number;  // params.py:30 default 0.3, ui.py:155 [0.0..10.0]
   scrapTagEnabled: boolean;  // params.py:33 default true, ui.py:162 boolean
 }
