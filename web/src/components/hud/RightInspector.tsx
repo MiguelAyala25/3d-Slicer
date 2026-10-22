@@ -32,8 +32,8 @@ export function RightInspector({ className = '' }: RightInspectorProps) {
             : 'max-[1100px]:translate-x-[110%]'
         } ${className}`}
       >
-        <ModelSection />
         <MaterialSection />
+        <ModelSection />
         <TechniqueSection />
         <ResultSection />
       </aside>

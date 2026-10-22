@@ -188,13 +188,13 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
   }) => {
     await page.goto('/');
 
-    // A-1: Order of h2 headings
+    // A-1: Order of h2 headings (Material swapped to top)
     const headings = page.locator(
       'aside[aria-label="Inspector de parámetros y exportación"] h2'
     );
     await expect(headings).toHaveText([
-      'Modelo',
       'Material',
+      'Modelo',
       'Técnica de construcción',
       'Resultado',
     ]);
@@ -211,7 +211,15 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     await expect(lockBtn).toBeVisible();
     await expect(lockBtn).toBeDisabled();
 
-    // A-5: Avanzado collapsible and scrapTag checkbox visible outside
+    // Material is in a collapsible dropdown (initially closed)
+    await expect(page.locator('[data-testid="toggle-material-collapse"]')).toBeVisible();
+    await expect(page.getByLabel('Grosor de placa')).not.toBeVisible();
+
+    // Open Material dropdown
+    await page.click('[data-testid="toggle-material-collapse"]');
+    await expect(page.getByLabel('Grosor de placa')).toBeVisible();
+
+    // A-5: Avanzado collapsible and scrapTag checkbox visible inside Material
     await expect(page.locator('button:has-text("Avanzado")')).toBeVisible();
     await expect(
       page.locator('text=Margen 10 · Sep. 5 · Kerf 0.15 mm')
@@ -332,7 +340,8 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     const newPlates = await platesInput.inputValue();
     expect(Number(newPlates)).not.toBe(10);
 
-    // Change Grosor de placa: goal is preserved and plates recalculates
+    // Change Grosor de placa: open Material dropdown first
+    await page.click('[data-testid="toggle-material-collapse"]');
     const thicknessInput = page.getByLabel('Grosor de placa');
     await thicknessInput.focus();
     await thicknessInput.fill('6');
