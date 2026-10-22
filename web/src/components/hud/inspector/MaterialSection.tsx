@@ -7,8 +7,6 @@ export function MaterialSection() {
   const params = useSculptureStore((s) => s.params);
   const setParam = useSculptureStore((s) => s.setParam);
 
-  const advancedSummary = `Margen ${params.sheetMargin} · Sep. ${params.partGap} · Kerf ${params.kerf} mm`;
-
   return (
     <section data-testid="section-material" className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between">
@@ -58,7 +56,7 @@ export function MaterialSection() {
         />
       </label>
 
-      <Collapsible title="Avanzado" summary={advancedSummary} defaultOpen={false}>
+      <Collapsible title="Avanzado" defaultOpen={false}>
         <div className="grid grid-cols-2 gap-2">
           <NumericInput
             label="Margen"

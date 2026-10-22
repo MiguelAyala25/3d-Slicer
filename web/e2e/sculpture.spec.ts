@@ -211,10 +211,11 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     await expect(lockBtn).toBeVisible();
     await expect(lockBtn).toBeDisabled();
 
-    // A-5: Advanced summary and scrapTag checkbox visible outside
+    // A-5: Avanzado collapsible and scrapTag checkbox visible outside
+    await expect(page.locator('button:has-text("Avanzado")')).toBeVisible();
     await expect(
       page.locator('text=Margen 10 · Sep. 5 · Kerf 0.15 mm')
-    ).toBeVisible();
+    ).not.toBeVisible();
     await expect(
       page.locator('text=Etiquetar sobrante aprovechable')
     ).toBeVisible();
