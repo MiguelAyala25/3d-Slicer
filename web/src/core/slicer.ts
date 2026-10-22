@@ -1,10 +1,11 @@
 import { validateParams, ValidationError } from './validator';
 import { stitchAndUnionSegments, type DirectedSegment2D } from './polygonStitcher';
+import { assembledHeight } from './sizing';
 import type {
   Axis,
+  CoreParams,
   PlateContour,
   Point2D,
-  SculptureParams,
   SliceResult,
   SliceWarning,
 } from '../types/sculpture';
@@ -17,7 +18,7 @@ export function computeCutPositions(
   gap: number
 ): { totalHeight: number; zPositions: number[] } {
   const step = thickness + gap;
-  const totalHeight = plates * thickness + (plates - 1) * gap;
+  const totalHeight = assembledHeight(plates, thickness, gap);
   const zMin = -totalHeight / 2.0;
   const zPositions: number[] = [];
   for (let i = 0; i < plates; i++) {
@@ -247,7 +248,7 @@ export class AxisSliceCache {
 
 export function sliceMeshFromCache(
   cache: AxisSliceCache,
-  params: SculptureParams
+  params: CoreParams
 ): SliceResult {
   validateParams(params);
   const { totalHeight, zPositions } = computeCutPositions(
@@ -297,7 +298,7 @@ export function sliceMeshFromCache(
  */
 export function sliceMesh(
   rawPositions: Float32Array,
-  params: SculptureParams
+  params: CoreParams
 ): SliceResult {
   validateParams(params);
   const cache = new AxisSliceCache(rawPositions, params.axis);

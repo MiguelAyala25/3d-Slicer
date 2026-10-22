@@ -8,6 +8,12 @@ import { DEFAULT_BUILD, type BuildConfig, type JointId, type TechniqueId } from 
 import { getJoint } from '../core/build/registry';
 import { ValidationError } from '../core/validator';
 import { PARAM_BOUNDS } from '../core/params';
+import {
+  platesForTargetDimension,
+  type ModelDimension,
+  type ModelExtents,
+  type SizeIntent,
+} from '../core/sizing';
 import { createDiscsSlice, type DiscsSlice } from './discsSlice';
 import {
   checkParamsCompatibility,
@@ -48,6 +54,9 @@ export interface SculptureState {
   build: BuildConfig;
   gapManuallyEdited: boolean;
   isResultDirty: boolean;
+  modelExtents: ModelExtents | null;
+  sizeIntent: SizeIntent;
+  sizeCommitSeq: number;
 
   // Malla y corte
   meshGeometry: THREE.BufferGeometry | null;
@@ -92,6 +101,7 @@ export interface SculptureActions {
   setActiveFloor: (floorIndex: number) => void;
   stepFloor: (delta: 1 | -1) => void;
   setCameraPreset: (preset: CameraPreset) => void;
+  setPlatesFromDimension: (dim: ModelDimension, mm: number) => void;
   setTechnique: (id: TechniqueId) => void;
   setJoint: (id: JointId, opts?: { confirmed?: boolean }) => { needsConfirmation: boolean; discCount: number };
 
@@ -157,6 +167,9 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     build: { ...DEFAULT_BUILD },
     gapManuallyEdited: false,
     isResultDirty: false,
+    modelExtents: null,
+    sizeIntent: { kind: 'plates' },
+    sizeCommitSeq: 0,
 
     meshGeometry: null,
     meshMetadata: null,
@@ -201,9 +214,37 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }
       }
 
+      let nextSizeIntent = state.sizeIntent;
+      let nextStatusMessage = state.statusMessage;
+
+      if (key === 'plates') {
+        nextSizeIntent = { kind: 'plates' };
+      } else if (
+        (key === 'thickness' || key === 'gap' || key === 'axis') &&
+        state.sizeIntent.kind === 'size' &&
+        state.modelExtents !== null
+      ) {
+        const outcome = platesForTargetDimension(
+          state.modelExtents,
+          nextParams.axis,
+          state.sizeIntent.dim,
+          state.sizeIntent.targetMm,
+          nextParams.thickness,
+          nextParams.gap
+        );
+        nextParams.plates = outcome.plates;
+        if (outcome.clamped === 'min') {
+          nextStatusMessage = 'Límite de placas alcanzado (2)';
+        } else if (outcome.clamped === 'max') {
+          nextStatusMessage = 'Límite de placas alcanzado (200)';
+        }
+      }
+
       set({
         params: nextParams,
         gapManuallyEdited: nextGapEdited,
+        sizeIntent: nextSizeIntent,
+        statusMessage: nextStatusMessage,
         isResultDirty: state.sliceResult !== null,
         errorMessage: null,
       });
@@ -225,10 +266,22 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
         get().resetDiscs();
 
+        if (!geometry.boundingBox) {
+          geometry.computeBoundingBox();
+        }
+        const bbox = geometry.boundingBox!;
+        const extents: ModelExtents = {
+          x: bbox.max.x - bbox.min.x,
+          y: bbox.max.y - bbox.min.y,
+          z: bbox.max.z - bbox.min.z,
+        };
+
         set({
           meshGeometry: geometry,
           meshMetadata: metadata,
           meshFileName: fileName,
+          modelExtents: extents,
+          sizeIntent: { kind: 'plates' },
           sliceResult: null,
           isResultDirty: false,
           activeFloor: 0,
@@ -387,6 +440,38 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         cameraPresetTrigger: s.cameraPresetTrigger + 1,
       })),
 
+    setPlatesFromDimension: (dim, mm) => {
+      if (!Number.isFinite(mm) || mm <= 0) return;
+      const state = get();
+      if (!state.modelExtents) return;
+      const outcome = platesForTargetDimension(
+        state.modelExtents,
+        state.params.axis,
+        dim,
+        mm,
+        state.params.thickness,
+        state.params.gap
+      );
+      const statusMessage =
+        outcome.clamped === 'min'
+          ? 'Límite de placas alcanzado (2)'
+          : outcome.clamped === 'max'
+          ? 'Límite de placas alcanzado (200)'
+          : state.statusMessage;
+
+      set({
+        params: { ...state.params, plates: outcome.plates },
+        sizeIntent: { kind: 'size', dim, targetMm: mm },
+        sizeCommitSeq: state.sizeCommitSeq + 1,
+        isResultDirty: state.sliceResult !== null,
+        statusMessage,
+      });
+
+      if (state.meshGeometry && state.meshFileName) {
+        saveProjectToLocalStorage(get().params, get().discs, state.meshFileName);
+      }
+    },
+
     setTechnique: (id) => {
       if (id === 'waffle') {
         throw new ValidationError('La técnica «Waffle» aún no está disponible.');
@@ -425,9 +510,30 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       }
 
       if (id === 'none') {
+        const nextGap = 0;
+        let nextPlates = get().params.plates;
+        let nextStatusMessage = get().statusMessage;
+        if (get().sizeIntent.kind === 'size' && get().modelExtents !== null) {
+          const intent = get().sizeIntent as { kind: 'size'; dim: ModelDimension; targetMm: number };
+          const outcome = platesForTargetDimension(
+            get().modelExtents!,
+            get().params.axis,
+            intent.dim,
+            intent.targetMm,
+            get().params.thickness,
+            nextGap
+          );
+          nextPlates = outcome.plates;
+          if (outcome.clamped === 'min') {
+            nextStatusMessage = 'Límite de placas alcanzado (2)';
+          } else if (outcome.clamped === 'max') {
+            nextStatusMessage = 'Límite de placas alcanzado (200)';
+          }
+        }
         set((s) => ({
           build: { ...s.build, jointId: id },
-          params: { ...s.params, gap: 0 },
+          params: { ...s.params, gap: nextGap, plates: nextPlates },
+          statusMessage: nextStatusMessage,
           isResultDirty: s.sliceResult !== null,
         }));
       } else if (id === 'discs') {
@@ -438,10 +544,30 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
             ? memory
             : Math.max(PARAM_BOUNDS.gap.min, get().params.thickness);
         const nextGapEdited = memory !== null ? memoryEdited : false;
+        let nextPlates = get().params.plates;
+        let nextStatusMessage = get().statusMessage;
+        if (get().sizeIntent.kind === 'size' && get().modelExtents !== null) {
+          const intent = get().sizeIntent as { kind: 'size'; dim: ModelDimension; targetMm: number };
+          const outcome = platesForTargetDimension(
+            get().modelExtents!,
+            get().params.axis,
+            intent.dim,
+            intent.targetMm,
+            get().params.thickness,
+            nextGap
+          );
+          nextPlates = outcome.plates;
+          if (outcome.clamped === 'min') {
+            nextStatusMessage = 'Límite de placas alcanzado (2)';
+          } else if (outcome.clamped === 'max') {
+            nextStatusMessage = 'Límite de placas alcanzado (200)';
+          }
+        }
         set((s) => ({
           build: { ...s.build, jointId: id },
-          params: { ...s.params, gap: nextGap },
+          params: { ...s.params, gap: nextGap, plates: nextPlates },
           gapManuallyEdited: nextGapEdited,
+          statusMessage: nextStatusMessage,
           isResultDirty: s.sliceResult !== null,
         }));
       }
@@ -532,6 +658,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         params: mergedParams,
         gapManuallyEdited:
           Math.abs(mergedParams.gap - mergedParams.thickness) > 0.01,
+        sizeIntent: { kind: 'plates' },
       });
 
       if (state.meshGeometry && (!compatible || state.sliceResult === null)) {

@@ -8,6 +8,7 @@ export interface NumericInputProps {
   step?: number;
   unit?: string;
   disabled?: boolean;
+  resetKey?: number;
   onChange: (newValue: number) => void;
 }
 
@@ -19,6 +20,7 @@ export function NumericInput({
   step = 1,
   unit,
   disabled = false,
+  resetKey,
   onChange,
 }: NumericInputProps) {
   const inputId = useId();
@@ -26,7 +28,7 @@ export function NumericInput({
 
   useEffect(() => {
     setDraft(String(value));
-  }, [value]);
+  }, [value, resetKey]);
 
   const commitDraft = () => {
     const parsed = Number.parseFloat(draft);
