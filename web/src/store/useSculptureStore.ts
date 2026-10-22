@@ -6,6 +6,7 @@ import { generateSheetLayouts } from '../core/layout';
 import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
 import { DEFAULT_BUILD, type BuildConfig, type JointId, type TechniqueId } from '../core/build/types';
 import { getJoint } from '../core/build/registry';
+import { validateBuildParams } from '../core/build/validateBuild';
 import { ValidationError } from '../core/validator';
 import { PARAM_BOUNDS } from '../core/params';
 import {
@@ -201,8 +202,8 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       const nextParams: SculptureParams = { ...state.params, [key]: value };
       let nextGapEdited = state.gapManuallyEdited;
 
-      // Sincronización exacta de ui.py:265-272
-      if (key === 'thickness' && !state.gapManuallyEdited) {
+      // Sincronización exacta de ui.py:265-272 (solo con unión 'discs', CH-6)
+      if (key === 'thickness' && !state.gapManuallyEdited && state.build.jointId === 'discs') {
         nextParams.gap = value as number;
       } else if (key === 'gap') {
         nextGapEdited = true;
@@ -322,6 +323,17 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       if (!state.meshGeometry) return;
 
       const paramsSnapshot = { ...state.params };
+      try {
+        validateBuildParams(paramsSnapshot, state.build);
+      } catch (err) {
+        set({
+          isSlicing: false,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          statusMessage: 'Error de validación de corte',
+        });
+        return;
+      }
+
       latestJobId += 1;
       const jobId = latestJobId;
       const meshId = currentMeshId;
@@ -333,7 +345,9 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         const axisChanged = state.sliceResult !== null && lastSlicedAxis !== state.params.axis;
         lastSlicedAxis = state.params.axis;
 
-        get().onSliceApplied({ axisChanged, prevScaleFactor, result });
+        if (state.build.jointId === 'discs') {
+          get().onSliceApplied({ axisChanged, prevScaleFactor, result });
+        }
 
         const firstFloor = getNextNonEmptyFloor(result.plates, 0, 1);
 

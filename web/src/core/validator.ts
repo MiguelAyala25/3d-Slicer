@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three-stdlib';
-import { PARAM_BOUNDS } from './params';
+import { PARAM_BOUNDS, CORE_GAP_BOUNDS } from './params';
 import type { CoreParams, MeshMetadata } from '../types/sculpture';
 
 export const SUPPORTED_EXTENSIONS = new Set(['.obj', '.stl', '.3mf', '.ply']);
@@ -60,11 +60,11 @@ export function validateParams(params: CoreParams): void {
   }
   if (
     !Number.isFinite(params.gap) ||
-    params.gap < PARAM_BOUNDS.gap.min ||
-    params.gap > PARAM_BOUNDS.gap.max
+    params.gap < CORE_GAP_BOUNDS.min ||
+    params.gap > CORE_GAP_BOUNDS.max
   ) {
     throw new ValidationError(
-      `La separación debe ser mayor o igual a ${PARAM_BOUNDS.gap.min} mm y menor o igual a ${PARAM_BOUNDS.gap.max} mm (recibido: ${params.gap}).`
+      `La separación debe ser mayor o igual a 0 mm y menor o igual a 1000 mm (recibido: ${params.gap}).`
     );
   }
   if (!['x', 'y', 'z'].includes(params.axis)) {

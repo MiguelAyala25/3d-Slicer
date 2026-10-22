@@ -12,6 +12,8 @@ import {
   isDiscsSeparateSheet,
   getDiscSheetNotice,
 } from '../core/joints/discs/discParams';
+import { validateBuildParams } from '../core/build/validateBuild';
+import { DEFAULT_BUILD } from '../core/build/types';
 import {
   validateFileExtension,
   validateParams,
@@ -113,8 +115,21 @@ describe('validator & params', () => {
   it('validateParams validates boundaries and throws ValidationError for invalid inputs', () => {
     expect(() => validateParams(DEFAULT_PARAMS)).not.toThrow();
 
-    // gap = 0 must fail (Correction B12)
-    expect(() => validateParams({ ...DEFAULT_PARAMS, gap: 0 })).toThrow(ValidationError);
+    // gap = 0 is accepted in core (CH-1)
+    expect(() => validateParams({ ...DEFAULT_PARAMS, gap: 0 })).not.toThrow();
+    // gap = -1 in core is rejected
+    expect(() => validateParams({ ...DEFAULT_PARAMS, gap: -1 })).toThrow(ValidationError);
+    // validateBuildParams with discs rejects gap = 0 (CH-1)
+    expect(() =>
+      validateBuildParams({ ...DEFAULT_PARAMS, gap: 0 }, DEFAULT_BUILD)
+    ).toThrow(ValidationError);
+    // validateBuildParams with none accepts gap = 0 (CH-1)
+    expect(() =>
+      validateBuildParams(
+        { ...DEFAULT_PARAMS, gap: 0 },
+        { techniqueId: 'stacked', jointId: 'none' }
+      )
+    ).not.toThrow();
     expect(() => validateParams({ ...DEFAULT_PARAMS, plates: 1 })).toThrow(ValidationError);
     expect(() => validateParams({ ...DEFAULT_PARAMS, plates: 201 })).toThrow(ValidationError);
     expect(() => validateParams({ ...DEFAULT_PARAMS, thickness: 0.05 })).toThrow(ValidationError);

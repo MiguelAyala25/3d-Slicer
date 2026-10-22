@@ -31,11 +31,12 @@ export default function App() {
     void checkAutosaveOnStartup();
   }, [checkAutosaveOnStartup]);
 
-  // Advertencia beforeunload si hay malla o discos en sesión (Corrección D)
+  // Advertencia beforeunload si hay malla o contenido de unión en sesión (CH-12)
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       const state = useSculptureStore.getState();
-      if (state.meshGeometry !== null || state.discs.length > 0) {
+      const hasJointContent = state.build.jointId === 'discs' && state.discs.length > 0;
+      if (state.meshGeometry !== null || hasJointContent) {
         e.preventDefault();
         e.returnValue = '';
       }
