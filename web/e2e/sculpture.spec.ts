@@ -350,12 +350,18 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     // Goal is still preserved
     await expect(page.locator('text=/Objetivo: 80.0 mm/')).toBeVisible();
 
-    // Editing plates clears the goal
+    // Editing plates clears the goal and auto-slices
     await platesInput.focus();
     await platesInput.fill('15');
     await platesInput.press('Enter');
 
     await expect(page.locator('text=/Objetivo: /')).not.toBeVisible();
+    await expect(page.locator('text=/15 placas/')).toBeVisible({ timeout: 5_000 });
+
+    // Pressing ArrowUp on platesInput immediately steps to 16 and re-slices
+    await platesInput.press('ArrowUp');
+    await expect(platesInput).toHaveValue('16');
+    await expect(page.locator('text=/16 placas/')).toBeVisible({ timeout: 5_000 });
   });
 
   test('9. gap = 0 exports without discs and DXF has no circles', async ({

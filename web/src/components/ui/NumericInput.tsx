@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 export interface NumericInputProps {
   label: string;
@@ -31,10 +31,37 @@ export function NumericInput({
 }: NumericInputProps) {
   const inputId = useId();
   const [draft, setDraft] = useState<string>(String(value));
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCommittedRef = useRef<number>(value);
 
   useEffect(() => {
     setDraft(String(value));
+    lastCommittedRef.current = value;
   }, [value, resetKey]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
+
+  const commitValue = (valToCommit: number) => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    const clamped = Math.max(min, Math.min(max, valToCommit));
+    const rounded = Number.isInteger(step)
+      ? Math.round(clamped)
+      : Number(clamped.toFixed(3));
+    setDraft(String(rounded));
+    if (Math.abs(rounded - lastCommittedRef.current) > 1e-6) {
+      lastCommittedRef.current = rounded;
+      onChange(rounded);
+    }
+  };
 
   const commitDraft = () => {
     const parsed = Number.parseFloat(draft);
@@ -42,13 +69,35 @@ export function NumericInput({
       setDraft(String(value));
       return;
     }
-    const clamped = Math.max(min, Math.min(max, parsed));
-    const rounded = Number.isInteger(step)
-      ? Math.round(clamped)
-      : Number(clamped.toFixed(3));
-    setDraft(String(rounded));
-    if (Math.abs(rounded - value) > 1e-6) {
-      onChange(rounded);
+    commitValue(parsed);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const nextStr = e.target.value;
+    setDraft(nextStr);
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    const parsed = Number.parseFloat(nextStr);
+    if (!Number.isFinite(parsed)) return;
+
+    // Detect step change (spinner arrows or arrow keys): difference is a multiple of step
+    const diff = Math.abs(parsed - lastCommittedRef.current);
+    const isStepChange = Math.abs(diff - step) < 1e-4;
+
+    if (isStepChange && parsed >= min && parsed <= max) {
+      commitValue(parsed);
+      return;
+    }
+
+    // Debounced commit for typed values within valid range
+    if (parsed >= min && parsed <= max) {
+      debounceTimerRef.current = setTimeout(() => {
+        commitValue(parsed);
+      }, 400);
     }
   };
 
@@ -74,12 +123,21 @@ export function NumericInput({
           step={step}
           disabled={disabled}
           aria-describedby={ariaDescribedBy}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={handleInputChange}
           onBlur={commitDraft}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
+              if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+                debounceTimerRef.current = null;
+              }
+              commitDraft();
               e.currentTarget.blur();
             } else if (e.key === 'Escape') {
+              if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+                debounceTimerRef.current = null;
+              }
               setDraft(String(value));
               e.currentTarget.blur();
             }
