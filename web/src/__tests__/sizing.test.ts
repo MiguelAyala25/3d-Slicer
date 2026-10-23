@@ -251,4 +251,12 @@ describe('Sizing engine (sizing.ts & store integration)', () => {
       })
     ).toThrow(ValidationError);
   });
+
+  it('updates store params synchronously on rapid steps without throwing or losing state', () => {
+    const store = useSculptureStore.getState();
+    for (let p = 123; p <= 130; p++) {
+      store.setParam('plates', p);
+    }
+    expect(useSculptureStore.getState().params.plates).toBe(130);
+  });
 });

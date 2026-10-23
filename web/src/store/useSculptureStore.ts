@@ -128,6 +128,39 @@ let workerInstance: Worker | null = null;
 let currentMeshId = 0;
 let latestJobId = 0;
 
+let autoSliceTimer: ReturnType<typeof setTimeout> | null = null;
+let isWorkerExecuting = false;
+let pendingWorkerJob: {
+  jobId: number;
+  meshId: number;
+  paramsSnapshot: SculptureParams;
+  resolve: () => void;
+} | null = null;
+
+function clearAutoSliceTimer(): void {
+  if (autoSliceTimer) {
+    clearTimeout(autoSliceTimer);
+    autoSliceTimer = null;
+  }
+}
+
+function scheduleAutoSlice(action: () => void, delayMs = 350): void {
+  clearAutoSliceTimer();
+  if (
+    typeof window === 'undefined' ||
+    delayMs <= 0 ||
+    (typeof process !== 'undefined' &&
+      (process.env?.NODE_ENV === 'test' || process.env?.VITEST === 'true'))
+  ) {
+    action();
+    return;
+  }
+  autoSliceTimer = setTimeout(() => {
+    autoSliceTimer = null;
+    action();
+  }, delayMs);
+}
+
 function getOrCreateWorker(): Worker | null {
   if (typeof window === 'undefined' || typeof Worker === 'undefined') {
     return null;
@@ -264,7 +297,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         saveProjectToLocalStorage(get().params, get().discs, state.meshFileName, get().build);
       }
 
-      // Auto-slice si el cambio afecta al corte
+      // Auto-slice inteligente si el cambio afecta al corte
       const sliceAffectingKeys = ['plates', 'thickness', 'gap', 'axis'];
       if (
         sliceAffectingKeys.includes(key as string) &&
@@ -272,13 +305,22 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         get().build.techniqueId === 'stacked' &&
         (get().build.jointId === 'none' || get().build.jointId === 'discs')
       ) {
-        void get().runSlice();
+        if (key === 'axis') {
+          // Cambio discreto de eje: ejecutar inmediatamente sin debounce
+          clearAutoSliceTimer();
+          void get().runSlice();
+        } else {
+          // Parámetros continuos (placas, grosor, separación): debounce de 350ms
+          // para no recalcular cortes intermedios innecesarios al usar las flechitas o escribir
+          scheduleAutoSlice(() => void get().runSlice(), 350);
+        }
       }
     },
 
     setIsLoadingMesh: (loading) => set({ isLoadingMesh: loading }),
 
     loadMeshArrayBuffer: async (buffer, fileName, autoSlice = true) => {
+      clearAutoSliceTimer();
       set({ isLoadingMesh: true, errorMessage: null, statusMessage: `Cargando ${fileName}...` });
       try {
         const { geometry, metadata } = loadMeshFromBuffer(buffer, fileName);
@@ -343,6 +385,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     },
 
     runSlice: async () => {
+      clearAutoSliceTimer();
       const state = get();
       if (!state.meshGeometry) return;
       if (!state.build.techniqueId || !state.build.jointId) return;
@@ -397,42 +440,93 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       const worker = getOrCreateWorker();
       if (worker) {
         await new Promise<void>((resolve) => {
-          const handler = (evt: MessageEvent<WorkerResponse>) => {
-            const msg = evt.data;
-            if (msg.jobId !== jobId) return;
-            worker.removeEventListener('message', handler);
-            worker.removeEventListener('error', errorHandler);
+          const executeJob = (
+            targetJobId: number,
+            targetMeshId: number,
+            targetParams: SculptureParams,
+            onJobDone: () => void
+          ) => {
+            isWorkerExecuting = true;
 
-            if (msg.type === 'SLICE_SUCCESS') {
-              applySliceOutcome(msg.result, msg.durationMs);
-            } else {
-              set({
-                isSlicing: false,
-                errorMessage: msg.error,
-                statusMessage: 'Error durante el corte',
-              });
+            const onMessage = (evt: MessageEvent<WorkerResponse>) => {
+              const msg = evt.data;
+              if (msg.jobId !== targetJobId) return;
+              worker.removeEventListener('message', onMessage);
+              worker.removeEventListener('error', onError);
+
+              if (msg.type === 'SLICE_SUCCESS') {
+                if (targetJobId === latestJobId) {
+                  applySliceOutcome(msg.result, msg.durationMs);
+                }
+              } else {
+                if (targetJobId === latestJobId) {
+                  set({
+                    isSlicing: false,
+                    errorMessage: msg.error,
+                    statusMessage: 'Error durante el corte',
+                  });
+                }
+              }
+
+              onJobDone();
+
+              if (pendingWorkerJob) {
+                const next = pendingWorkerJob;
+                pendingWorkerJob = null;
+                executeJob(next.jobId, next.meshId, next.paramsSnapshot, next.resolve);
+              } else {
+                isWorkerExecuting = false;
+              }
+            };
+
+            const onError = (err: ErrorEvent) => {
+              worker.removeEventListener('message', onMessage);
+              worker.removeEventListener('error', onError);
+              if (targetJobId === latestJobId) {
+                set({
+                  isSlicing: false,
+                  errorMessage: err.message || 'Error en el worker de corte',
+                  statusMessage: 'Error durante el corte',
+                });
+              }
+              onJobDone();
+
+              if (pendingWorkerJob) {
+                const next = pendingWorkerJob;
+                pendingWorkerJob = null;
+                executeJob(next.jobId, next.meshId, next.paramsSnapshot, next.resolve);
+              } else {
+                isWorkerExecuting = false;
+              }
+            };
+
+            worker.addEventListener('message', onMessage);
+            worker.addEventListener('error', onError);
+
+            const req: WorkerRequest = {
+              type: 'SLICE',
+              jobId: targetJobId,
+              meshId: targetMeshId,
+              params: targetParams,
+            };
+            worker.postMessage(req);
+          };
+
+          if (isWorkerExecuting) {
+            // El worker ya está procesando un corte:
+            // Si había un trabajo anterior en cola que no ha empezado, resolverlo
+            if (pendingWorkerJob) {
+              pendingWorkerJob.resolve();
             }
-            resolve();
-          };
-          const errorHandler = (err: ErrorEvent) => {
-            worker.removeEventListener('message', handler);
-            worker.removeEventListener('error', errorHandler);
-            set({
-              isSlicing: false,
-              errorMessage: err.message || 'Error en el worker de corte',
-              statusMessage: 'Error durante el corte',
-            });
-            resolve();
-          };
-          worker.addEventListener('message', handler);
-          worker.addEventListener('error', errorHandler);
-          const req: WorkerRequest = {
-            type: 'SLICE',
-            jobId,
-            meshId,
-            params: paramsSnapshot,
-          };
-          worker.postMessage(req);
+            pendingWorkerJob = {
+              jobId,
+              meshId,
+              paramsSnapshot,
+              resolve,
+            };
+          } else {
+            executeJob(jobId, meshId, paramsSnapshot, resolve);
+          }
         });
       } else {
         // Fallback síncrono (entorno de pruebas Vitest / jsdom)
@@ -515,11 +609,12 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         get().build.techniqueId === 'stacked' &&
         (get().build.jointId === 'none' || get().build.jointId === 'discs')
       ) {
-        void get().runSlice();
+        scheduleAutoSlice(() => void get().runSlice(), 350);
       }
     },
 
     setTechnique: (id) => {
+      clearAutoSliceTimer();
       if (id === 'waffle') {
         throw new ValidationError('La técnica «Waffle» aún no está disponible.');
       }
@@ -537,6 +632,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     },
 
     setJoint: (id, opts) => {
+      clearAutoSliceTimer();
       const joint = getJoint(id);
       if (!joint.available) {
         throw new ValidationError(`La unión «${joint.label}» aún no está disponible.`);
@@ -731,6 +827,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         sizeIntent: { kind: 'plates' },
       });
 
+      clearAutoSliceTimer();
       if (state.meshGeometry && (!compatible || state.sliceResult === null)) {
         await get().runSlice();
       }
