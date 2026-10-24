@@ -38,10 +38,10 @@ export interface StitchFloorResult {
   openChainsRepaired: number;
 }
 
-const SNAP_TOLERANCE = 1e-3;       // 0.001 mm
-const MAX_REPAIR_GAP_MM = 0.05;    // 0.05 mm máxima micro-brecha reparable
-const CLIPPER_SCALE = 100_000;     // Precisión 1e-5 mm en enteros de Clipper64
-const MIN_POLYGON_AREA_MM2 = 1e-3; // Igual que slicer.py:296 (poly.area >= 1e-3)
+export const SNAP_TOLERANCE = 1e-3;       // 0.001 mm
+export const MAX_REPAIR_GAP_MM = 0.05;    // 0.05 mm máxima micro-brecha reparable
+export const CLIPPER_SCALE = 100_000;     // Precisión 1e-5 mm en enteros de Clipper64
+export const MIN_POLYGON_AREA_MM2 = 1e-3; // Igual que slicer.py:296 (poly.area >= 1e-3)
 
 interface VertexNode {
   x: number;
@@ -51,6 +51,58 @@ interface VertexNode {
 
 function cellKey(cx: number, cy: number): string {
   return `${cx},${cy}`;
+}
+
+export function polyTreeToPolygonsWithHoles(polyTree: PolyTree64): PolygonWithHoles[] {
+  const resultPolygons: PolygonWithHoles[] = [];
+  const invScale = 1.0 / CLIPPER_SCALE;
+
+  function toRing2D(path: Path64, wantCCW: boolean): Point2D[] {
+    const ring: Point2D[] = path.map((pt) => [pt.x * invScale, pt.y * invScale]);
+    const area = signedArea2D(ring);
+    if ((wantCCW && area < 0) || (!wantCCW && area > 0)) {
+      ring.reverse();
+    }
+    return ring;
+  }
+
+  function traverseNode(node: PolyPathBase): void {
+    for (const child of node.children) {
+      if (!child.isHole && child.polygon && child.polygon.length >= 3) {
+        const exterior = toRing2D(child.polygon, true); // Exterior siempre CCW
+        const holes: Point2D[][] = [];
+        let holeAreaSum = 0;
+
+        for (const holeNode of child.children) {
+          if (holeNode.isHole && holeNode.polygon && holeNode.polygon.length >= 3) {
+            const holeRing = toRing2D(holeNode.polygon, false); // Hueco siempre CW
+            holes.push(holeRing);
+            holeAreaSum += Math.abs(signedArea2D(holeRing));
+
+            // Islas dentro del hueco son nuevos polígonos exteriores (anidación profunda)
+            traverseNode(holeNode);
+          }
+        }
+
+        const extArea = Math.abs(signedArea2D(exterior));
+        const netArea = extArea - holeAreaSum;
+        if (netArea >= MIN_POLYGON_AREA_MM2) {
+          resultPolygons.push({
+            exterior,
+            holes,
+            area: netArea,
+          });
+        }
+      }
+    }
+  }
+
+  traverseNode(polyTree);
+
+  // Ordenar de mayor a menor área para estabilidad determinista
+  resultPolygons.sort((a, b) => b.area - a.area);
+
+  return resultPolygons;
 }
 
 /**
@@ -327,53 +379,7 @@ export function stitchAndUnionSegments(
   const polyTree = new PolyTree64();
   clipper.executePolyTree(ClipType.Union, FillRule.NonZero, polyTree);
 
-  const resultPolygons: PolygonWithHoles[] = [];
-  const invScale = 1.0 / CLIPPER_SCALE;
-
-  function toRing2D(path: Path64, wantCCW: boolean): Point2D[] {
-    const ring: Point2D[] = path.map((pt) => [pt.x * invScale, pt.y * invScale]);
-    const area = signedArea2D(ring);
-    if ((wantCCW && area < 0) || (!wantCCW && area > 0)) {
-      ring.reverse();
-    }
-    return ring;
-  }
-
-  function traverseNode(node: PolyPathBase): void {
-    for (const child of node.children) {
-      if (!child.isHole && child.polygon && child.polygon.length >= 3) {
-        const exterior = toRing2D(child.polygon, true); // Exterior siempre CCW
-        const holes: Point2D[][] = [];
-        let holeAreaSum = 0;
-
-        for (const holeNode of child.children) {
-          if (holeNode.isHole && holeNode.polygon && holeNode.polygon.length >= 3) {
-            const holeRing = toRing2D(holeNode.polygon, false); // Hueco siempre CW
-            holes.push(holeRing);
-            holeAreaSum += Math.abs(signedArea2D(holeRing));
-
-            // Islas dentro del hueco son nuevos polígonos exteriores (anidación profunda)
-            traverseNode(holeNode);
-          }
-        }
-
-        const extArea = Math.abs(signedArea2D(exterior));
-        const netArea = extArea - holeAreaSum;
-        if (netArea >= MIN_POLYGON_AREA_MM2) {
-          resultPolygons.push({
-            exterior,
-            holes,
-            area: netArea,
-          });
-        }
-      }
-    }
-  }
-
-  traverseNode(polyTree);
-
-  // Ordenar de mayor a menor área para estabilidad determinista
-  resultPolygons.sort((a, b) => b.area - a.area);
+  const resultPolygons = polyTreeToPolygonsWithHoles(polyTree);
 
   return {
     polygons: resultPolygons,

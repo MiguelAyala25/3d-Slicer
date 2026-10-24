@@ -77,6 +77,14 @@ export interface MeshMetadata {
   warnings: string[];
 }
 
+export interface SlotLabel {
+  crossingId: string; // p. ej. "X1-Y3"
+  text: string;       // p. ej. "Y3"
+  x: number;          // Coordenada X (mm CAD: local o en hoja)
+  y: number;          // Coordenada Y (mm CAD: local o en hoja)
+  fontSize: number;   // SLOT_LABEL_FONT_SIZE_MM (2.2 mm)
+}
+
 export interface PlacedPlate {
   plateIndex: number;           // Índice físico 0 .. plates-1
   xOffset: number;
@@ -85,6 +93,7 @@ export interface PlacedPlate {
   height: number;
   polygons: PolygonWithHoles[]; // Coordenadas locales normalizadas a (0,0) en su bbox min
   discs: PlateEngraveDisc[];    // Discos de grabado locales con diameter = d.diameter + engraveClearance e isDashed
+  slotLabels?: SlotLabel[];     // Etiquetas de ranura grabadas en GRABADO (opcional, técnica Waffle)
   labelText: string;
   labelX: number;               // Centro X de etiqueta en coordenadas de hoja (mm CAD)
   labelY: number;               // Centro Y de etiqueta en coordenadas de hoja (mm CAD)
