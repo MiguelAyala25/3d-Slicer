@@ -483,6 +483,48 @@ describe('project serialization & autosave', () => {
     ).toBe(false);
   });
 
+  it('6. autosave: saves and loads with none, preserves build, gap=0 and sheet params', async () => {
+    const params: SculptureParams = {
+      ...DEFAULT_PARAMS,
+      plates: 8,
+      thickness: 4.0,
+      gap: 0,
+      sheetW: 500,
+      sheetH: 350,
+      scrapTagEnabled: false,
+    };
+    const noneBuild = { techniqueId: 'stacked' as const, jointId: 'none' as const };
+
+    saveProjectToLocalStorage(params, [], 'model.obj', noneBuild);
+    const loaded = loadProjectFromLocalStorage();
+
+    expect(loaded).not.toBeNull();
+    expect(loaded?.build).toEqual(noneBuild);
+    expect(loaded?.params.plates).toBe(8);
+    expect(loaded?.params.thickness).toBe(4.0);
+    expect(loaded?.params.gap).toBe(0);
+    expect(loaded?.params.sheetW).toBe(500);
+    expect(loaded?.params.sheetH).toBe(350);
+    expect(loaded?.params.scrapTagEnabled).toBe(false);
+    expect(loaded?.discs.length).toBe(0);
+    expect(loaded?.meshFileName).toBe('model.obj');
+
+    // Envelope without build (pre-Phase 8 format) is read as DEFAULT_BUILD
+    const oldEnvelope = {
+      projectJson: serializeProjectJson({ ...DEFAULT_PARAMS, plates: 6, thickness: 3, gap: 2, axis: 'z' }, []),
+      fullParams: { ...DEFAULT_PARAMS, plates: 6, thickness: 3, gap: 2, axis: 'z' },
+      meshFileName: 'old.obj',
+      savedAt: Date.now(),
+    };
+    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(oldEnvelope));
+    const loadedOld = loadProjectFromLocalStorage();
+    expect(loadedOld?.build).toEqual(DEFAULT_BUILD);
+    expect(loadedOld?.params.plates).toBe(6);
+
+    await clearAutosaveStorage();
+    expect(loadProjectFromLocalStorage()).toBeNull();
+  });
+
   it('7. roundtrip 2.0 waffle: serializes and parses all waffle parameters with slots joint', () => {
     const customParams: SculptureParams = {
       ...DEFAULT_PARAMS,

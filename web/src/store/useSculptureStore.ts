@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import * as THREE from 'three';
 import { DEFAULT_PARAMS } from '../core/params';
 import { loadMeshFromBuffer } from '../core/meshLoader';
-import { generateSheetLayouts } from '../core/layout';
+import { generateSheetLayouts, generateWaffleSheetLayouts } from '../core/layout';
 import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
 import {
   INITIAL_BUILD,
@@ -1168,7 +1168,21 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     closeCalibrationSheetPreview: () => set({ isCalibrationSheetModalOpen: false }),
 
     openSheetPreviewModal: () => {
-      const { sliceResult, discs, params, build } = get();
+      const { sliceResult, waffleResult, discs, params, build } = get();
+      if (build.techniqueId === 'waffle') {
+        if (!waffleResult) return;
+        try {
+          const layouts = generateWaffleSheetLayouts(waffleResult, params);
+          set({ sheetLayouts: layouts, isPreviewModalOpen: true, errorMessage: null });
+        } catch (err) {
+          set({
+            errorMessage: err instanceof Error ? err.message : String(err),
+            statusMessage: 'Error al generar la distribución de hojas',
+          });
+        }
+        return;
+      }
+
       if (!sliceResult) return;
       try {
         const layouts =

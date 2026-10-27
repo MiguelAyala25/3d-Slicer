@@ -128,6 +128,19 @@ export function generateSheetDxf(sheet: SheetLayout): string {
       plate.labelSize,
       plate.labelText
     );
+
+    if (plate.slotLabels) {
+      for (const slotLbl of plate.slotLabels) {
+        addDxfCenteredText(
+          dxf,
+          'GRABADO',
+          slotLbl.x,
+          slotLbl.y,
+          slotLbl.fontSize,
+          slotLbl.text
+        );
+      }
+    }
   }
 
   // Bandejas de discos (GRABADO)

@@ -13,8 +13,10 @@ import type {
   SculptureParams,
   SheetLayout,
   SliceResult,
+  SlotLabel,
 } from '../types/sculpture';
 import type { JointLayoutCursor, JointLayoutHooks } from './build/types';
+import type { WaffleSection, WaffleSliceResult } from './waffle/types';
 
 const MIN_SCRAP_DIM = 50.0;
 
@@ -385,4 +387,251 @@ export function generateSheetLayouts(
   }
 
   return cursor.sheets;
+}
+
+export function computeWaffleSectionLabel(
+  labelText: string,
+  localPolys: PolygonWithHoles[],
+  slotLabels: SlotLabel[],
+  w: number,
+  h: number,
+  xOffset: number,
+  yOffset: number
+): {
+  labelText: string;
+  labelX: number;
+  labelY: number;
+  labelSize: number;
+  labelOutside: boolean;
+} {
+  const minDim = Math.min(w, h);
+  const textSize = Math.max(2.0, Math.min(8.0, minDim * 0.12));
+  const textWidthEst = labelText.length * textSize * 0.65;
+  const requiredRadius = Math.max(textWidthEst * 0.5, textSize * 0.5) + 0.5;
+
+  let largest = localPolys[0];
+  for (const p of localPolys) {
+    if (p.area > largest.area) largest = p;
+  }
+
+  const isCandidateValid = (cx: number, cy: number): boolean => {
+    if (!pointInPolygonWithHoles(cx, cy, largest)) return false;
+    const clr = distanceToPolygonBoundary(cx, cy, largest);
+    if (clr < requiredRadius) return false;
+
+    // Check collision with slot labels
+    const halfW = textWidthEst * 0.5;
+    const halfH = textSize * 0.5;
+    const labelMinX = cx - halfW;
+    const labelMaxX = cx + halfW;
+    const labelMinY = cy - halfH;
+    const labelMaxY = cy + halfH;
+
+    for (const s of slotLabels) {
+      const sHalfW = s.text.length * s.fontSize * 0.65 * 0.5 + 0.25;
+      const sHalfH = s.fontSize * 0.5 + 0.25;
+      const margin = 0.8;
+
+      const sMinX = s.x - sHalfW - margin;
+      const sMaxX = s.x + sHalfW + margin;
+      const sMinY = s.y - sHalfH - margin;
+      const sMaxY = s.y + sHalfH + margin;
+
+      if (
+        labelMinX < sMaxX &&
+        labelMaxX > sMinX &&
+        labelMinY < sMaxY &&
+        labelMaxY > sMinY
+      ) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // 1. Try centroid of largest polygon island
+  const [cx, cy] = computePolygonCentroid(largest.exterior);
+  if (isCandidateValid(cx, cy)) {
+    return {
+      labelText,
+      labelX: xOffset + cx,
+      labelY: yOffset + cy,
+      labelSize: Number(textSize.toFixed(2)),
+      labelOutside: false,
+    };
+  }
+
+  // 2. Sample 9x9 grid inside bounding box of largest island
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of largest.exterior) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+
+  let bestPoint: Point2D | null = null;
+  let bestClearance = -1;
+
+  for (let i = 1; i <= 9; i++) {
+    const px = minX + (maxX - minX) * (i / 10);
+    for (let j = 1; j <= 9; j++) {
+      const py = minY + (maxY - minY) * (j / 10);
+      if (isCandidateValid(px, py)) {
+        const clr = distanceToPolygonBoundary(px, py, largest);
+        if (clr > bestClearance) {
+          bestClearance = clr;
+          bestPoint = [px, py];
+        }
+      }
+    }
+  }
+
+  if (bestPoint && bestClearance >= requiredRadius) {
+    return {
+      labelText,
+      labelX: xOffset + bestPoint[0],
+      labelY: yOffset + bestPoint[1],
+      labelSize: Number(textSize.toFixed(2)),
+      labelOutside: false,
+    };
+  }
+
+  // 3. Fallback outside underneath piece
+  const outsideSize = Math.max(2.0, Math.min(4.0, w * 0.15));
+  return {
+    labelText,
+    labelX: xOffset + w * 0.5,
+    labelY: yOffset - outsideSize - 1.0,
+    labelSize: Number(outsideSize.toFixed(2)),
+    labelOutside: true,
+  };
+}
+
+export function generateWaffleSheetLayouts(
+  waffleResult: WaffleSliceResult,
+  params: CoreParams
+): SheetLayout[] {
+  validateParams(params);
+
+  const usableW = params.sheetW - 2.0 * params.sheetMargin;
+  const usableH = params.sheetH - 2.0 * params.sheetMargin;
+  if (usableW <= 0 || usableH <= 0) {
+    throw new ValidationError(
+      `El margen (${params.sheetMargin} mm) es demasiado grande para la hoja de ${params.sheetW} x ${params.sheetH} mm.`
+    );
+  }
+
+  const effSpacing = params.partGap;
+  const margin = params.sheetMargin;
+  const maxX = params.sheetW - margin;
+  const maxY = params.sheetH - margin;
+
+  const sheets: SheetLayout[] = [];
+  let sheetCounter = 0;
+  let currentSheet = createEmptySheet(
+    sheetCounter,
+    'plates',
+    params.thickness,
+    params,
+    0
+  );
+
+  let cursorX = margin;
+  let cursorY = margin;
+  let rowHeight = 0.0;
+
+  // All valid sections from P1 followed by P2
+  const allSections: WaffleSection[] = [
+    ...waffleResult.p1Sections.filter((s) => s.polygons.length > 0),
+    ...waffleResult.p2Sections.filter((s) => s.polygons.length > 0),
+  ];
+
+  for (let idx = 0; idx < allSections.length; idx++) {
+    const section = allSections[idx];
+    const bounds = section.bounds2D;
+    const w = bounds.maxU - bounds.minU;
+    const h = bounds.maxV - bounds.minV;
+
+    if (!isWithinUsableArea(w, h, params)) {
+      throw new ValidationError(
+        `La pieza ${section.id} (${w.toFixed(1)} x ${h.toFixed(1)} mm) excede el área útil de la hoja (${usableW.toFixed(1)} x ${usableH.toFixed(1)} mm). Ajusta el tamaño de la hoja o reduce la escala del modelo.`
+      );
+    }
+
+    const localPolys = shiftPlatePolygons(section.polygons, -bounds.minU, -bounds.minV);
+    const localSlotLabels = section.slotLabels ?? [];
+
+    if (cursorX + w > maxX && cursorX > margin) {
+      cursorX = margin;
+      cursorY += rowHeight + effSpacing;
+      rowHeight = 0.0;
+    }
+
+    if (cursorY + h > maxY) {
+      if (currentSheet.plates.length > 0) {
+        sheets.push(currentSheet);
+        sheetCounter += 1;
+      }
+      currentSheet = createEmptySheet(
+        sheetCounter,
+        'plates',
+        params.thickness,
+        params,
+        0
+      );
+      cursorX = margin;
+      cursorY = margin;
+      rowHeight = 0.0;
+    }
+
+    const plateYOffset = cursorY;
+    const finalLabel = computeWaffleSectionLabel(
+      section.id,
+      localPolys,
+      localSlotLabels,
+      w,
+      h,
+      cursorX,
+      plateYOffset
+    );
+
+    const placedSlotLabels: SlotLabel[] = localSlotLabels.map((lbl) => ({
+      crossingId: lbl.crossingId,
+      text: lbl.text,
+      x: cursorX + lbl.x,
+      y: plateYOffset + lbl.y,
+      fontSize: lbl.fontSize,
+    }));
+
+    const placed: PlacedPlate = {
+      plateIndex: idx,
+      xOffset: cursorX,
+      yOffset: plateYOffset,
+      width: w,
+      height: h,
+      polygons: localPolys,
+      discs: [],
+      labelText: finalLabel.labelText,
+      labelX: finalLabel.labelX,
+      labelY: finalLabel.labelY,
+      labelSize: finalLabel.labelSize,
+      labelOutside: finalLabel.labelOutside,
+      slotLabels: placedSlotLabels,
+    };
+
+    currentSheet.plates.push(placed);
+    cursorX += w + effSpacing;
+    rowHeight = Math.max(rowHeight, h);
+  }
+
+  if (currentSheet.plates.length > 0) {
+    sheets.push(currentSheet);
+  }
+
+  for (const s of sheets) {
+    finalizeSheetStats(s, params.scrapTagEnabled);
+  }
+
+  return sheets;
 }

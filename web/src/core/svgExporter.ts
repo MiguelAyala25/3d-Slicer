@@ -108,6 +108,20 @@ export function generateSheetSvg(
         plate.labelText
       )
     );
+
+    if (plate.slotLabels) {
+      for (const slotLbl of plate.slotLabels) {
+        engraveElements.push(
+          renderCadText(
+            slotLbl.x,
+            slotLbl.y,
+            slotLbl.fontSize,
+            '#0000FF',
+            slotLbl.text
+          )
+        );
+      }
+    }
   }
 
   // Bandejas de discos (GRABADO #0000FF)
