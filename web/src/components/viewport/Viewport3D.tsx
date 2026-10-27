@@ -7,6 +7,7 @@ import { useSculptureStore } from '../../store/useSculptureStore';
 import { CameraRig } from './CameraRig';
 import { OriginalMeshView } from './OriginalMeshView';
 import { SlicedPlatesView } from './SlicedPlatesView';
+import { WafflePlatesView } from './WafflePlatesView';
 import { JOINT_UI } from '../joints/registry';
 
 export function Viewport3D() {
@@ -89,6 +90,8 @@ export function Viewport3D() {
 
         {viewMode === 'original' ? (
           <OriginalMeshView />
+        ) : build.techniqueId === 'waffle' ? (
+          <WafflePlatesView />
         ) : (
           <>
             <SlicedPlatesView />

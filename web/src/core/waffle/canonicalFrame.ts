@@ -167,3 +167,59 @@ export function canonicalPointToWorld3D(
     }
   }
 }
+
+/**
+ * Devuelve los 16 elementos de la matriz 4x4 (en orden column-major de Three.js / WebGL)
+ * que transforma puntos del espacio local de la sección (u, v, zLocal) al espacio 3D mundial.
+ */
+export function canonicalToWorldMatrix4Elements(
+  planeCoord: number,
+  upAxis: Axis,
+  family: FamilyId
+): number[] {
+  let c0: [number, number, number, number];
+  let c1: [number, number, number, number];
+  let c2: [number, number, number, number];
+  let c3: [number, number, number, number];
+
+  if (upAxis === 'z') {
+    if (family === 'P1') {
+      c0 = [0, 1, 0, 0];
+      c1 = [0, 0, 1, 0];
+      c2 = [1, 0, 0, 0];
+      c3 = [planeCoord, 0, 0, 1];
+    } else {
+      c0 = [1, 0, 0, 0];
+      c1 = [0, 0, 1, 0];
+      c2 = [0, -1, 0, 0];
+      c3 = [0, planeCoord, 0, 1];
+    }
+  } else if (upAxis === 'x') {
+    if (family === 'P1') {
+      c0 = [0, 0, 1, 0];
+      c1 = [1, 0, 0, 0];
+      c2 = [0, 1, 0, 0];
+      c3 = [0, planeCoord, 0, 1];
+    } else {
+      c0 = [0, 1, 0, 0];
+      c1 = [1, 0, 0, 0];
+      c2 = [0, 0, -1, 0];
+      c3 = [0, 0, planeCoord, 1];
+    }
+  } else {
+    // upAxis === 'y'
+    if (family === 'P1') {
+      c0 = [1, 0, 0, 0];
+      c1 = [0, 1, 0, 0];
+      c2 = [0, 0, 1, 0];
+      c3 = [0, 0, planeCoord, 1];
+    } else {
+      c0 = [0, 0, 1, 0];
+      c1 = [0, 1, 0, 0];
+      c2 = [-1, 0, 0, 0];
+      c3 = [planeCoord, 0, 0, 1];
+    }
+  }
+
+  return [...c0, ...c1, ...c2, ...c3];
+}

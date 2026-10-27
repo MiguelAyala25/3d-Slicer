@@ -11,6 +11,8 @@ export function CameraRig() {
   const preset = useSculptureStore((s) => s.cameraPreset);
   const trigger = useSculptureStore((s) => s.cameraPresetTrigger);
   const sliceResult = useSculptureStore((s) => s.sliceResult);
+  const waffleResult = useSculptureStore((s) => s.waffleResult);
+  const build = useSculptureStore((s) => s.build);
   const meshMetadata = useSculptureStore((s) => s.meshMetadata);
 
   useEffect(() => {
@@ -19,7 +21,16 @@ export function CameraRig() {
     let cy = 0;
     let cz = 0;
 
-    if (sliceResult) {
+    if (build.techniqueId === 'waffle' && waffleResult) {
+      const { min, max } = waffleResult.scaledBounds3D;
+      const dx = max[0] - min[0];
+      const dy = max[1] - min[1];
+      const dz = max[2] - min[2];
+      span = Math.max(dx, dy, dz, 50);
+      cx = (min[0] + max[0]) * 0.5;
+      cy = (min[1] + max[1]) * 0.5;
+      cz = (min[2] + max[2]) * 0.5;
+    } else if (sliceResult) {
       const [[minX, minY], [maxX, maxY]] = sliceResult.scaledBounds;
       span = Math.max(maxX - minX, maxY - minY, sliceResult.scaledHeight, 50);
       cx = (minX + maxX) * 0.5;
@@ -54,7 +65,7 @@ export function CameraRig() {
       controlsRef.current.target.set(cx, cy, cz);
       controlsRef.current.update();
     }
-  }, [preset, trigger, sliceResult, meshMetadata, camera]);
+  }, [preset, trigger, sliceResult, waffleResult, build.techniqueId, meshMetadata, camera]);
 
   return (
     <OrbitControls

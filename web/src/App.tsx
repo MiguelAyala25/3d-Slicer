@@ -4,6 +4,7 @@ import { Viewport3D } from './components/viewport/Viewport3D';
 import { TopProjectBar } from './components/hud/TopProjectBar';
 import { CameraToolbar } from './components/hud/CameraToolbar';
 import { FloorNavigatorHUD } from './components/hud/FloorNavigatorHUD';
+import { WaffleNavigatorHUD } from './components/hud/WaffleNavigatorHUD';
 import { JOINT_UI } from './components/joints/registry';
 import { RightInspector } from './components/hud/RightInspector';
 import { StatusBarPill } from './components/hud/StatusBarPill';
@@ -15,6 +16,7 @@ export default function App() {
   const deleteSelectedDisc = useSculptureStore((s) => s.deleteSelectedDisc);
   const undoDiscs = useSculptureStore((s) => s.undoDiscs);
   const redoDiscs = useSculptureStore((s) => s.redoDiscs);
+  const stepWafflePiece = useSculptureStore((s) => s.stepWafflePiece);
   const closeSheetPreviewModal = useSculptureStore(
     (s) => s.closeSheetPreviewModal
   );
@@ -94,13 +96,21 @@ export default function App() {
         case 'W':
         case 'ArrowUp':
           e.preventDefault();
-          stepFloor(1);
+          if (build.techniqueId === 'waffle') {
+            stepWafflePiece(1);
+          } else {
+            stepFloor(1);
+          }
           break;
         case 's':
         case 'S':
         case 'ArrowDown':
           e.preventDefault();
-          stepFloor(-1);
+          if (build.techniqueId === 'waffle') {
+            stepWafflePiece(-1);
+          } else {
+            stepFloor(-1);
+          }
           break;
         case 'Delete':
         case 'Backspace':
@@ -143,6 +153,8 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     stepFloor,
+    stepWafflePiece,
+    build.techniqueId,
     setCameraPreset,
     deleteSelectedDisc,
     undoDiscs,
@@ -156,7 +168,11 @@ export default function App() {
       <Viewport3D />
       <TopProjectBar />
       <CameraToolbar />
-      <FloorNavigatorHUD />
+      {build.techniqueId === 'waffle' ? (
+        <WaffleNavigatorHUD />
+      ) : (
+        <FloorNavigatorHUD />
+      )}
       {JointDock && <JointDock />}
       <RightInspector />
       <StatusBarPill />
