@@ -15,7 +15,7 @@ async function loadMeshAndSlice(
   });
 
   const technique = options.technique ?? 'stacked';
-  const joint = options.joint ?? 'discs';
+  const joint = options.joint ?? (technique === 'waffle' ? 'slots' : 'discs');
 
   const techSelect = page.locator('[data-testid="select-technique"]');
   if ((await techSelect.inputValue()) !== technique) {
@@ -24,13 +24,18 @@ async function loadMeshAndSlice(
 
   const jointSelect = page.locator('[data-testid="select-joint"]');
   if (
+    technique !== 'waffle' &&
     (await jointSelect.isVisible()) &&
     (await jointSelect.inputValue()) !== joint
   ) {
     await jointSelect.selectOption(joint);
   }
 
-  await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+  if (technique === 'waffle') {
+    await expect(page.locator('[data-testid="waffle-navigator-hud"]')).toBeVisible({ timeout: 10_000 });
+  } else {
+    await expect(page.locator('text=Piso 0')).toBeVisible({ timeout: 10_000 });
+  }
 }
 
 test.describe('Sculpture Studio E2E Acceptance Suite', () => {
@@ -233,10 +238,10 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     await expect(page.locator('text=Número de placas')).not.toBeVisible();
     await expect(page.locator('[data-testid="select-joint"]')).not.toBeVisible();
 
-    // A-3: disabled options ending in (próximamente)
+    // In Phase 9: Waffle technique is enabled and selectable
     const waffleOption = page.locator('option[value="waffle"]');
-    await expect(waffleOption).toBeDisabled();
-    await expect(waffleOption).toHaveText(/waffle.*\(próximamente\)/i);
+    await expect(waffleOption).toBeEnabled();
+    await expect(waffleOption).toHaveText(/waffle/i);
 
     // Select stacked technique
     await page.selectOption('[data-testid="select-technique"]', 'stacked');
@@ -396,5 +401,132 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
       expect(dxfContent).toContain('CORTE');
       expect(dxfContent).not.toContain('\nCIRCLE\n');
     }
+  });
+
+  test('10. Full Waffle flow and DXF export (E2E 10)', async ({ page }) => {
+    await page.goto('/');
+    await loadMeshAndSlice(page, { technique: 'waffle' });
+
+    // Selector Unión is disabled and fixed to "slots" ('Encaje por ranuras')
+    const jointSelect = page.locator('[data-testid="select-joint"]');
+    await expect(jointSelect).toBeDisabled();
+    await expect(jointSelect).toHaveValue('slots');
+
+    // FloorNavigatorHUD & DiscsDockHUD are absent; WaffleNavigatorHUD is visible
+    await expect(page.locator('aside[aria-label="Navegador de pisos"]')).not.toBeVisible();
+    await expect(page.locator('[data-testid="toggle-add-discs"]')).not.toBeVisible();
+    await expect(page.locator('[data-testid="waffle-navigator-hud"]')).toBeVisible();
+
+    // Change pitch to 10 mm and slot clearance to 0.15 mm
+    const pitchInput = page.locator('[data-testid="input-waffle-pitch"]');
+    await pitchInput.focus();
+    await pitchInput.fill('10');
+    await pitchInput.press('Enter');
+
+    const clearanceInput = page.locator('[data-testid="input-waffle-clearance"]');
+    await clearanceInput.focus();
+    await clearanceInput.fill('0.15');
+    await clearanceInput.press('Enter');
+
+    // Open "Vista previa y exportar"
+    await page.click('button:has-text("Vista previa y exportar")');
+    await expect(page.locator('[role="dialog"]')).toBeVisible();
+
+    // Download DXF and verify geometry: LWPOLYLINE in CORTE, X/Y labels in GRABADO, zero CIRCLE entities
+    const downloadPromise = page.waitForEvent('download');
+    await page.click('button:has-text("Exportar esta hoja (.dxf)")');
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toContain('.dxf');
+
+    const stream = await download.createReadStream();
+    if (stream) {
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const dxfContent = Buffer.concat(chunks).toString('utf-8');
+      expect(dxfContent).toContain('CORTE');
+      expect(dxfContent).toContain('GRABADO');
+      expect(dxfContent).toContain('LWPOLYLINE');
+      expect(dxfContent).toMatch(/X1|Y1/);
+      expect(dxfContent).not.toContain('\nCIRCLE\n');
+    }
+  });
+
+  test('11. Confirmation when switching technique with discs placed (E2E 11)', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await loadMeshAndSlice(page, { technique: 'stacked', joint: 'discs' });
+
+    // Switch to top view ('7') and add discs mode
+    await page.click('[data-testid="toggle-add-discs"]');
+    await page.keyboard.press('7');
+    const canvas = page.locator('canvas');
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    if (box) {
+      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    }
+    await expect(page.getByTestId('total-discs-count')).toHaveText('2');
+
+    // Switch to waffle and cancel confirmation -> stays in stacked with discs intact
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain('Cambiar la técnica a Waffle eliminará los 2 discos colocados');
+      await dialog.dismiss();
+    });
+    await page.selectOption('[data-testid="select-technique"]', 'waffle');
+    await expect(page.locator('[data-testid="select-technique"]')).toHaveValue('stacked');
+    await expect(page.getByTestId('total-discs-count')).toHaveText('2');
+
+    // Switch to waffle and confirm -> switches to waffle, discs cleared
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain('Cambiar la técnica a Waffle eliminará los 2 discos colocados');
+      await dialog.accept();
+    });
+    await page.selectOption('[data-testid="select-technique"]', 'waffle');
+    await expect(page.locator('[data-testid="select-technique"]')).toHaveValue('waffle');
+    await expect(page.locator('[data-testid="waffle-navigator-hud"]')).toBeVisible();
+
+    // Switch back to stacked -> select discs, discs are 0, undo is disabled
+    await page.selectOption('[data-testid="select-technique"]', 'stacked');
+    await page.selectOption('[data-testid="select-joint"]', 'discs');
+    await expect(page.getByTestId('total-discs-count')).toHaveText('0');
+    const undoButton = page.locator('button[aria-label="Deshacer"]');
+    await expect(undoButton).toBeDisabled();
+  });
+
+  test('12. Warnings panel and slot calibration comb sheet (E2E 12)', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await loadMeshAndSlice(page, { technique: 'waffle' });
+
+    // Set pitch to 6.0 mm on test_l_block, which severs corner arm and triggers W4 warning
+    const pitchInput = page.locator('[data-testid="input-waffle-pitch"]');
+    await pitchInput.focus();
+    await pitchInput.fill('6');
+    await pitchInput.press('Enter');
+
+    // WaffleWarningsPanel appears with warning W4
+    const warningsPanel = page.locator('[data-testid="waffle-warnings-panel"]');
+    await expect(warningsPanel).toBeVisible({ timeout: 5_000 });
+    const w4Button = page.locator('[data-testid="waffle-warning-W4"]').first();
+    await expect(w4Button).toBeVisible();
+
+    // Click warning: selects the affected piece in WaffleNavigatorHUD
+    await w4Button.click();
+    const pieceSelect = page.locator('[data-testid="waffle-piece-select"]');
+    await expect(pieceSelect).not.toHaveValue('');
+
+    // Click "Hoja de prueba de ranuras" -> opens SheetPreviewModal with calibration combs
+    const calibBtn = page.locator('[data-testid="btn-slot-calibration-sheet"]');
+    await expect(calibBtn).toBeVisible();
+    await calibBtn.click();
+
+    const dialog = page.locator('[role="dialog"]');
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText('120 × 80 mm');
+    await expect(dialog).toContainText('Peine A');
   });
 });

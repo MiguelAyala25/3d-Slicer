@@ -798,10 +798,16 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           void get().runSlice();
         }
       } else if (id === 'stacked') {
-        set((s) => ({
-          build: { ...s.build, techniqueId: 'stacked', jointId: 'discs' },
-          isResultDirty: s.sliceResult !== null,
-        }));
+        set((s) => {
+          const nextJointId =
+            s.build.jointId && s.build.jointId !== 'slots'
+              ? s.build.jointId
+              : '';
+          return {
+            build: { ...s.build, techniqueId: 'stacked', jointId: nextJointId },
+            isResultDirty: s.sliceResult !== null,
+          };
+        });
 
         if (get().meshGeometry && get().meshFileName) {
           saveProjectToLocalStorage(
