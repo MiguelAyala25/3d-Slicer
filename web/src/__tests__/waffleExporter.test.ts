@@ -7,6 +7,10 @@ import { generateWaffleSheetLayouts } from '../core/layout';
 import { generateSheetSvg } from '../core/svgExporter';
 import { generateSheetDxf } from '../core/dxfExporter';
 import { sliceWaffleMesh } from '../core/waffle/waffleSlicer';
+import {
+  computeCalibrationClearances,
+  generateSlotCalibrationSheet,
+} from '../core/waffle/calibrationSheet';
 import { createBoxPositions } from './helpers/waffleFixtures';
 import { loadMeshFromBuffer } from '../core/meshLoader';
 import { DEFAULT_PARAMS } from '../core/params';
@@ -230,4 +234,105 @@ describe('Waffle Exporter & Layout (Phase 9.3)', () => {
     const dxf2 = generateSheetDxf(sheets[0]);
     expect(dxf1).toBe(dxf2);
   });
+
+  describe('Slot Calibration Comb Sheet (Phase 9.6)', () => {
+    it('computes exactly 7 test clearances centered around slotClearance and clamped to >= 0', () => {
+      // Centered at 0.15 -> [0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]
+      const c1 = computeCalibrationClearances(0.15);
+      expect(c1).toEqual([0.00, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30]);
+
+      // Centered at 0.10 -> clamped to 0 for delta <= -0.10
+      const c2 = computeCalibrationClearances(0.10);
+      expect(c2).toEqual([0.00, 0.00, 0.05, 0.10, 0.15, 0.20, 0.25]);
+
+      // Centered at 0.05 -> clamped to 0 for negative deltas
+      const c3 = computeCalibrationClearances(0.05);
+      expect(c3).toEqual([0.00, 0.00, 0.00, 0.05, 0.10, 0.15, 0.20]);
+    });
+
+    it('generates a compact sheet layout with 2 test combs and 7 slots each', () => {
+      const calSheet = generateSlotCalibrationSheet(3.0, 0.15, 0.10);
+      expect(calSheet.width).toBe(120);
+      expect(calSheet.height).toBe(80);
+      expect(calSheet.plates.length).toBe(2);
+
+      const combA = calSheet.plates[0];
+      const combB = calSheet.plates[1];
+      expect(combA.labelText).toBe('Peine A');
+      expect(combB.labelText).toBe('Peine B');
+      expect(combA.width).toBe(90);
+      expect(combA.height).toBe(25);
+
+      // 7 slot labels + 1 info text = 8 labels per comb
+      expect(combA.slotLabels?.length).toBe(8);
+      expect(combB.slotLabels?.length).toBe(8);
+    });
+
+    it('exports calibration sheet to SVG and DXF with zero circles and accurate slot widths', () => {
+      const thickness = 3.0;
+      const kerf = 0.15;
+      const clearance = 0.10;
+      const calSheet = generateSlotCalibrationSheet(thickness, kerf, clearance);
+
+      // SVG
+      const svgStr = generateSheetSvg(calSheet);
+      expect(svgStr).not.toContain('<circle');
+      expect(svgStr).toContain('Peine A');
+      expect(svgStr).toContain('Peine B');
+      expect(svgStr).toContain('c=0.10');
+      expect(svgStr).toContain('PRUEBA t=3.00 kerf=0.15');
+
+      const parserDom = new DOMParser();
+      const doc = parserDom.parseFromString(svgStr, 'image/svg+xml');
+      const corteGroup = doc.getElementById('corte');
+      const paths = corteGroup?.querySelectorAll('path') ?? [];
+      expect(paths.length).toBe(2);
+
+      // DXF
+      const dxfStr = generateSheetDxf(calSheet);
+      const parser = new DxfParser();
+      const parsedDxf = parser.parseSync(dxfStr);
+      expect(parsedDxf).not.toBeNull();
+
+      const entities = parsedDxf?.entities ?? [];
+      const circles = entities.filter((e: any) => e.type === 'CIRCLE' || e.type === 'ARC');
+      expect(circles.length).toBe(0);
+
+      const cortePolylines = entities.filter(
+        (e: any) => e.type === 'LWPOLYLINE' && e.layer === 'CORTE'
+      );
+      expect(cortePolylines.length).toBe(2);
+
+      const texts = entities.filter(
+        (e: any) => e.type === 'TEXT' && e.layer === 'GRABADO'
+      );
+      expect(texts.length).toBeGreaterThanOrEqual(16);
+
+      // Check center slot width on first comb:
+      // clearances[3] = 0.10 -> w_3 = 3.0 + 0.10 - 0.15 = 2.95 mm
+      const expectedCenterW = thickness + 0.10 - kerf; // 2.95 mm
+      const firstPoly = cortePolylines[0] as any;
+      const verts = firstPoly.vertices;
+      // Vertices around center slot (slot k=3):
+      // The comb vertices trace all 7 slots. Let's verify width of top edge notch
+      // for k=3: xRight - xLeft should equal expectedCenterW
+      let foundMatchingSlot = false;
+      for (let i = 0; i < verts.length - 1; i++) {
+        // Vertical step down, then horizontal step, then vertical step up
+        if (Math.abs(verts[i].y - (combA_yBottom(calSheet))) < 0.01 &&
+            Math.abs(verts[i + 1].y - (combA_yBottom(calSheet))) < 0.01) {
+          const slotW = Math.abs(verts[i + 1].x - verts[i].x);
+          if (Math.abs(slotW - expectedCenterW) < 0.01) {
+            foundMatchingSlot = true;
+            break;
+          }
+        }
+      }
+      expect(foundMatchingSlot).toBe(true);
+    });
+  });
 });
+
+function combA_yBottom(sheet: any): number {
+  return sheet.plates[0].yOffset + 25 - 12.5; // yOffset + H - slotDepth
+}

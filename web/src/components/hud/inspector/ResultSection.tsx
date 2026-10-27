@@ -187,7 +187,7 @@ export function ResultSection() {
       {isWaffle && (
         <button
           type="button"
-          data-testid="btn-calibration-sheet"
+          data-testid="btn-slot-calibration-sheet"
           onClick={openCalibrationSheetPreview}
           className="w-full h-8 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium text-[#F4F4F5] flex items-center justify-center gap-1.5 border border-white/[0.08] select-none"
         >

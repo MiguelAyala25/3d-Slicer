@@ -28,6 +28,7 @@ import {
   type WaffleState,
 } from './waffleSlice';
 import { sliceWaffleMesh } from '../core/waffle/waffleSlicer';
+import { generateSlotCalibrationSheet } from '../core/waffle/calibrationSheet';
 import type { WaffleParams, WaffleSliceResult, WaffleSection } from '../core/waffle/types';
 import {
   checkParamsCompatibility,
@@ -1164,7 +1165,26 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       set({ selectedWafflePieceId: pieces[nextIndex].id });
     },
 
-    openCalibrationSheetPreview: () => set({ isCalibrationSheetModalOpen: true }),
+    openCalibrationSheetPreview: () => {
+      const { params, waffleParams } = get();
+      try {
+        const calSheet = generateSlotCalibrationSheet(
+          params.thickness,
+          params.kerf,
+          waffleParams.slotClearance
+        );
+        set({
+          sheetLayouts: [calSheet],
+          isPreviewModalOpen: true,
+          isCalibrationSheetModalOpen: true,
+          errorMessage: null,
+        });
+      } catch (err) {
+        set({
+          errorMessage: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
     closeCalibrationSheetPreview: () => set({ isCalibrationSheetModalOpen: false }),
 
     openSheetPreviewModal: () => {
