@@ -4,6 +4,7 @@ import { validateBuildParams } from './build/validateBuild';
 import { DEFAULT_PARAMS, PARAM_BOUNDS } from './params';
 import { validateParams, ValidationError } from './validator';
 import type { Axis, Disc, SculptureParams } from '../types/sculpture';
+import type { WaffleParams } from './waffle/types';
 
 export const FORMAT_VERSION = '1.0';
 export const FORMAT_VERSION_V1 = '1.0';
@@ -32,6 +33,7 @@ export interface ParsedProjectData {
   params: SculptureParams;
   discs: Disc[];
   build: BuildConfig;
+  waffleParams?: WaffleParams;
 }
 
 export function formatPythonFloat(n: number): string {
@@ -94,7 +96,8 @@ export function serializeProjectJson(
 function serializeProject2(
   params: SculptureParams,
   build: BuildConfig,
-  discs: Disc[]
+  discs: Disc[],
+  waffleParams?: WaffleParams
 ): string {
   const lines: string[] = [
     '{',
@@ -108,44 +111,75 @@ function serializeProject2(
     `    "kerf": ${formatPythonFloat(params.kerf)},`,
     `    "scrapTagEnabled": ${params.scrapTagEnabled ? 'true' : 'false'}`,
     '  },',
-    '  "technique": {',
-    `    "id": "${build.techniqueId}",`,
-    '    "params": {',
-    `      "plates": ${params.plates},`,
-    `      "axis": "${params.axis}"`,
-    '    }',
-    '  },',
-    '  "joint": {',
-    `    "id": "${build.jointId}",`,
   ];
 
-  if (build.jointId === 'none') {
-    lines.push('    "params": {}');
-  } else if (build.jointId === 'discs') {
+  if (build.techniqueId === 'waffle') {
+    const wp = waffleParams ?? {
+      upAxis: 'z',
+      pitch: 12.0,
+      slotClearance: 0.1,
+      gridOffset: 0.0,
+      slotLabelsEnabled: true,
+      targetScale: 1.0,
+    };
     lines.push(
+      '  "technique": {',
+      '    "id": "waffle",',
       '    "params": {',
-      `      "gap": ${formatPythonFloat(params.gap)},`,
-      `      "discDiameter": ${formatPythonFloat(params.discDiameter)},`,
-      `      "engraveClearance": ${formatPythonFloat(params.engraveClearance)}`,
-      '    },'
+      `      "upAxis": "${wp.upAxis}",`,
+      `      "pitch": ${formatPythonFloat(wp.pitch)},`,
+      `      "slotClearance": ${formatPythonFloat(wp.slotClearance)},`,
+      `      "gridOffset": ${formatPythonFloat(wp.gridOffset)},`,
+      `      "slotLabelsEnabled": ${wp.slotLabelsEnabled ? 'true' : 'false'},`,
+      `      "targetScale": ${formatPythonFloat(wp.targetScale)}`,
+      '    }',
+      '  },',
+      '  "joint": {',
+      '    "id": "slots",',
+      '    "params": {}',
+      '  }'
     );
-    if (discs.length === 0) {
-      lines.push('    "discs": []');
-    } else {
-      const discBlocks = discs.map((d) => [
-        '      {',
-        `        "id": ${d.id},`,
-        `        "hueco": ${d.gapIndex},`,
-        `        "x": ${formatPythonFloat(d.x)},`,
-        `        "y": ${formatPythonFloat(d.y)},`,
-        `        "diameter": ${formatPythonFloat(d.diameter)}`,
-        '      }',
-      ].join('\n'));
-      lines.push(`    "discs": [\n${discBlocks.join(',\n')}\n    ]`);
+  } else {
+    lines.push(
+      '  "technique": {',
+      `    "id": "${build.techniqueId}",`,
+      '    "params": {',
+      `      "plates": ${params.plates},`,
+      `      "axis": "${params.axis}"`,
+      '    }',
+      '  },',
+      '  "joint": {',
+      `    "id": "${build.jointId}",`
+    );
+
+    if (build.jointId === 'none') {
+      lines.push('    "params": {}');
+    } else if (build.jointId === 'discs') {
+      lines.push(
+        '    "params": {',
+        `      "gap": ${formatPythonFloat(params.gap)},`,
+        `      "discDiameter": ${formatPythonFloat(params.discDiameter)},`,
+        `      "engraveClearance": ${formatPythonFloat(params.engraveClearance)}`,
+        '    },'
+      );
+      if (discs.length === 0) {
+        lines.push('    "discs": []');
+      } else {
+        const discBlocks = discs.map((d) => [
+          '      {',
+          `        "id": ${d.id},`,
+          `        "hueco": ${d.gapIndex},`,
+          `        "x": ${formatPythonFloat(d.x)},`,
+          `        "y": ${formatPythonFloat(d.y)},`,
+          `        "diameter": ${formatPythonFloat(d.diameter)}`,
+          '      }',
+        ].join('\n'));
+        lines.push(`    "discs": [\n${discBlocks.join(',\n')}\n    ]`);
+      }
     }
+    lines.push('  }');
   }
 
-  lines.push('  }');
   lines.push('}');
   return lines.join('\n');
 }
@@ -153,13 +187,14 @@ function serializeProject2(
 export function serializeProject(
   params: SculptureParams,
   build: BuildConfig,
-  discs: Disc[]
+  discs: Disc[],
+  waffleParams?: WaffleParams
 ): string {
   const version = projectFormatFor(build, params);
   if (version === '1.0') {
     return serializeProjectJson(params, discs);
   }
-  return serializeProject2(params, build, discs);
+  return serializeProject2(params, build, discs, waffleParams);
 }
 
 function parseDiscsList(rawDiscs: unknown, maxPlates: number): Disc[] {
@@ -331,27 +366,75 @@ export function parseProjectJson(
   if (techId !== 'stacked' && techId !== 'waffle') {
     throw new ValidationError(`Técnica desconocida: '${techId}'.`);
   }
-  if (techId === 'waffle') {
-    throw new ValidationError('La técnica «Waffle» aún no está disponible.');
-  }
 
   if (!tech.params || typeof tech.params !== 'object' || Array.isArray(tech.params)) {
     throw new ValidationError("El campo 'technique.params' debe ser un objeto.");
   }
   const tParams = tech.params as Record<string, unknown>;
-  if (!('plates' in tParams)) {
-    throw new ValidationError("Falta el campo obligatorio 'technique.params.plates' en el archivo JSON.");
-  }
-  if (!('axis' in tParams)) {
-    throw new ValidationError("Falta el campo obligatorio 'technique.params.axis' en el archivo JSON.");
-  }
-  for (const k of Object.keys(tParams)) {
-    if (k !== 'plates' && k !== 'axis') {
-      throw new ValidationError(`Campo no reconocido '${k}' en 'technique.params'.`);
+
+  let parsedWaffleParams: WaffleParams | undefined;
+
+  if (techId === 'waffle') {
+    const requiredWaffleKeys = [
+      'upAxis',
+      'pitch',
+      'slotClearance',
+      'gridOffset',
+      'slotLabelsEnabled',
+      'targetScale',
+    ] as const;
+
+    for (const rk of requiredWaffleKeys) {
+      if (!(rk in tParams)) {
+        throw new ValidationError(`Falta el campo obligatorio 'technique.params.${rk}' en el archivo JSON.`);
+      }
     }
-  }
-  if (typeof tParams.plates !== 'number' || !Number.isFinite(tParams.plates)) {
-    throw new ValidationError("El campo 'technique.params.plates' debe ser numérico.");
+    for (const k of Object.keys(tParams)) {
+      if (!requiredWaffleKeys.includes(k as any)) {
+        throw new ValidationError(`Campo no reconocido '${k}' en 'technique.params'.`);
+      }
+    }
+
+    const upAxis = String(tParams.upAxis).toLowerCase();
+    if (upAxis !== 'x' && upAxis !== 'y' && upAxis !== 'z') {
+      throw new ValidationError("El campo 'technique.params.upAxis' debe ser 'x', 'y' o 'z'.");
+    }
+
+    const numKeys = ['pitch', 'slotClearance', 'gridOffset', 'targetScale'] as const;
+    for (const nk of numKeys) {
+      if (typeof tParams[nk] !== 'number' || !Number.isFinite(tParams[nk])) {
+        throw new ValidationError(`El campo 'technique.params.${nk}' debe ser numérico.`);
+      }
+    }
+
+    if (typeof tParams.slotLabelsEnabled !== 'boolean') {
+      throw new ValidationError("El campo 'technique.params.slotLabelsEnabled' debe ser booleano.");
+    }
+
+    parsedWaffleParams = {
+      upAxis: upAxis as Axis,
+      pitch: tParams.pitch as number,
+      slotClearance: tParams.slotClearance as number,
+      gridOffset: tParams.gridOffset as number,
+      slotLabelsEnabled: tParams.slotLabelsEnabled as boolean,
+      targetScale: tParams.targetScale as number,
+    };
+  } else {
+    // techId === 'stacked'
+    if (!('plates' in tParams)) {
+      throw new ValidationError("Falta el campo obligatorio 'technique.params.plates' en el archivo JSON.");
+    }
+    if (!('axis' in tParams)) {
+      throw new ValidationError("Falta el campo obligatorio 'technique.params.axis' en el archivo JSON.");
+    }
+    for (const k of Object.keys(tParams)) {
+      if (k !== 'plates' && k !== 'axis') {
+        throw new ValidationError(`Campo no reconocido '${k}' en 'technique.params'.`);
+      }
+    }
+    if (typeof tParams.plates !== 'number' || !Number.isFinite(tParams.plates)) {
+      throw new ValidationError("El campo 'technique.params.plates' debe ser numérico.");
+    }
   }
 
   // Joint
@@ -367,14 +450,32 @@ export function parseProjectJson(
   }
 
   const jointId = String(joint.id);
-  if (jointId !== 'none' && jointId !== 'discs' && jointId !== 'rod') {
-    throw new ValidationError(`Unión desconocida: '${jointId}'.`);
-  }
-  if (jointId === 'rod') {
-    throw new ValidationError('La unión «Con varilla» aún no está disponible.');
+  if (techId === 'waffle') {
+    if (jointId !== 'slots') {
+      throw new ValidationError("La técnica «Waffle» solo admite la unión «Encaje por ranuras» ('slots').");
+    }
+  } else {
+    if (jointId === 'slots') {
+      throw new ValidationError("La unión «Encaje por ranuras» es exclusiva de la técnica «Waffle».");
+    }
+    if (jointId !== 'none' && jointId !== 'discs' && jointId !== 'rod') {
+      throw new ValidationError(`Unión desconocida: '${jointId}'.`);
+    }
+    if (jointId === 'rod') {
+      throw new ValidationError('La unión «Con varilla» aún no está disponible.');
+    }
   }
 
-  if (jointId === 'none') {
+  if (jointId === 'slots') {
+    if ('discs' in joint) {
+      throw new ValidationError('La unión «Encaje por ranuras» no admite discos.');
+    }
+    for (const k of Object.keys(joint)) {
+      if (k !== 'id' && k !== 'params') {
+        throw new ValidationError(`Campo no reconocido '${k}' en 'joint'.`);
+      }
+    }
+  } else if (jointId === 'none') {
     if ('discs' in joint) {
       throw new ValidationError('La unión «Sin separación» no admite discos.');
     }
@@ -398,7 +499,7 @@ export function parseProjectJson(
     throw new ValidationError("El campo 'joint.params' debe ser un objeto.");
   }
   const jParams = joint.params as Record<string, unknown>;
-  if (jointId === 'none') {
+  if (jointId === 'slots' || jointId === 'none') {
     const keys = Object.keys(jParams);
     if (keys.length > 0) {
       throw new ValidationError(`Campo no reconocido '${keys[0]}' en 'joint.params'.`);
@@ -435,14 +536,14 @@ export function parseProjectJson(
     partGap: mat.partGap as number,
     kerf: mat.kerf as number,
     scrapTagEnabled: mat.scrapTagEnabled as boolean,
-    plates: tParams.plates as number,
-    axis: String(tParams.axis).toLowerCase() as Axis,
-    gap: jointId === 'none' ? 0 : (jParams.gap as number),
-    discDiameter: jointId === 'none' ? baseParams.discDiameter : (jParams.discDiameter as number),
-    engraveClearance: jointId === 'none' ? baseParams.engraveClearance : (jParams.engraveClearance as number),
+    plates: techId === 'waffle' ? baseParams.plates : (tParams.plates as number),
+    axis: techId === 'waffle' ? (parsedWaffleParams?.upAxis ?? 'z') : (String(tParams.axis).toLowerCase() as Axis),
+    gap: jointId === 'none' || jointId === 'slots' ? 0 : (jParams.gap as number),
+    discDiameter: jointId === 'none' || jointId === 'slots' ? baseParams.discDiameter : (jParams.discDiameter as number),
+    engraveClearance: jointId === 'none' || jointId === 'slots' ? baseParams.engraveClearance : (jParams.engraveClearance as number),
   };
 
-  validateBuildParams(params, build);
+  validateBuildParams(params, build, parsedWaffleParams);
 
   let discs: Disc[] = [];
   if (jointId === 'discs') {
@@ -454,6 +555,7 @@ export function parseProjectJson(
     params,
     discs,
     build,
+    waffleParams: parsedWaffleParams,
   };
 }
 
@@ -465,7 +567,11 @@ export function checkParamsCompatibility(
   fileParams: Pick<SculptureParams, 'plates' | 'thickness' | 'gap' | 'axis'>,
   currentParams: Pick<SculptureParams, 'plates' | 'thickness' | 'gap' | 'axis'>,
   fileBuild?: BuildConfig,
-  currentBuild?: BuildConfig
+  currentBuild?: BuildConfig,
+  fileWaffle?: WaffleParams,
+  currentWaffle?: WaffleParams,
+  fileCore?: Pick<SculptureParams, 'thickness' | 'kerf'>,
+  currentCore?: Pick<SculptureParams, 'thickness' | 'kerf'>
 ): boolean {
   if (fileBuild && currentBuild) {
     if (
@@ -473,6 +579,22 @@ export function checkParamsCompatibility(
       fileBuild.jointId !== currentBuild.jointId
     ) {
       return false;
+    }
+
+    if (fileBuild.techniqueId === 'waffle') {
+      if (fileWaffle && currentWaffle) {
+        if (fileWaffle.upAxis !== currentWaffle.upAxis) return false;
+        if (Math.abs(fileWaffle.pitch - currentWaffle.pitch) > 1e-4) return false;
+        if (Math.abs(fileWaffle.slotClearance - currentWaffle.slotClearance) > 1e-4) return false;
+        if (Math.abs(fileWaffle.gridOffset - currentWaffle.gridOffset) > 1e-4) return false;
+        if (Math.abs(fileWaffle.targetScale - currentWaffle.targetScale) > 1e-4) return false;
+        if (fileWaffle.slotLabelsEnabled !== currentWaffle.slotLabelsEnabled) return false;
+      }
+      if (Math.abs(fileParams.thickness - currentParams.thickness) > 1e-4) return false;
+      if (fileCore && currentCore) {
+        if (Math.abs(fileCore.kerf - currentCore.kerf) > 1e-4) return false;
+      }
+      return true;
     }
   }
   if (fileParams.plates !== currentParams.plates) return false;

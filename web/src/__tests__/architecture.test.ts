@@ -70,4 +70,28 @@ describe('Architecture & Core Independence (D-2, DoD-5)', () => {
 
     expect(violations).toEqual([]);
   });
+
+  it('core/waffle files do not import react, three, or core/joints/discs (DoD-6)', () => {
+    const waffleDir = path.resolve(CORE_DIR, 'waffle');
+    const files = getAllTsFiles(waffleDir);
+    const violations: string[] = [];
+
+    for (const file of files) {
+      const content = fs.readFileSync(file, 'utf-8');
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (
+          /from\s+['"]react['"]/i.test(line) ||
+          /from\s+['"]three['"]/i.test(line) ||
+          /from\s+['"][^'"]*joints\/discs/i.test(line) ||
+          /import\s+['"][^'"]*joints\/discs/i.test(line)
+        ) {
+          violations.push(`${path.relative(CORE_DIR, file)}:${i + 1} -> ${line.trim()}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
 });

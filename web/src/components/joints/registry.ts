@@ -18,4 +18,5 @@ export const JOINT_UI: Record<JointId, JointUi> = {
   },
   none: {},
   rod: {},
+  slots: {},
 };

@@ -3,6 +3,7 @@ import { DEFAULT_PARAMS } from './params';
 import { validateParams } from './validator';
 import { DEFAULT_BUILD, type BuildConfig } from './build/types';
 import type { Disc, SculptureParams } from '../types/sculpture';
+import type { WaffleParams } from './waffle/types';
 
 export const LOCAL_STORAGE_KEY = 'sculpture_web_autosave_v1';
 const IDB_NAME = 'sculpture_web_db';
@@ -21,6 +22,7 @@ export interface AutosaveSessionSnapshot {
   meshFileName: string | null;
   savedAt: number;
   build: BuildConfig;
+  waffleParams?: WaffleParams;
 }
 
 interface RawAutosaveEnvelope {
@@ -29,21 +31,24 @@ interface RawAutosaveEnvelope {
   meshFileName: string | null;
   savedAt: number;
   build?: BuildConfig;
+  waffleParams?: WaffleParams;
 }
 
 export function saveProjectToLocalStorage(
   params: SculptureParams,
   discs: Disc[],
   meshFileName: string | null,
-  build: BuildConfig = DEFAULT_BUILD
+  build: BuildConfig = DEFAULT_BUILD,
+  waffleParams?: WaffleParams
 ): void {
   try {
     const envelope: RawAutosaveEnvelope = {
-      projectJson: serializeProject(params, build, discs),
+      projectJson: serializeProject(params, build, discs, waffleParams),
       fullParams: { ...params },
       meshFileName,
       savedAt: Date.now(),
       build,
+      waffleParams,
     };
     window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(envelope));
   } catch {
@@ -70,6 +75,7 @@ export function loadProjectFromLocalStorage(): AutosaveSessionSnapshot | null {
       meshFileName: typeof parsed.meshFileName === 'string' ? parsed.meshFileName : null,
       savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now(),
       build,
+      waffleParams: project.waffleParams ?? parsed.waffleParams,
     };
   } catch {
     return null;

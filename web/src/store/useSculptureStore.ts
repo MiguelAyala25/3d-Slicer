@@ -16,11 +16,19 @@ import { ValidationError } from '../core/validator';
 import { PARAM_BOUNDS } from '../core/params';
 import {
   platesForTargetDimension,
+  scaleForTargetDimension,
   type ModelDimension,
   type ModelExtents,
   type SizeIntent,
 } from '../core/sizing';
 import { createDiscsSlice, type DiscsSlice } from './discsSlice';
+import {
+  INITIAL_WAFFLE_STATE,
+  type WaffleActions,
+  type WaffleState,
+} from './waffleSlice';
+import { sliceWaffleMesh } from '../core/waffle/waffleSlicer';
+import type { WaffleParams, WaffleSliceResult, WaffleSection } from '../core/waffle/types';
 import {
   checkParamsCompatibility,
   serializeProject,
@@ -108,7 +116,7 @@ export interface SculptureActions {
   stepFloor: (delta: 1 | -1) => void;
   setCameraPreset: (preset: CameraPreset) => void;
   setPlatesFromDimension: (dim: ModelDimension, mm: number) => void;
-  setTechnique: (id: TechniqueId) => void;
+  setTechnique: (id: TechniqueId, opts?: { confirmed?: boolean }) => { needsConfirmation: boolean; discCount: number };
   setJoint: (id: JointId, opts?: { confirmed?: boolean }) => { needsConfirmation: boolean; discCount: number };
 
   // Proyecto, autosave y exportación
@@ -122,7 +130,7 @@ export interface SculptureActions {
   clearError: () => void;
 }
 
-export type SculptureStore = SculptureState & SculptureActions & DiscsSlice;
+export type SculptureStore = SculptureState & SculptureActions & DiscsSlice & WaffleState & WaffleActions;
 
 let workerInstance: Worker | null = null;
 let currentMeshId = 0;
@@ -133,7 +141,9 @@ let isWorkerExecuting = false;
 let pendingWorkerJob: {
   jobId: number;
   meshId: number;
+  isWaffle: boolean;
   paramsSnapshot: SculptureParams;
+  waffleParamsSnapshot: WaffleParams;
   resolve: () => void;
 } | null = null;
 
@@ -205,6 +215,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
   return {
     ...discsSlice,
+    ...INITIAL_WAFFLE_STATE,
 
     params: { ...DEFAULT_PARAMS },
     build: { ...INITIAL_BUILD },
@@ -294,7 +305,31 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
       // Autosave automático si hay malla cargada
       if (state.meshGeometry && state.meshFileName) {
-        saveProjectToLocalStorage(get().params, get().discs, state.meshFileName, get().build);
+        saveProjectToLocalStorage(
+          get().params,
+          get().discs,
+          state.meshFileName,
+          get().build,
+          get().waffleParams
+        );
+      }
+
+      if (key === 'thickness' && !get().wafflePitchManuallyEdited) {
+        set((s) => ({
+          waffleParams: {
+            ...s.waffleParams,
+            pitch: Number((4 * Number(value)).toFixed(2)),
+          },
+        }));
+      }
+
+      // Auto-slice si está en técnica waffle
+      if (
+        state.meshGeometry &&
+        get().build.techniqueId === 'waffle' &&
+        (key === 'thickness' || key === 'kerf')
+      ) {
+        scheduleAutoSlice(() => void get().runSlice(), 350);
       }
 
       // Auto-slice inteligente si el cambio afecta al corte
@@ -370,8 +405,9 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
         if (
           autoSlice &&
-          get().build.techniqueId === 'stacked' &&
-          (get().build.jointId === 'none' || get().build.jointId === 'discs')
+          ((get().build.techniqueId === 'stacked' &&
+            (get().build.jointId === 'none' || get().build.jointId === 'discs')) ||
+            get().build.techniqueId === 'waffle')
         ) {
           await get().runSlice();
         }
@@ -390,14 +426,17 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       if (!state.meshGeometry) return;
       if (!state.build.techniqueId || !state.build.jointId) return;
 
+      const isWaffle = state.build.techniqueId === 'waffle';
       const paramsSnapshot = { ...state.params };
+      const waffleParamsSnapshot = { ...state.waffleParams };
+
       try {
-        validateBuildParams(paramsSnapshot, state.build);
+        validateBuildParams(paramsSnapshot, state.build, waffleParamsSnapshot);
       } catch (err) {
         set({
           isSlicing: false,
           errorMessage: err instanceof Error ? err.message : String(err),
-          statusMessage: 'Error de validación de corte',
+          statusMessage: isWaffle ? 'Error de validación de Waffle' : 'Error de validación de corte',
         });
         return;
       }
@@ -406,7 +445,11 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       const jobId = latestJobId;
       const meshId = currentMeshId;
 
-      set({ isSlicing: true, errorMessage: null, statusMessage: 'Rebanando modelo...' });
+      set({
+        isSlicing: true,
+        errorMessage: null,
+        statusMessage: isWaffle ? 'Rebanando Waffle...' : 'Rebanando modelo...',
+      });
 
       const applySliceOutcome = (result: SliceResult, durationMs: number) => {
         const prevScaleFactor = state.sliceResult?.scaleFactor ?? 0;
@@ -433,7 +476,43 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }));
 
         if (state.meshFileName) {
-          saveProjectToLocalStorage(get().params, get().discs, state.meshFileName, get().build);
+          saveProjectToLocalStorage(
+            get().params,
+            get().discs,
+            state.meshFileName,
+            get().build,
+            get().waffleParams
+          );
+        }
+      };
+
+      const applyWaffleSliceOutcome = (result: WaffleSliceResult, durationMs: number) => {
+        const totalPieces = result.p1Sections.length + result.p2Sections.length;
+        set((s) => {
+          const allPieces = [...result.p1Sections, ...result.p2Sections];
+          const stillSelected = allPieces.some((p) => p.id === s.selectedWafflePieceId);
+          const nextSelected = stillSelected
+            ? s.selectedWafflePieceId
+            : (result.p1Sections[0]?.id ?? result.p2Sections[0]?.id ?? null);
+
+          return {
+            waffleResult: result,
+            isSlicing: false,
+            isResultDirty: false,
+            viewMode: 'plates',
+            selectedWafflePieceId: nextSelected,
+            statusMessage: `Corte Waffle completado en ${Math.round(durationMs)} ms (${totalPieces} piezas: ${result.p1Sections.length} X, ${result.p2Sections.length} Y)`,
+          };
+        });
+
+        if (state.meshFileName) {
+          saveProjectToLocalStorage(
+            get().params,
+            get().discs,
+            state.meshFileName,
+            get().build,
+            get().waffleParams
+          );
         }
       };
 
@@ -443,7 +522,9 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           const executeJob = (
             targetJobId: number,
             targetMeshId: number,
+            isWaffleJob: boolean,
             targetParams: SculptureParams,
+            targetWaffleParams: WaffleParams,
             onJobDone: () => void
           ) => {
             isWorkerExecuting = true;
@@ -457,6 +538,10 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
               if (msg.type === 'SLICE_SUCCESS') {
                 if (targetJobId === latestJobId) {
                   applySliceOutcome(msg.result, msg.durationMs);
+                }
+              } else if (msg.type === 'SLICE_WAFFLE_SUCCESS') {
+                if (targetJobId === latestJobId) {
+                  applyWaffleSliceOutcome(msg.result, msg.durationMs);
                 }
               } else if (msg.type === 'SLICE_ERROR') {
                 if (targetJobId === latestJobId) {
@@ -473,7 +558,14 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
               if (pendingWorkerJob) {
                 const next = pendingWorkerJob;
                 pendingWorkerJob = null;
-                executeJob(next.jobId, next.meshId, next.paramsSnapshot, next.resolve);
+                executeJob(
+                  next.jobId,
+                  next.meshId,
+                  next.isWaffle,
+                  next.paramsSnapshot,
+                  next.waffleParamsSnapshot,
+                  next.resolve
+                );
               } else {
                 isWorkerExecuting = false;
               }
@@ -494,7 +586,14 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
               if (pendingWorkerJob) {
                 const next = pendingWorkerJob;
                 pendingWorkerJob = null;
-                executeJob(next.jobId, next.meshId, next.paramsSnapshot, next.resolve);
+                executeJob(
+                  next.jobId,
+                  next.meshId,
+                  next.isWaffle,
+                  next.paramsSnapshot,
+                  next.waffleParamsSnapshot,
+                  next.resolve
+                );
               } else {
                 isWorkerExecuting = false;
               }
@@ -503,13 +602,24 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
             worker.addEventListener('message', onMessage);
             worker.addEventListener('error', onError);
 
-            const req: WorkerRequest = {
-              type: 'SLICE',
-              jobId: targetJobId,
-              meshId: targetMeshId,
-              params: targetParams,
-            };
-            worker.postMessage(req);
+            if (isWaffleJob) {
+              const req: WorkerRequest = {
+                type: 'SLICE_WAFFLE',
+                jobId: targetJobId,
+                meshId: targetMeshId,
+                coreParams: targetParams,
+                waffleParams: targetWaffleParams,
+              };
+              worker.postMessage(req);
+            } else {
+              const req: WorkerRequest = {
+                type: 'SLICE',
+                jobId: targetJobId,
+                meshId: targetMeshId,
+                params: targetParams,
+              };
+              worker.postMessage(req);
+            }
           };
 
           if (isWorkerExecuting) {
@@ -521,11 +631,20 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
             pendingWorkerJob = {
               jobId,
               meshId,
+              isWaffle,
               paramsSnapshot,
+              waffleParamsSnapshot,
               resolve,
             };
           } else {
-            executeJob(jobId, meshId, paramsSnapshot, resolve);
+            executeJob(
+              jobId,
+              meshId,
+              isWaffle,
+              paramsSnapshot,
+              waffleParamsSnapshot,
+              resolve
+            );
           }
         });
       } else {
@@ -535,11 +654,20 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           const posAttr = state.meshGeometry.getAttribute(
             'position'
           ) as THREE.BufferAttribute;
-          const result = sliceMesh(
-            new Float32Array(posAttr.array),
-            paramsSnapshot
-          );
-          applySliceOutcome(result, performance.now() - t0);
+          if (isWaffle) {
+            const result = sliceWaffleMesh(
+              new Float32Array(posAttr.array),
+              paramsSnapshot,
+              waffleParamsSnapshot
+            );
+            applyWaffleSliceOutcome(result, performance.now() - t0);
+          } else {
+            const result = sliceMesh(
+              new Float32Array(posAttr.array),
+              paramsSnapshot
+            );
+            applySliceOutcome(result, performance.now() - t0);
+          }
         } catch (err) {
           set({
             isSlicing: false,
@@ -613,22 +741,83 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       }
     },
 
-    setTechnique: (id) => {
+    setTechnique: (id, opts) => {
       clearAutoSliceTimer();
-      if (id === 'waffle') {
-        throw new ValidationError('La técnica «Waffle» aún no está disponible.');
-      }
-      if (id !== 'stacked') {
+      if (id !== 'stacked' && id !== 'waffle') {
         throw new ValidationError(`Técnica desconocida: '${id}'.`);
       }
-      set((s) => ({ build: { ...s.build, techniqueId: id } }));
-      if (
-        get().meshGeometry &&
-        get().build.techniqueId === 'stacked' &&
-        (get().build.jointId === 'none' || get().build.jointId === 'discs')
-      ) {
-        void get().runSlice();
+      const currentTechniqueId = get().build.techniqueId;
+      const currentJointId = get().build.jointId;
+      if (id === currentTechniqueId) {
+        return { needsConfirmation: false, discCount: 0 };
       }
+
+      const discs = get().discs;
+      if (currentTechniqueId === 'stacked' && currentJointId === 'discs' && discs.length > 0 && !opts?.confirmed) {
+        return { needsConfirmation: true, discCount: discs.length };
+      }
+
+      if (id === 'waffle') {
+        if (currentJointId === 'discs') {
+          get().discManager.loadDiscsFromProject([]);
+          set({
+            selectedDiscId: null,
+            modeAddDiscs: false,
+            discs: [],
+            canUndo: false,
+            canRedo: false,
+          });
+        }
+
+        if (!get().wafflePitchManuallyEdited) {
+          set((s) => ({
+            waffleParams: {
+              ...s.waffleParams,
+              pitch: Number((4 * s.params.thickness).toFixed(2)),
+            },
+          }));
+        }
+
+        set((s) => ({
+          build: { ...s.build, techniqueId: 'waffle', jointId: 'slots' },
+          isResultDirty: s.waffleResult !== null,
+        }));
+
+        if (get().meshGeometry && get().meshFileName) {
+          saveProjectToLocalStorage(
+            get().params,
+            get().discs,
+            get().meshFileName,
+            get().build,
+            get().waffleParams
+          );
+        }
+
+        if (get().meshGeometry) {
+          void get().runSlice();
+        }
+      } else if (id === 'stacked') {
+        set((s) => ({
+          build: { ...s.build, techniqueId: 'stacked', jointId: 'discs' },
+          isResultDirty: s.sliceResult !== null,
+        }));
+
+        if (get().meshGeometry && get().meshFileName) {
+          saveProjectToLocalStorage(
+            get().params,
+            get().discs,
+            get().meshFileName,
+            get().build,
+            get().waffleParams
+          );
+        }
+
+        if (get().meshGeometry) {
+          void get().runSlice();
+        }
+      }
+
+      return { needsConfirmation: false, discCount: 0 };
     },
 
     setJoint: (id, opts) => {
@@ -636,6 +825,12 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       const joint = getJoint(id);
       if (!joint.available) {
         throw new ValidationError(`La unión «${joint.label}» aún no está disponible.`);
+      }
+      if (id === 'slots') {
+        throw new ValidationError('La unión «Encaje por ranuras» es exclusiva de la técnica «Waffle».');
+      }
+      if (get().build.techniqueId === 'waffle') {
+        throw new ValidationError('La técnica «Waffle» solo admite la unión «Encaje por ranuras».');
       }
       const currentJointId = get().build.jointId;
       if (id === currentJointId) {
@@ -773,10 +968,14 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }
         await get().importProjectFromParsed(
           {
-            version: snapshot.build.jointId === 'none' ? '2.0' : '1.0',
+            version:
+              snapshot.build.jointId === 'none' || snapshot.build.techniqueId === 'waffle'
+                ? '2.0'
+                : '1.0',
             params: snapshot.params,
             discs: snapshot.discs,
             build: snapshot.build,
+            waffleParams: snapshot.waffleParams,
           },
           true
         );
@@ -799,8 +998,8 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     },
 
     exportProjectJsonString: () => {
-      const { params, discs, build } = get();
-      return serializeProject(params, build, discs);
+      const { params, discs, build, waffleParams } = get();
+      return serializeProject(params, build, discs, waffleParams);
     },
 
     importProjectFromParsed: async (parsed, forceAdapt = false) => {
@@ -813,9 +1012,18 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         mergedParams,
         state.params,
         parsed.build,
-        state.build
+        state.build,
+        parsed.waffleParams,
+        state.waffleParams,
+        mergedParams,
+        state.params
       );
-      if (!compatible && !forceAdapt && state.sliceResult !== null) {
+      const isResultNull =
+        parsed.build.techniqueId === 'waffle'
+          ? state.waffleResult === null
+          : state.sliceResult === null;
+
+      if (!compatible && !forceAdapt && !isResultNull) {
         return { needsConfirmation: true };
       }
 
@@ -827,8 +1035,15 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         sizeIntent: { kind: 'plates' },
       });
 
+      if (parsed.waffleParams) {
+        set({
+          waffleParams: { ...parsed.waffleParams },
+          wafflePitchManuallyEdited: true,
+        });
+      }
+
       clearAutoSliceTimer();
-      if (state.meshGeometry && (!compatible || state.sliceResult === null)) {
+      if (state.meshGeometry && (!compatible || isResultNull)) {
         await get().runSlice();
       }
 
@@ -858,6 +1073,99 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       }
       return { needsConfirmation: false };
     },
+
+    setWaffleParam: (key, value) => {
+      const current = get().waffleParams;
+      if (current[key] === value) return;
+
+      const nextWaffleParams = { ...current, [key]: value };
+      const pitchManuallyEdited =
+        key === 'pitch' ? true : get().wafflePitchManuallyEdited;
+
+      set({
+        waffleParams: nextWaffleParams,
+        wafflePitchManuallyEdited: pitchManuallyEdited,
+        isResultDirty: get().waffleResult !== null,
+      });
+
+      if (get().meshGeometry && get().meshFileName) {
+        saveProjectToLocalStorage(
+          get().params,
+          get().discs,
+          get().meshFileName,
+          get().build,
+          nextWaffleParams
+        );
+      }
+
+      if (get().meshGeometry && get().build.techniqueId === 'waffle') {
+        if (key === 'upAxis') {
+          clearAutoSliceTimer();
+          void get().runSlice();
+        } else {
+          scheduleAutoSlice(() => void get().runSlice(), 350);
+        }
+      }
+    },
+
+    setWaffleDimensionTarget: (dim, targetMm) => {
+      if (!Number.isFinite(targetMm) || targetMm <= 0) return;
+      const state = get();
+      if (!state.modelExtents) return;
+
+      const nextScale = scaleForTargetDimension(state.modelExtents, dim, targetMm);
+      const nextWaffleParams = {
+        ...state.waffleParams,
+        targetScale: nextScale,
+      };
+
+      set({
+        waffleParams: nextWaffleParams,
+        sizeIntent: { kind: 'size', dim, targetMm },
+        sizeCommitSeq: state.sizeCommitSeq + 1,
+        isResultDirty: state.waffleResult !== null,
+      });
+
+      if (state.meshGeometry && state.meshFileName) {
+        saveProjectToLocalStorage(
+          get().params,
+          get().discs,
+          state.meshFileName,
+          get().build,
+          nextWaffleParams
+        );
+      }
+
+      if (state.meshGeometry && get().build.techniqueId === 'waffle') {
+        scheduleAutoSlice(() => void get().runSlice(), 350);
+      }
+    },
+
+    setWaffleFamilyFilter: (filter) => set({ waffleFamilyFilter: filter }),
+
+    selectWafflePiece: (pieceId) => set({ selectedWafflePieceId: pieceId }),
+
+    stepWafflePiece: (delta) => {
+      const { waffleResult, waffleFamilyFilter, selectedWafflePieceId } = get();
+      if (!waffleResult) return;
+      const pieces: WaffleSection[] =
+        waffleFamilyFilter === 'P1'
+          ? waffleResult.p1Sections
+          : waffleFamilyFilter === 'P2'
+          ? waffleResult.p2Sections
+          : [...waffleResult.p1Sections, ...waffleResult.p2Sections];
+
+      if (pieces.length === 0) return;
+      const currentIndex = pieces.findIndex((p: WaffleSection) => p.id === selectedWafflePieceId);
+      const nextIndex =
+        currentIndex === -1
+          ? 0
+          : (currentIndex + delta + pieces.length) % pieces.length;
+      set({ selectedWafflePieceId: pieces[nextIndex].id });
+    },
+
+    openCalibrationSheetPreview: () => set({ isCalibrationSheetModalOpen: true }),
+    closeCalibrationSheetPreview: () => set({ isCalibrationSheetModalOpen: false }),
 
     openSheetPreviewModal: () => {
       const { sliceResult, discs, params, build } = get();
