@@ -458,7 +458,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
                 if (targetJobId === latestJobId) {
                   applySliceOutcome(msg.result, msg.durationMs);
                 }
-              } else {
+              } else if (msg.type === 'SLICE_ERROR') {
                 if (targetJobId === latestJobId) {
                   set({
                     isSlicing: false,

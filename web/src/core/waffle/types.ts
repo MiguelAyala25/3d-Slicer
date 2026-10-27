@@ -1,6 +1,8 @@
 import type { Axis, PolygonWithHoles, SlotLabel } from '../../types/sculpture';
 import type { FamilyId } from './canonicalFrame';
 
+export type { FamilyId } from './canonicalFrame';
+
 export interface WaffleParams {
   upAxis: Axis;
   pitch: number;              // p (mm), >= max(2 * thickness, drawnSlotWidth + 0.5)

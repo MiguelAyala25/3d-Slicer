@@ -1,4 +1,5 @@
 import type { Axis, CoreParams } from '../types/sculpture';
+import type { FamilyId } from './waffle/canonicalFrame';
 
 export type ModelDimension = 'alto' | 'ancho' | 'largo';
 export interface ModelExtents {
@@ -152,5 +153,108 @@ export function maxFit(
   return {
     plates,
     size: finalSize(extents, axis, plates, thickness, gap),
+  };
+}
+
+/**
+ * Calcula el factor de escala continuo para alcanzar una dimensión objetivo en mm.
+ * Utilizado por la técnica Waffle donde el candado de proporción está cerrado y no aplica N*t + (N-1)*g.
+ */
+export function scaleForTargetDimension(
+  extents: ModelExtents,
+  dim: ModelDimension,
+  targetMm: number
+): number {
+  const orig = extentOf(extents, dim);
+  return orig > 0 ? targetMm / orig : 1.0;
+}
+
+/**
+ * Devuelve las 3 dimensiones finales a partir de extents sin escalar y un factor de escala uniforme.
+ */
+export function finalSizeFromScale(extents: ModelExtents, scale: number): FinalSize {
+  return {
+    alto: extents.z * scale,
+    ancho: extents.x * scale,
+    largo: extents.y * scale,
+    scale,
+  };
+}
+
+/**
+ * Calcula la escala máxima para la técnica Waffle de modo que ninguna pieza
+ * exceda el área útil de la hoja (ancho útil x alto útil) sin rotación.
+ */
+export function waffleMaxFit(
+  extents: ModelExtents,
+  upAxis: Axis,
+  sheet: Pick<CoreParams, 'sheetW' | 'sheetH' | 'sheetMargin'>
+): {
+  maxScale: number;
+  size: FinalSize;
+  limitingFamily: FamilyId;
+  limitingAxisLabel: string;
+} | null {
+  const usableW = sheet.sheetW - 2.0 * sheet.sheetMargin;
+  const usableH = sheet.sheetH - 2.0 * sheet.sheetMargin;
+  if (usableW <= 0 || usableH <= 0) return null;
+
+  let vExtent = 0;
+  let uP1Extent = 0;
+  let uP2Extent = 0;
+  let vLabel = '';
+  let uP1Label = '';
+  let uP2Label = '';
+
+  if (upAxis === 'z') {
+    vExtent = extents.z;
+    vLabel = 'Alto (Z)';
+    uP1Extent = extents.y;
+    uP1Label = 'Largo (Y)';
+    uP2Extent = extents.x;
+    uP2Label = 'Ancho (X)';
+  } else if (upAxis === 'x') {
+    vExtent = extents.x;
+    vLabel = 'Ancho (X)';
+    uP1Extent = extents.z;
+    uP1Label = 'Alto (Z)';
+    uP2Extent = extents.y;
+    uP2Label = 'Largo (Y)';
+  } else {
+    // upAxis === 'y'
+    vExtent = extents.y;
+    vLabel = 'Largo (Y)';
+    uP1Extent = extents.x;
+    uP1Label = 'Ancho (X)';
+    uP2Extent = extents.z;
+    uP2Label = 'Alto (Z)';
+  }
+
+  if (vExtent <= 0 || uP1Extent <= 0 || uP2Extent <= 0) return null;
+
+  const sV = usableH / vExtent;
+  const sU1 = usableW / uP1Extent;
+  const sU2 = usableW / uP2Extent;
+
+  let maxScale = sV;
+  let limitingFamily: FamilyId = 'P1';
+  let limitingAxisLabel = vLabel;
+
+  if (sU1 < maxScale) {
+    maxScale = sU1;
+    limitingFamily = 'P1';
+    limitingAxisLabel = uP1Label;
+  }
+  if (sU2 < maxScale) {
+    maxScale = sU2;
+    limitingFamily = 'P2';
+    limitingAxisLabel = uP2Label;
+  }
+
+  return {
+    maxScale,
+    size: finalSizeFromScale(extents, maxScale),
+    limitingFamily,
+    limitingAxisLabel,
   };
 }

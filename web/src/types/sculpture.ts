@@ -19,6 +19,8 @@ export type CoreParams = Omit<SculptureParams, 'discDiameter' | 'engraveClearanc
 
 export type Point2D = [number, number];
 
+import type { WaffleParams, WaffleSliceResult } from '../core/waffle/types';
+
 export interface PolygonWithHoles {
   exterior: Point2D[];
   holes: Point2D[][];
@@ -165,6 +167,13 @@ export type WorkerRequest =
       jobId: number;
       meshId: number;
       params: SculptureParams;
+    }
+  | {
+      type: 'SLICE_WAFFLE';
+      jobId: number;
+      meshId: number;
+      coreParams: CoreParams;
+      waffleParams: WaffleParams;
     };
 
 export type WorkerResponse =
@@ -173,6 +182,13 @@ export type WorkerResponse =
       jobId: number;
       meshId: number;
       result: SliceResult;
+      durationMs: number;
+    }
+  | {
+      type: 'SLICE_WAFFLE_SUCCESS';
+      jobId: number;
+      meshId: number;
+      result: WaffleSliceResult;
       durationMs: number;
     }
   | {

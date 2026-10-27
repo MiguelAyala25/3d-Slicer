@@ -5,3 +5,4 @@ export * from './grid';
 export * from './verticalSlice';
 export * from './slots';
 export * from './warnings';
+export * from './waffleSlicer';
