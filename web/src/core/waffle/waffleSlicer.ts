@@ -7,7 +7,7 @@ import {
   fromSlicerPolygonsToCanonical,
   getWaffleAxesConfig,
 } from './canonicalFrame';
-import { computeFamilyGridPositions } from './grid';
+import { computeFamilyGridPositions, computeFamilyPositionsByCount } from './grid';
 import {
   computeCrossing,
   computeLocalSlotLabels,
@@ -58,27 +58,67 @@ export function sliceWaffleFromCaches(
   waffleParams: WaffleParams
 ): WaffleSliceResult {
   const { thickness, kerf } = coreParams;
+  const upAxis = waffleParams.upAxis || 'z';
   const {
-    upAxis,
-    pitch,
-    slotClearance,
-    gridOffset,
-    slotLabelsEnabled,
-    targetScale,
+    pitch = 12.0,
+    slotClearance = 0.1,
+    gridOffset = 0.0,
+    slotLabelsEnabled = true,
+    targetScale = 1.0,
+    distributionMethod,
+    count1,
+    count2,
+    distance1,
+    distance2,
+    notchFactor,
+    notchAngle,
   } = waffleParams;
 
   const scaleFactor = targetScale > 0 ? targetScale : 1.0;
-
-  // Validación de separación entre secciones (CA-C2)
   const minPitch = 2 * thickness;
-  if (pitch < minPitch - 1e-9) {
-    throw new ValidationError(
-      `La separación entre secciones (${pitch} mm) debe ser al menos 2 veces el grosor de placa (${minPitch.toFixed(2)} mm).`
-    );
+
+  const cfg = getWaffleAxesConfig(upAxis);
+
+  // Extensión escalada de cada familia
+  const hMin1 = cacheP1.boundsMin[2] * scaleFactor;
+  const hMax1 = cacheP1.boundsMax[2] * scaleFactor;
+  const hMin2 = cacheP2.boundsMin[2] * scaleFactor;
+  const hMax2 = cacheP2.boundsMax[2] * scaleFactor;
+
+  let p1Positions: number[] = [];
+  let p2Positions: number[] = [];
+  let effectivePitch = pitch;
+
+  if (distributionMethod === 'count') {
+    const safeCount1 = Math.max(1, Math.min(200, Math.round(count1 ?? 8)));
+    const safeCount2 = Math.max(1, Math.min(200, Math.round(count2 ?? 8)));
+    p1Positions = computeFamilyPositionsByCount(hMin1, hMax1, safeCount1, gridOffset);
+    p2Positions = computeFamilyPositionsByCount(hMin2, hMax2, safeCount2, gridOffset);
+    const effP1 = (hMax1 - hMin1) / safeCount1;
+    const effP2 = (hMax2 - hMin2) / safeCount2;
+    effectivePitch = Math.min(effP1, effP2);
+  } else {
+    // Modo por distancia ('distance' o fallback natural con pitch para compatibilidad)
+    const p1Dist = distance1 ?? pitch;
+    const p2Dist = distance2 ?? pitch;
+
+    if (p1Dist < minPitch - 1e-9) {
+      throw new ValidationError(
+        `La separación del 1.er eje (${p1Dist} mm) debe ser al menos 2 veces el grosor de placa (${minPitch.toFixed(2)} mm).`
+      );
+    }
+    if (p2Dist < minPitch - 1e-9) {
+      throw new ValidationError(
+        `La separación del 2.º eje (${p2Dist} mm) debe ser al menos 2 veces el grosor de placa (${minPitch.toFixed(2)} mm).`
+      );
+    }
+    p1Positions = computeFamilyGridPositions(hMin1, hMax1, p1Dist, gridOffset);
+    p2Positions = computeFamilyGridPositions(hMin2, hMax2, p2Dist, gridOffset);
+    effectivePitch = Math.min(p1Dist, p2Dist);
   }
 
   // Validación de desfase de rejilla (CA-C3)
-  const maxOffset = pitch * 0.5;
+  const maxOffset = Math.max(1.0, effectivePitch * 0.5);
   if (Math.abs(gridOffset) > maxOffset + 1e-9) {
     throw new ValidationError(
       `El desfase de rejilla (${gridOffset} mm) debe estar entre -${maxOffset.toFixed(2)} y +${maxOffset.toFixed(2)} mm.`
@@ -93,22 +133,11 @@ export function sliceWaffleFromCaches(
     );
   }
 
-  const cfg = getWaffleAxesConfig(upAxis);
-
-  // Extensión escalada de cada familia
-  const hMin1 = cacheP1.boundsMin[2] * scaleFactor;
-  const hMax1 = cacheP1.boundsMax[2] * scaleFactor;
-  const p1Positions = computeFamilyGridPositions(hMin1, hMax1, pitch, gridOffset);
-
-  const hMin2 = cacheP2.boundsMin[2] * scaleFactor;
-  const hMax2 = cacheP2.boundsMax[2] * scaleFactor;
-  const p2Positions = computeFamilyGridPositions(hMin2, hMax2, pitch, gridOffset);
-
   // Cota superior de secciones totales
   const totalSections = p1Positions.length + p2Positions.length;
   if (totalSections > WAFFLE_CONSTANTS.MAX_SECTIONS_TOTAL) {
     throw new ValidationError(
-      `El total de secciones de la rejilla (${totalSections}) excede el máximo permitido de 400. Aumenta la separación entre secciones (p) o reduce el tamaño del modelo.`
+      `El total de secciones de la rejilla (${totalSections}) excede el máximo permitido de 400. Aumenta la separación entre secciones o reduce la cantidad de cortes.`
     );
   }
 
@@ -207,10 +236,11 @@ export function sliceWaffleFromCaches(
   const crossings: WaffleCrossing[] = [];
   const slotsP1ByPiece = new Map<string, SlotRect[]>();
   const slotsP2ByPiece = new Map<string, SlotRect[]>();
+  const notchOptions = { notchFactor, notchAngle };
 
   for (const s1 of p1Sections) {
     for (const s2 of p2Sections) {
-      const cr = computeCrossing(s1, s2, drawnSlotWidth);
+      const cr = computeCrossing(s1, s2, drawnSlotWidth, notchOptions);
       if (cr) {
         crossings.push(cr);
 
@@ -254,7 +284,7 @@ export function sliceWaffleFromCaches(
     p1Sections,
     p2Sections,
     crossings,
-    pitch,
+    pitch: effectivePitch,
     drawnSlotWidth,
   });
 

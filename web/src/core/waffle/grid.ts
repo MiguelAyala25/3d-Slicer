@@ -31,6 +31,37 @@ export function computeFamilyGridPositions(
   return positions;
 }
 
+/**
+ * Calcula las posiciones ordenadas de una familia de secciones a lo largo de su eje normal
+ * a partir de una cantidad exacta deseada (N = count).
+ * Las secciones se distribuyen uniformemente centradas en el intervalo (hMin, hMax) con paso L / count:
+ * a_i = hMin + (i + 0.5) * (L / count) + gridOffset
+ * Descarta posiciones fuera de (hMin, hMax).
+ */
+export function computeFamilyPositionsByCount(
+  hMin: number,
+  hMax: number,
+  count: number,
+  gridOffset: number = 0
+): number[] {
+  const L = hMax - hMin;
+  const N = Math.max(1, Math.round(count));
+  if (L <= 1e-6 || N < 1) return [];
+
+  const step = L / N;
+  const positions: number[] = [];
+  const base = hMin + step * 0.5 + gridOffset;
+
+  for (let i = 0; i < N; i++) {
+    const pos = base + i * step;
+    if (pos > hMin + 1e-9 && pos < hMax - 1e-9) {
+      positions.push(pos);
+    }
+  }
+
+  return positions;
+}
+
 export function computeWaffleGrid(
   boundsMin: [number, number, number],
   boundsMax: [number, number, number],

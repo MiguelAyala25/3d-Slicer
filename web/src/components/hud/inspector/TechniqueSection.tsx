@@ -3,11 +3,17 @@ import type { JointId, TechniqueId } from '../../../core/build/types';
 import { PARAM_BOUNDS } from '../../../core/params';
 import { useSculptureStore } from '../../../store/useSculptureStore';
 import type { Axis } from '../../../types/sculpture';
+import type { WaffleDistributionMethod } from '../../../core/waffle/types';
 import { JOINT_UI } from '../../joints/registry';
 import { NumericInput } from '../../ui/NumericInput';
 import { SelectField } from '../../ui/SelectField';
 
 const AXES: Axis[] = ['z', 'x', 'y'];
+
+const DISTRIBUTION_METHOD_OPTIONS: Array<{ value: WaffleDistributionMethod; label: string }> = [
+  { value: 'count', label: 'Por cantidad' },
+  { value: 'distance', label: 'Por distancia' },
+];
 
 export function TechniqueSection() {
   const build = useSculptureStore((s) => s.build);
@@ -18,9 +24,6 @@ export function TechniqueSection() {
   const setJoint = useSculptureStore((s) => s.setJoint);
   const setParam = useSculptureStore((s) => s.setParam);
   const setWaffleParam = useSculptureStore((s) => s.setWaffleParam);
-  const optimizeWaffleGrid = useSculptureStore(
-    (s) => s.optimizeWaffleGridForTargetSections
-  );
 
   const techniqueOptions = TECHNIQUES.map((t) => ({
     value: t.id,
@@ -69,6 +72,14 @@ export function TechniqueSection() {
     Number((params.thickness + waffleParams.slotClearance - params.kerf + 0.5).toFixed(2))
   );
 
+  const distributionMethod: WaffleDistributionMethod = waffleParams.distributionMethod || 'count';
+  const count1 = waffleParams.count1 ?? 8;
+  const count2 = waffleParams.count2 ?? 8;
+  const distance1 = waffleParams.distance1 ?? waffleParams.pitch ?? 12.0;
+  const distance2 = waffleParams.distance2 ?? waffleParams.pitch ?? 12.0;
+  const notchFactor = waffleParams.notchFactor ?? 0.1;
+  const notchAngle = waffleParams.notchAngle ?? 45.0;
+
   return (
     <section data-testid="section-technique" className="flex flex-col gap-2.5">
       <div className="flex items-center justify-between">
@@ -88,38 +99,118 @@ export function TechniqueSection() {
 
       {build.techniqueId === 'waffle' && (
         <>
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-[#A1A1AA] select-none">
-              Eje vertical
-            </span>
-            <div className="grid grid-cols-3 gap-1 p-0.5 rounded-md bg-[#1C1C21] border border-white/[0.08]">
-              {AXES.map((ax) => (
-                <button
-                  key={ax}
-                  type="button"
-                  data-testid={`waffle-up-axis-${ax}`}
-                  onClick={() => setWaffleParam('upAxis', ax)}
-                  className={`h-7 rounded text-xs font-semibold uppercase transition-colors select-none ${
-                    waffleParams.upAxis === ax
-                      ? 'bg-[#0A84FF] text-white'
-                      : 'text-[#A1A1AA] hover:text-white'
-                  }`}
-                >
-                  Eje {ax.toUpperCase()}
-                </button>
-              ))}
-            </div>
+          <div className="flex items-center justify-between pt-1">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA] select-none">
+              Distribución de cortes
+            </h3>
           </div>
 
+          <SelectField<WaffleDistributionMethod>
+            label="Método"
+            value={distributionMethod}
+            options={DISTRIBUTION_METHOD_OPTIONS}
+            onChange={(v) => setWaffleParam('distributionMethod', v)}
+            testId="select-waffle-method"
+          />
+
+          {distributionMethod === 'count' ? (
+            <>
+              <NumericInput
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5 text-[#3B82F6] shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                      <polygon points="3,2 14,8 3,14" />
+                    </svg>
+                    <span>1.er eje</span>
+                  </span>
+                }
+                value={count1}
+                min={1}
+                max={200}
+                step={1}
+                testId="input-waffle-axis1"
+                onChange={(v) => setWaffleParam('count1', v)}
+              />
+
+              <NumericInput
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                      <polygon points="3,2 14,8 3,14" />
+                    </svg>
+                    <span>2.º eje</span>
+                  </span>
+                }
+                value={count2}
+                min={1}
+                max={200}
+                step={1}
+                testId="input-waffle-axis2"
+                onChange={(v) => setWaffleParam('count2', v)}
+              />
+            </>
+          ) : (
+            <>
+              <NumericInput
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5 text-[#3B82F6] shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                      <polygon points="3,2 14,8 3,14" />
+                    </svg>
+                    <span>1.er eje</span>
+                  </span>
+                }
+                value={distance1}
+                min={minWafflePitch}
+                max={1000}
+                step={0.5}
+                unit="mm"
+                testId="input-waffle-axis1"
+                onChange={(v) => {
+                  setWaffleParam('distance1', v);
+                  setWaffleParam('pitch', v);
+                }}
+              />
+
+              <NumericInput
+                label={
+                  <span className="flex items-center gap-1.5">
+                    <svg className="w-3.5 h-3.5 text-[#F59E0B] shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                      <polygon points="3,2 14,8 3,14" />
+                    </svg>
+                    <span>2.º eje</span>
+                  </span>
+                }
+                value={distance2}
+                min={minWafflePitch}
+                max={1000}
+                step={0.5}
+                unit="mm"
+                testId="input-waffle-axis2"
+                onChange={(v) => setWaffleParam('distance2', v)}
+              />
+            </>
+          )}
+
           <NumericInput
-            label="Separación entre secciones"
-            value={waffleParams.pitch}
-            min={minWafflePitch}
-            max={1000}
-            step={0.5}
-            unit="mm"
-            testId="input-waffle-pitch"
-            onChange={(v) => setWaffleParam('pitch', v)}
+            label="Factor de muesca"
+            value={notchFactor}
+            min={0}
+            max={1}
+            step={0.05}
+            testId="input-waffle-notch-factor"
+            onChange={(v) => setWaffleParam('notchFactor', v)}
+          />
+
+          <NumericInput
+            label="Ángulo de muesca"
+            value={notchAngle}
+            min={0}
+            max={85}
+            step={5}
+            unit="°"
+            testId="input-waffle-notch-angle"
+            onChange={(v) => setWaffleParam('notchAngle', v)}
           />
 
           {waffleResult && (
@@ -128,17 +219,6 @@ export function TechniqueSection() {
                 Rejilla: {waffleResult.p1Sections.length} × {waffleResult.p2Sections.length} piezas (
                 {waffleResult.p1Sections.length + waffleResult.p2Sections.length} total)
               </span>
-              {(waffleResult.p1Sections.length < 3 ||
-                waffleResult.p2Sections.length < 3) && (
-                <button
-                  type="button"
-                  data-testid="btn-optimize-waffle-grid"
-                  onClick={() => optimizeWaffleGrid(6)}
-                  className="text-[#0A84FF] hover:underline font-sans font-medium"
-                >
-                  Ajustar a ~6×6
-                </button>
-              )}
             </div>
           )}
 
@@ -164,8 +244,8 @@ export function TechniqueSection() {
               <NumericInput
                 label="Desfase de rejilla"
                 value={waffleParams.gridOffset}
-                min={Number((-waffleParams.pitch / 2).toFixed(2))}
-                max={Number((waffleParams.pitch / 2).toFixed(2))}
+                min={Number((-Math.max(distance1, 10) / 2).toFixed(2))}
+                max={Number((Math.max(distance1, 10) / 2).toFixed(2))}
                 step={0.5}
                 unit="mm"
                 testId="input-waffle-offset"
@@ -184,18 +264,6 @@ export function TechniqueSection() {
               </label>
             </div>
           </details>
-
-          <SelectField<JointId | ''>
-            label="Unión"
-            value="slots"
-            disabled={true}
-            options={[{ value: 'slots', label: 'Encaje por ranuras' }]}
-            testId="select-joint"
-            onChange={() => {}}
-          />
-          <p className="text-xs text-[#9CA3AF] pl-1">
-            Las piezas se encajan directamente por ranuras verticales (sin uniones adicionales).
-          </p>
         </>
       )}
 

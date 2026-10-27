@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 export interface NumericInputProps {
-  label: string;
+  label: ReactNode;
   value: number;
   min: number;
   max: number;

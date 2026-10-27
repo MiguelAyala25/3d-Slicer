@@ -122,16 +122,48 @@ function serializeProject2(
       slotLabelsEnabled: true,
       targetScale: 1.0,
     };
-    lines.push(
-      '  "technique": {',
-      '    "id": "waffle",',
-      '    "params": {',
+    const tLines = [
       `      "upAxis": "${wp.upAxis}",`,
       `      "pitch": ${formatPythonFloat(wp.pitch)},`,
       `      "slotClearance": ${formatPythonFloat(wp.slotClearance)},`,
       `      "gridOffset": ${formatPythonFloat(wp.gridOffset)},`,
       `      "slotLabelsEnabled": ${wp.slotLabelsEnabled ? 'true' : 'false'},`,
       `      "targetScale": ${formatPythonFloat(wp.targetScale)}`,
+    ];
+    if (wp.distributionMethod) {
+      tLines[tLines.length - 1] += ',';
+      tLines.push(`      "distributionMethod": "${wp.distributionMethod}"`);
+    }
+    if (wp.count1 !== undefined) {
+      tLines[tLines.length - 1] += ',';
+      tLines.push(`      "count1": ${wp.count1}`);
+    }
+    if (wp.count2 !== undefined) {
+      tLines[tLines.length - 1] += ',';
+      tLines.push(`      "count2": ${wp.count2}`);
+    }
+    if (wp.distance1 !== undefined) {
+      tLines[tLines.length - 1] += ',';
+      tLines.push(`      "distance1": ${formatPythonFloat(wp.distance1)}`);
+    }
+    if (wp.distance2 !== undefined) {
+      tLines[tLines.length - 1] += ',';
+      tLines.push(`      "distance2": ${formatPythonFloat(wp.distance2)}`);
+    }
+    if (wp.notchFactor !== undefined) {
+      tLines[tLines.length - 1] += ',';
+      tLines.push(`      "notchFactor": ${formatPythonFloat(wp.notchFactor)}`);
+    }
+    if (wp.notchAngle !== undefined) {
+      tLines[tLines.length - 1] += ',';
+      tLines.push(`      "notchAngle": ${formatPythonFloat(wp.notchAngle)}`);
+    }
+
+    lines.push(
+      '  "technique": {',
+      '    "id": "waffle",',
+      '    "params": {',
+      ...tLines,
       '    }',
       '  },',
       '  "joint": {',
@@ -384,13 +416,24 @@ export function parseProjectJson(
       'targetScale',
     ] as const;
 
+    const allowedWaffleKeys = [
+      ...requiredWaffleKeys,
+      'distributionMethod',
+      'count1',
+      'count2',
+      'distance1',
+      'distance2',
+      'notchFactor',
+      'notchAngle',
+    ] as const;
+
     for (const rk of requiredWaffleKeys) {
       if (!(rk in tParams)) {
         throw new ValidationError(`Falta el campo obligatorio 'technique.params.${rk}' en el archivo JSON.`);
       }
     }
     for (const k of Object.keys(tParams)) {
-      if (!requiredWaffleKeys.includes(k as any)) {
+      if (!allowedWaffleKeys.includes(k as any)) {
         throw new ValidationError(`Campo no reconocido '${k}' en 'technique.params'.`);
       }
     }
@@ -418,6 +461,13 @@ export function parseProjectJson(
       gridOffset: tParams.gridOffset as number,
       slotLabelsEnabled: tParams.slotLabelsEnabled as boolean,
       targetScale: tParams.targetScale as number,
+      distributionMethod: tParams.distributionMethod as any,
+      count1: typeof tParams.count1 === 'number' ? tParams.count1 : undefined,
+      count2: typeof tParams.count2 === 'number' ? tParams.count2 : undefined,
+      distance1: typeof tParams.distance1 === 'number' ? tParams.distance1 : undefined,
+      distance2: typeof tParams.distance2 === 'number' ? tParams.distance2 : undefined,
+      notchFactor: typeof tParams.notchFactor === 'number' ? tParams.notchFactor : undefined,
+      notchAngle: typeof tParams.notchAngle === 'number' ? tParams.notchAngle : undefined,
     };
   } else {
     // techId === 'stacked'

@@ -366,4 +366,51 @@ describe('Waffle Slicer Integration (Phase 9.1)', () => {
       console.log(`[Benchmark Waffle 3D Slicing] Completed in ${durationMs.toFixed(2)} ms (${result.crossings.length} crossings)`);
     });
   });
+
+  describe('Slice Distribution & Notch Lead-in', () => {
+    it('slices with distributionMethod = count respecting independent count1 and count2', () => {
+      const cubeMesh = createBoxPositions(60, 60, 60);
+      const result = sliceWaffleMesh(cubeMesh, baseCoreParams, {
+        ...defaultWaffleParams,
+        distributionMethod: 'count',
+        count1: 5,
+        count2: 7,
+      });
+
+      expect(result.p1Sections.length).toBe(5);
+      expect(result.p2Sections.length).toBe(7);
+      expect(result.crossings.length).toBe(35);
+    });
+
+    it('slices with distributionMethod = distance respecting independent distance1 and distance2', () => {
+      const cubeMesh = createBoxPositions(60, 60, 60);
+      const result = sliceWaffleMesh(cubeMesh, baseCoreParams, {
+        ...defaultWaffleParams,
+        distributionMethod: 'distance',
+        distance1: 15.0, // 60 / 15 = 4
+        distance2: 20.0, // 60 / 20 = 3
+      });
+
+      expect(result.p1Sections.length).toBe(4);
+      expect(result.p2Sections.length).toBe(3);
+      expect(result.crossings.length).toBe(12);
+    });
+
+    it('applies notch lead-in chamfer when notchFactor and notchAngle are set', () => {
+      const cubeMesh = createBoxPositions(60, 60, 60);
+      const result = sliceWaffleMesh(cubeMesh, baseCoreParams, {
+        ...defaultWaffleParams,
+        distributionMethod: 'count',
+        count1: 4,
+        count2: 4,
+        notchFactor: 0.1,
+        notchAngle: 45.0,
+      });
+
+      expect(result.crossings.length).toBe(16);
+      expect(result.p1Sections[0].slots[0].notchFactor).toBe(0.1);
+      expect(result.p1Sections[0].slots[0].notchAngle).toBe(45.0);
+      expect(result.p1Sections[0].polygons.length).toBeGreaterThan(0);
+    });
+  });
 });

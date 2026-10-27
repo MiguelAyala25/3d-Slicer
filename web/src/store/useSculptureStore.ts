@@ -1172,7 +1172,34 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
       const nextWaffleParams = { ...current, [key]: value };
       const pitchManuallyEdited =
-        key === 'pitch' ? true : get().wafflePitchManuallyEdited;
+        key === 'pitch' || key === 'count1' || key === 'count2' || key === 'distance1' || key === 'distance2'
+          ? true
+          : get().wafflePitchManuallyEdited;
+
+      if (key === 'distributionMethod') {
+        const result = get().waffleResult;
+        if (result) {
+          if (value === 'distance') {
+            const p1Len = result.p1Sections.length;
+            const p2Len = result.p2Sections.length;
+            const extX = result.scaledBounds3D.max[0] - result.scaledBounds3D.min[0];
+            const extY = result.scaledBounds3D.max[1] - result.scaledBounds3D.min[1];
+            if (p1Len > 0 && extX > 0) {
+              nextWaffleParams.distance1 = Math.max(2 * get().params.thickness, Number((extX / p1Len).toFixed(1)));
+            }
+            if (p2Len > 0 && extY > 0) {
+              nextWaffleParams.distance2 = Math.max(2 * get().params.thickness, Number((extY / p2Len).toFixed(1)));
+            }
+          } else if (value === 'count') {
+            if (result.p1Sections.length > 0) {
+              nextWaffleParams.count1 = result.p1Sections.length;
+            }
+            if (result.p2Sections.length > 0) {
+              nextWaffleParams.count2 = result.p2Sections.length;
+            }
+          }
+        }
+      }
 
       set({
         waffleParams: nextWaffleParams,

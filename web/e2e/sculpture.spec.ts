@@ -407,21 +407,19 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     await page.goto('/');
     await loadMeshAndSlice(page, { technique: 'waffle' });
 
-    // Selector Unión is disabled and fixed to "slots" ('Encaje por ranuras')
-    const jointSelect = page.locator('[data-testid="select-joint"]');
-    await expect(jointSelect).toBeDisabled();
-    await expect(jointSelect).toHaveValue('slots');
+    // In Waffle mode, joint is implicit slots (redundant disabled selector is absent)
+    await expect(page.locator('[data-testid="select-joint"]')).not.toBeVisible();
 
     // FloorNavigatorHUD & DiscsDockHUD are absent; WaffleNavigatorHUD is visible
     await expect(page.locator('aside[aria-label="Navegador de pisos"]')).not.toBeVisible();
     await expect(page.locator('[data-testid="toggle-add-discs"]')).not.toBeVisible();
     await expect(page.locator('[data-testid="waffle-navigator-hud"]')).toBeVisible();
 
-    // Change pitch to 10 mm and slot clearance to 0.15 mm
-    const pitchInput = page.locator('[data-testid="input-waffle-pitch"]');
-    await pitchInput.focus();
-    await pitchInput.fill('10');
-    await pitchInput.press('Enter');
+    // Change 1st Axis count to 10 and slot clearance to 0.15 mm
+    const axis1Input = page.locator('[data-testid="input-waffle-axis1"]');
+    await axis1Input.focus();
+    await axis1Input.fill('10');
+    await axis1Input.press('Enter');
 
     const clearanceInput = page.locator('[data-testid="input-waffle-clearance"]');
     await clearanceInput.focus();
@@ -502,11 +500,12 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     await page.goto('/');
     await loadMeshAndSlice(page, { technique: 'waffle' });
 
-    // Set pitch to 6.0 mm on test_l_block, which severs corner arm and triggers W4 warning
-    const pitchInput = page.locator('[data-testid="input-waffle-pitch"]');
-    await pitchInput.focus();
-    await pitchInput.fill('6');
-    await pitchInput.press('Enter');
+    // Select distance method and set separation to 6.0 mm on test_l_block, which severs corner arm and triggers W4 warning
+    await page.selectOption('[data-testid="select-waffle-method"]', 'distance');
+    const distInput = page.locator('[data-testid="input-waffle-axis1"]');
+    await distInput.focus();
+    await distInput.fill('6');
+    await distInput.press('Enter');
 
     // WaffleWarningsPanel appears with warning W4
     const warningsPanel = page.locator('[data-testid="waffle-warnings-panel"]');

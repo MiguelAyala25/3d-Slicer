@@ -22,7 +22,8 @@ import { intersectIntervals, intersectPolygonAtU } from './verticalSlice';
 export function computeCrossing(
   secA: Pick<WaffleSection, 'id' | 'planeCoord' | 'rawPolygons' | 'bounds2D'>,
   secB: Pick<WaffleSection, 'id' | 'planeCoord' | 'rawPolygons' | 'bounds2D'>,
-  drawnSlotWidth: number
+  drawnSlotWidth: number,
+  notchOptions?: { notchFactor?: number; notchAngle?: number }
 ): WaffleCrossing | null {
   const aCoord = secA.planeCoord;
   const bCoord = secB.planeCoord;
@@ -57,6 +58,9 @@ export function computeCrossing(
     }
   }
 
+  const vExitA = intervalsP1[intervalsP1.length - 1].max;
+  const vExitB = intervalsP2[0].min;
+
   // Ranura en A (P1): abre hacia arriba (+v) desde v* hasta vTop + overrun
   const slotOnP1: SlotRect = {
     crossingId: `${secA.id}-${secB.id}`,
@@ -66,6 +70,9 @@ export function computeCrossing(
     vMin: vStar,
     vMax: secA.bounds2D.maxV + WAFFLE_CONSTANTS.SLOT_OVERRUN_MM,
     vStar,
+    vExit: vExitA,
+    notchFactor: notchOptions?.notchFactor,
+    notchAngle: notchOptions?.notchAngle,
   };
 
   // Ranura en B (P2): abre hacia abajo (-v) desde vBot - overrun hasta v*
@@ -77,6 +84,9 @@ export function computeCrossing(
     vMin: secB.bounds2D.minV - WAFFLE_CONSTANTS.SLOT_OVERRUN_MM,
     vMax: vStar,
     vStar,
+    vExit: vExitB,
+    notchFactor: notchOptions?.notchFactor,
+    notchAngle: notchOptions?.notchAngle,
   };
 
   return {
@@ -151,6 +161,48 @@ export function subtractSlotsFromSection(
     rectPath.push(new Point64(Math.round(uMax * CLIPPER_SCALE), Math.round(vMax * CLIPPER_SCALE)));
     rectPath.push(new Point64(Math.round(uMin * CLIPPER_SCALE), Math.round(vMax * CLIPPER_SCALE)));
     clipPaths.push(rectPath);
+
+    // Si tiene chaflán de entrada (notch lead-in)
+    const factor = slot.notchFactor ?? 0;
+    const angle = slot.notchAngle ?? 0;
+    if (factor > 1e-4 && angle > 1e-4 && slot.vExit !== undefined) {
+      const rad = (Math.min(85, Math.max(1, angle)) * Math.PI) / 180;
+      const tanA = Math.tan(rad);
+
+      // Ranura abriendo hacia arriba (+v)
+      if (slot.vMax > slot.vStar && slot.vExit >= slot.vStar) {
+        const slotDepth = slot.vExit - slot.vStar;
+        if (slotDepth > 0.5) {
+          const dNotch = Math.min(slotDepth * factor, slotDepth * 0.5);
+          const deltaU = dNotch * tanA;
+          const vNeck = slot.vExit - dNotch;
+          const flarePath = new Path64();
+          flarePath.push(new Point64(Math.round(uMin * CLIPPER_SCALE), Math.round(vNeck * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round(uMax * CLIPPER_SCALE), Math.round(vNeck * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round((uMax + deltaU) * CLIPPER_SCALE), Math.round(slot.vExit * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round((uMax + deltaU) * CLIPPER_SCALE), Math.round(vMax * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round((uMin - deltaU) * CLIPPER_SCALE), Math.round(vMax * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round((uMin - deltaU) * CLIPPER_SCALE), Math.round(slot.vExit * CLIPPER_SCALE)));
+          clipPaths.push(flarePath);
+        }
+      } else if (slot.vMin < slot.vStar && slot.vExit <= slot.vStar) {
+        // Ranura abriendo hacia abajo (-v)
+        const slotDepth = slot.vStar - slot.vExit;
+        if (slotDepth > 0.5) {
+          const dNotch = Math.min(slotDepth * factor, slotDepth * 0.5);
+          const deltaU = dNotch * tanA;
+          const vNeck = slot.vExit + dNotch;
+          const flarePath = new Path64();
+          flarePath.push(new Point64(Math.round(uMin * CLIPPER_SCALE), Math.round(vNeck * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round((uMin - deltaU) * CLIPPER_SCALE), Math.round(slot.vExit * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round((uMin - deltaU) * CLIPPER_SCALE), Math.round(vMin * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round((uMax + deltaU) * CLIPPER_SCALE), Math.round(vMin * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round((uMax + deltaU) * CLIPPER_SCALE), Math.round(slot.vExit * CLIPPER_SCALE)));
+          flarePath.push(new Point64(Math.round(uMax * CLIPPER_SCALE), Math.round(vNeck * CLIPPER_SCALE)));
+          clipPaths.push(flarePath);
+        }
+      }
+    }
   }
 
   const clipper = new Clipper64();

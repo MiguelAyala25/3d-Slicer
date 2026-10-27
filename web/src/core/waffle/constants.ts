@@ -37,4 +37,7 @@ export const WAFFLE_PARAM_BOUNDS = {
   slotClearance: { min: 0.0, max: 1.0, step: 0.05, default: 0.1 },
   gridOffsetStepMm: 0.5,
   targetScale: { min: 1e-4, max: 1000.0 },
+  count: { min: 1, max: 200, step: 1, default: 8 },
+  notchFactor: { min: 0.0, max: 1.0, step: 0.05, default: 0.1 },
+  notchAngle: { min: 0.0, max: 85.0, step: 5.0, default: 45.0 },
 } as const;

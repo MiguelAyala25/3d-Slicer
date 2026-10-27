@@ -3,6 +3,8 @@ import type { FamilyId } from './canonicalFrame';
 
 export type { FamilyId } from './canonicalFrame';
 
+export type WaffleDistributionMethod = 'count' | 'distance';
+
 export interface WaffleParams {
   upAxis: Axis;
   pitch: number;              // p (mm), >= max(2 * thickness, drawnSlotWidth + 0.5)
@@ -10,6 +12,13 @@ export interface WaffleParams {
   gridOffset: number;         // delta (mm), [-pitch/2, +pitch/2], default 0
   slotLabelsEnabled: boolean; // default true
   targetScale: number;        // factor de escala uniforme (> 0), default 1.0
+  distributionMethod?: WaffleDistributionMethod; // default 'count'
+  count1?: number;            // 1st Axis count (default 8, >= 1)
+  count2?: number;            // 2nd Axis count (default 8, >= 1)
+  distance1?: number;         // 1st Axis distance in mm
+  distance2?: number;         // 2nd Axis distance in mm
+  notchFactor?: number;       // default 0.1, [0, 1]
+  notchAngle?: number;        // default 45.0, degrees [0, 85]
 }
 
 export interface Interval1D {
@@ -25,6 +34,9 @@ export interface SlotRect {
   vMin: number;
   vMax: number;
   vStar: number;
+  vExit?: number;             // boca de salida de la ranura en el material
+  notchFactor?: number;
+  notchAngle?: number;
 }
 
 export interface WaffleCrossing {
