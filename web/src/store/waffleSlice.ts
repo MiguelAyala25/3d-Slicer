@@ -20,6 +20,7 @@ export interface WaffleActions {
   stepWafflePiece: (delta: 1 | -1) => void;
   openCalibrationSheetPreview: () => void;
   closeCalibrationSheetPreview: () => void;
+  optimizeWaffleGridForTargetSections: (targetSectionsPerAxis?: number) => void;
 }
 
 export const INITIAL_WAFFLE_STATE: WaffleState = {

@@ -258,3 +258,89 @@ export function waffleMaxFit(
     limitingAxisLabel,
   };
 }
+
+export function horizontalExtentsForUpAxis(
+  extents: ModelExtents,
+  upAxis: Axis
+): { h1: number; h2: number } {
+  if (upAxis === 'x') {
+    return { h1: extents.y, h2: extents.z };
+  }
+  if (upAxis === 'y') {
+    return { h1: extents.z, h2: extents.x };
+  }
+  return { h1: extents.x, h2: extents.y };
+}
+
+/**
+ * Calcula un factor de escala uniforme saludable para Waffle a partir de los extents del modelo,
+ * sincronizándolo con el tamaño activo en Modelo (uniformScale o sizeIntent) y asegurando que
+ * las dimensiones horizontales permitan múltiples secciones si el modelo viene en unidades
+ * pequeñas (metros/normalizado) o es muy angosto respecto al grosor.
+ */
+export function computeInitialWaffleScale(
+  extents: ModelExtents,
+  params: Pick<
+    CoreParams,
+    'axis' | 'plates' | 'thickness' | 'gap' | 'sheetW' | 'sheetH' | 'sheetMargin'
+  >,
+  upAxis: Axis,
+  pitch: number,
+  sizeIntent: SizeIntent
+): number {
+  if (sizeIntent.kind === 'size') {
+    return scaleForTargetDimension(extents, sizeIntent.dim, sizeIntent.targetMm);
+  }
+
+  const baseScale = uniformScale(
+    extents,
+    params.axis,
+    params.plates,
+    params.thickness,
+    params.gap
+  );
+
+  const { h1, h2 } = horizontalExtentsForUpAxis(extents, upAxis);
+  const minHoriz = Math.min(h1, h2);
+  if (minHoriz <= 0) return baseScale;
+
+  const minLegalPitch = 2 * params.thickness;
+  if (minHoriz * baseScale >= 4 * minLegalPitch) {
+    return baseScale;
+  }
+
+  const desiredScale = (5 * Math.max(pitch, minLegalPitch)) / minHoriz;
+  const fit = waffleMaxFit(extents, upAxis, params);
+  if (fit && fit.maxScale > 0) {
+    return Math.min(desiredScale, fit.maxScale * 0.85);
+  }
+  return desiredScale;
+}
+
+/**
+ * Calcula la separación automática inicial entre secciones (pitch) cuando el usuario
+ * no la ha editado manualmente: usa 4*t por defecto, pero si el eje horizontal menor
+ * escalado es pequeño (< 4 * 4*t), reduce el paso (hasta el mínimo legal 2*t) para
+ * garantizar al menos 4 secciones por eje.
+ */
+export function computeAdaptiveWafflePitch(
+  extents: ModelExtents | null,
+  scaleFactor: number,
+  upAxis: Axis,
+  thickness: number
+): number {
+  const defaultPitch = Number((4 * thickness).toFixed(2));
+  const minPitch = Number((2 * thickness).toFixed(2));
+  if (!extents || scaleFactor <= 0) return defaultPitch;
+
+  const { h1, h2 } = horizontalExtentsForUpAxis(extents, upAxis);
+  const minHorizMm = Math.min(h1, h2) * scaleFactor;
+  if (minHorizMm <= 0 || minHorizMm >= 4 * defaultPitch) {
+    return defaultPitch;
+  }
+
+  const rawPitch = minHorizMm / 4;
+  const stepped = Math.floor(rawPitch * 2) / 2;
+  return Math.max(minPitch, Math.min(defaultPitch, Number(stepped.toFixed(2))));
+}
+

@@ -1,25 +1,22 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { useSculptureStore } from '../../store/useSculptureStore';
+import { buildPlateExtrudeGeometry } from './plateGeometry';
 import {
-  buildPlateEdgesBufferGeometry,
-  buildPlateExtrudeGeometry,
-} from './plateGeometry';
-import { canonicalToWorldMatrix4Elements } from '../../core/waffle/canonicalFrame';
-import { canonicalPointToWorld3D } from '../../core/waffle/canonicalFrame';
+  canonicalPointToWorld3D,
+  canonicalToWorldMatrix4Elements,
+} from '../../core/waffle/canonicalFrame';
 import { WAFFLE_CONSTANTS } from '../../core/waffle/constants';
 import type { WaffleSection } from '../../core/waffle/types';
 
 interface BuiltWaffleGeometry {
   section: WaffleSection;
-  matrix: THREE.Matrix4;
   meshGeometry: THREE.BufferGeometry;
   edgesGeometry: THREE.BufferGeometry;
 }
 
 export function WafflePlatesView() {
   const waffleResult = useSculptureStore((s) => s.waffleResult);
-  const waffleParams = useSculptureStore((s) => s.waffleParams);
   const thickness = useSculptureStore((s) => s.params.thickness);
   const wireframe = useSculptureStore((s) => s.wireframe);
   const waffleFamilyFilter = useSculptureStore((s) => s.waffleFamilyFilter);
@@ -43,25 +40,28 @@ export function WafflePlatesView() {
       if (!sec.polygons || sec.polygons.length === 0) continue;
 
       const meshGeometry = buildPlateExtrudeGeometry(sec.polygons, thickness);
-      const edgesGeometry = buildPlateEdgesBufferGeometry(sec.polygons, thickness * 0.5);
-
       const matrixElements = canonicalToWorldMatrix4Elements(
         sec.planeCoord,
-        waffleParams.upAxis,
+        waffleResult.upAxis,
         sec.family
       );
       const matrix = new THREE.Matrix4().fromArray(matrixElements);
+      meshGeometry.applyMatrix4(matrix);
+      meshGeometry.computeVertexNormals();
+      meshGeometry.computeBoundingBox();
+      meshGeometry.computeBoundingSphere();
+
+      const edgesGeometry = new THREE.EdgesGeometry(meshGeometry, 15);
 
       list.push({
         section: sec,
-        matrix,
         meshGeometry,
         edgesGeometry,
       });
     }
 
     return list;
-  }, [waffleResult, waffleParams.upAxis, waffleFamilyFilter, thickness]);
+  }, [waffleResult, waffleFamilyFilter, thickness]);
 
   // Set of partner piece IDs for the currently selected piece
   const partnerPieceIds = useMemo<Set<string>>(() => {
@@ -97,7 +97,7 @@ export function WafflePlatesView() {
           minV,
           0,
           cr.aCoord,
-          waffleParams.upAxis,
+          waffleResult.upAxis,
           'P1'
         );
         const pEnd = canonicalPointToWorld3D(
@@ -105,7 +105,7 @@ export function WafflePlatesView() {
           maxV,
           0,
           cr.aCoord,
-          waffleParams.upAxis,
+          waffleResult.upAxis,
           'P1'
         );
 
@@ -118,7 +118,7 @@ export function WafflePlatesView() {
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
     return geom;
-  }, [waffleResult, selectedWafflePieceId, waffleParams.upAxis]);
+  }, [waffleResult, selectedWafflePieceId]);
 
   // Dispose VRAM on unmount or geometry change
   useEffect(() => {
@@ -135,7 +135,7 @@ export function WafflePlatesView() {
 
   return (
     <group>
-      {builtSections.map(({ section, matrix, meshGeometry, edgesGeometry }) => {
+      {builtSections.map(({ section, meshGeometry, edgesGeometry }) => {
         const isSelected = selectedWafflePieceId === section.id;
         const isPartner = partnerPieceIds.has(section.id);
         const hasSelection = selectedWafflePieceId !== null;
@@ -182,8 +182,6 @@ export function WafflePlatesView() {
         return (
           <group
             key={section.id}
-            matrixAutoUpdate={false}
-            matrix={matrix}
             onClick={(e) => {
               e.stopPropagation();
               selectWafflePiece(isSelected ? null : section.id);

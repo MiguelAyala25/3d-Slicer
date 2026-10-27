@@ -13,6 +13,8 @@ import {
   canonicalPointToWorld3D,
 } from '../core/waffle';
 import {
+  computeAdaptiveWafflePitch,
+  computeInitialWaffleScale,
   scaleForTargetDimension,
   finalSizeFromScale,
   waffleMaxFit,
@@ -82,6 +84,33 @@ describe('Waffle Slicer Integration (Phase 9.1)', () => {
       // Limiting by width: 580 / 100 = 5.8
       expect(fit.maxScale).toBeCloseTo(380 / 200, 6);
       expect(fit.limitingAxisLabel).toBe('Alto (Z)');
+    });
+
+    it('computeInitialWaffleScale & computeAdaptiveWafflePitch prevent 2-piece collapse on small-unit models', () => {
+      // Malla tipo Blender en metros: 3.0 x 3.0 x 0.8 unidades
+      const smallExtents: ModelExtents = { x: 3.0, y: 3.0, z: 0.8 };
+      const scale = computeInitialWaffleScale(
+        smallExtents,
+        baseCoreParams,
+        'z',
+        12.0,
+        { kind: 'plates' }
+      );
+      // Debe auto-escalar a Alto(Z) = 57 mm -> scale = 57 / 0.8 = 71.25
+      expect(scale).toBeCloseTo(57.0 / 0.8, 5);
+
+      const pitch = computeAdaptiveWafflePitch(smallExtents, scale, 'z', 3.0);
+      expect(pitch).toBe(12.0);
+
+      const smallBoxPositions = createBoxPositions(3.0, 3.0, 0.8);
+      const result = sliceWaffleMesh(smallBoxPositions, baseCoreParams, {
+        ...defaultWaffleParams,
+        targetScale: scale,
+        pitch,
+      });
+
+      expect(result.p1Sections.length).toBeGreaterThanOrEqual(15);
+      expect(result.p2Sections.length).toBeGreaterThanOrEqual(15);
     });
   });
 

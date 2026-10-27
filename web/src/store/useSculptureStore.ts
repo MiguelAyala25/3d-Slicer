@@ -15,8 +15,12 @@ import { validateBuildParams } from '../core/build/validateBuild';
 import { ValidationError } from '../core/validator';
 import { PARAM_BOUNDS } from '../core/params';
 import {
+  computeAdaptiveWafflePitch,
+  computeInitialWaffleScale,
+  horizontalExtentsForUpAxis,
   platesForTargetDimension,
   scaleForTargetDimension,
+  waffleMaxFit,
   type ModelDimension,
   type ModelExtents,
   type SizeIntent,
@@ -375,13 +379,37 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           z: bbox.max.z - bbox.min.z,
         };
 
+        const initialSizeIntent: SizeIntent = { kind: 'plates' };
+        const initialWaffleScale = computeInitialWaffleScale(
+          extents,
+          get().params,
+          get().waffleParams.upAxis,
+          get().waffleParams.pitch,
+          initialSizeIntent
+        );
+        const initialWafflePitch = get().wafflePitchManuallyEdited
+          ? get().waffleParams.pitch
+          : computeAdaptiveWafflePitch(
+              extents,
+              initialWaffleScale,
+              get().waffleParams.upAxis,
+              get().params.thickness
+            );
+
         set({
           meshGeometry: geometry,
           meshMetadata: metadata,
           meshFileName: fileName,
           modelExtents: extents,
-          sizeIntent: { kind: 'plates' },
+          sizeIntent: initialSizeIntent,
+          waffleParams: {
+            ...get().waffleParams,
+            targetScale: initialWaffleScale,
+            pitch: initialWafflePitch,
+          },
           sliceResult: null,
+          waffleResult: null,
+          selectedWafflePieceId: null,
           isResultDirty: false,
           activeFloor: 0,
           isLoadingMesh: false,
@@ -721,8 +749,10 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           ? 'Límite de placas alcanzado (200)'
           : state.statusMessage;
 
+      const nextWaffleScale = scaleForTargetDimension(state.modelExtents, dim, mm);
       set({
         params: { ...state.params, plates: outcome.plates },
+        waffleParams: { ...state.waffleParams, targetScale: nextWaffleScale },
         sizeIntent: { kind: 'size', dim, targetMm: mm },
         sizeCommitSeq: state.sizeCommitSeq + 1,
         isResultDirty: state.sliceResult !== null,
@@ -730,7 +760,13 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       });
 
       if (state.meshGeometry && state.meshFileName) {
-        saveProjectToLocalStorage(get().params, get().discs, state.meshFileName, get().build);
+        saveProjectToLocalStorage(
+          get().params,
+          get().discs,
+          state.meshFileName,
+          get().build,
+          get().waffleParams
+        );
       }
 
       if (
@@ -770,19 +806,36 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           });
         }
 
-        if (!get().wafflePitchManuallyEdited) {
-          set((s) => ({
+        set((s) => {
+          const nextScale = s.modelExtents
+            ? computeInitialWaffleScale(
+                s.modelExtents,
+                s.params,
+                s.waffleParams.upAxis,
+                s.waffleParams.pitch,
+                s.sizeIntent
+              )
+            : s.waffleParams.targetScale;
+
+          const nextPitch = s.wafflePitchManuallyEdited
+            ? s.waffleParams.pitch
+            : computeAdaptiveWafflePitch(
+                s.modelExtents,
+                nextScale,
+                s.waffleParams.upAxis,
+                s.params.thickness
+              );
+
+          return {
+            build: { ...s.build, techniqueId: 'waffle', jointId: 'slots' },
             waffleParams: {
               ...s.waffleParams,
-              pitch: Number((4 * s.params.thickness).toFixed(2)),
+              targetScale: nextScale,
+              pitch: nextPitch,
             },
-          }));
-        }
-
-        set((s) => ({
-          build: { ...s.build, techniqueId: 'waffle', jointId: 'slots' },
-          isResultDirty: s.waffleResult !== null,
-        }));
+            isResultDirty: s.waffleResult !== null,
+          };
+        });
 
         if (get().meshGeometry && get().meshFileName) {
           saveProjectToLocalStorage(
@@ -970,8 +1023,40 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           await get().loadMeshArrayBuffer(
             meshRecord.buffer,
             meshRecord.fileName,
-            true
+            false
           );
+        }
+        let healedWaffleParams = snapshot.waffleParams;
+        const loadedExtents = get().modelExtents;
+        if (healedWaffleParams && loadedExtents) {
+          const { h1, h2 } = horizontalExtentsForUpAxis(
+            loadedExtents,
+            healedWaffleParams.upAxis
+          );
+          const minHorizScaled = Math.min(h1, h2) * healedWaffleParams.targetScale;
+          if (
+            Math.abs(healedWaffleParams.targetScale - 1.0) < 1e-6 &&
+            minHorizScaled < 2 * healedWaffleParams.pitch
+          ) {
+            const healedScale = computeInitialWaffleScale(
+              loadedExtents,
+              snapshot.params,
+              healedWaffleParams.upAxis,
+              healedWaffleParams.pitch,
+              { kind: 'plates' }
+            );
+            const healedPitch = computeAdaptiveWafflePitch(
+              loadedExtents,
+              healedScale,
+              healedWaffleParams.upAxis,
+              snapshot.params.thickness
+            );
+            healedWaffleParams = {
+              ...healedWaffleParams,
+              targetScale: healedScale,
+              pitch: healedPitch,
+            };
+          }
         }
         await get().importProjectFromParsed(
           {
@@ -982,7 +1067,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
             params: snapshot.params,
             discs: snapshot.discs,
             build: snapshot.build,
-            waffleParams: snapshot.waffleParams,
+            waffleParams: healedWaffleParams,
           },
           true
         );
@@ -1192,6 +1277,76 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       }
     },
     closeCalibrationSheetPreview: () => set({ isCalibrationSheetModalOpen: false }),
+
+    optimizeWaffleGridForTargetSections: (targetSectionsPerAxis = 6) => {
+      const state = get();
+      if (!state.modelExtents) return;
+
+      const { h1, h2 } = horizontalExtentsForUpAxis(
+        state.modelExtents,
+        state.waffleParams.upAxis
+      );
+      const minHoriz = Math.min(h1, h2);
+      if (minHoriz <= 0) return;
+
+      const minLegalPitch = Math.max(
+        2 * state.params.thickness,
+        Number(
+          (
+            state.params.thickness +
+            state.waffleParams.slotClearance -
+            state.params.kerf +
+            0.5
+          ).toFixed(2)
+        )
+      );
+
+      let nextScale = state.waffleParams.targetScale;
+      let nextPitch = state.waffleParams.pitch;
+
+      const currentMinHorizMm = minHoriz * nextScale;
+      const candidatePitch = Math.floor((currentMinHorizMm / targetSectionsPerAxis) * 2) / 2;
+
+      if (candidatePitch >= minLegalPitch) {
+        nextPitch = Number(candidatePitch.toFixed(2));
+      } else {
+        nextPitch = minLegalPitch;
+        const neededScale = (targetSectionsPerAxis * nextPitch) / minHoriz;
+        const fit = waffleMaxFit(state.modelExtents, state.waffleParams.upAxis, state.params);
+        nextScale = fit && fit.maxScale > 0
+          ? Math.min(neededScale, fit.maxScale * 0.85)
+          : neededScale;
+      }
+
+      const nextWaffleParams: WaffleParams = {
+        ...state.waffleParams,
+        targetScale: nextScale,
+        pitch: nextPitch,
+        gridOffset: Math.max(-nextPitch * 0.5, Math.min(nextPitch * 0.5, state.waffleParams.gridOffset)),
+      };
+
+      set({
+        waffleParams: nextWaffleParams,
+        wafflePitchManuallyEdited: true,
+        sizeCommitSeq: state.sizeCommitSeq + 1,
+        isResultDirty: state.waffleResult !== null,
+      });
+
+      if (state.meshGeometry && state.meshFileName) {
+        saveProjectToLocalStorage(
+          get().params,
+          get().discs,
+          state.meshFileName,
+          get().build,
+          nextWaffleParams
+        );
+      }
+
+      if (state.meshGeometry && get().build.techniqueId === 'waffle') {
+        clearAutoSliceTimer();
+        void get().runSlice();
+      }
+    },
 
     openSheetPreviewModal: () => {
       const { sliceResult, waffleResult, discs, params, build } = get();

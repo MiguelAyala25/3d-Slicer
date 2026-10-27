@@ -13,10 +13,14 @@ export function TechniqueSection() {
   const build = useSculptureStore((s) => s.build);
   const params = useSculptureStore((s) => s.params);
   const waffleParams = useSculptureStore((s) => s.waffleParams);
+  const waffleResult = useSculptureStore((s) => s.waffleResult);
   const setTechnique = useSculptureStore((s) => s.setTechnique);
   const setJoint = useSculptureStore((s) => s.setJoint);
   const setParam = useSculptureStore((s) => s.setParam);
   const setWaffleParam = useSculptureStore((s) => s.setWaffleParam);
+  const optimizeWaffleGrid = useSculptureStore(
+    (s) => s.optimizeWaffleGridForTargetSections
+  );
 
   const techniqueOptions = TECHNIQUES.map((t) => ({
     value: t.id,
@@ -117,6 +121,26 @@ export function TechniqueSection() {
             testId="input-waffle-pitch"
             onChange={(v) => setWaffleParam('pitch', v)}
           />
+
+          {waffleResult && (
+            <div className="flex items-center justify-between gap-2 px-1 text-[11px] text-[#A1A1AA] font-mono-tabular">
+              <span>
+                Rejilla: {waffleResult.p1Sections.length} × {waffleResult.p2Sections.length} piezas (
+                {waffleResult.p1Sections.length + waffleResult.p2Sections.length} total)
+              </span>
+              {(waffleResult.p1Sections.length < 3 ||
+                waffleResult.p2Sections.length < 3) && (
+                <button
+                  type="button"
+                  data-testid="btn-optimize-waffle-grid"
+                  onClick={() => optimizeWaffleGrid(6)}
+                  className="text-[#0A84FF] hover:underline font-sans font-medium"
+                >
+                  Ajustar a ~6×6
+                </button>
+              )}
+            </div>
+          )}
 
           <NumericInput
             label="Holgura de ranura"
