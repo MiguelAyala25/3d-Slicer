@@ -13,4 +13,4 @@
 - Laser cutting export layers:
   - `CORTE` (Cut): Red (#FF0000), outer/inner slice contours and disc contours.
   - `GRABADO` (Engrave): Blue (#0000FF), alignment circles, disc trays, labels.
-- Slicing and geometry calculations should remain clean and headless in `slicer.py` and `layout.py`.
+- Slicing and geometry calculations should remain clean and headless in `web/src/core/slicer.ts` and `web/src/core/layout.ts`.

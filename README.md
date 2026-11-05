@@ -1,15 +1,24 @@
-# Escultura de Planos Seriados
+# Escultura de Planos Seriados (Web)
 
-Herramienta en Python para generar esculturas de planos seriados a partir de modelos 3D (archivos OBJ y STL).
+Aplicación web interactiva para generar esculturas de planos seriados y ensambles tipo waffle a partir de modelos 3D (formatos OBJ, STL, PLY y 3MF).
 
 ## Flujo principal
-1. **Cargar:** Modelos 3D en formato OBJ o STL.
-2. **Rebanar:** Slicing paramétrico configurable en cualquier eje (X, Y, Z) con grosor y separación definidos.
-3. **Visualizar:** Vista 3D lado a lado del modelo original y las placas ensambladas.
-4. **Exportar:** Archivos de fabricación DXF (por capas) y SVG (con layout global y marcas de alineación).
+1. **Cargar:** Modelos 3D en formato OBJ, STL, PLY o 3MF.
+2. **Rebanar:** Slicing paramétrico configurable en cualquier eje (X, Y, Z) con grosor y separación definidos (incluyendo uniones por discos o ensamble waffle interlock).
+3. **Visualizar:** Viewport 3D en tiempo real del modelo original y las placas ensambladas.
+4. **Exportar:** Archivos de fabricación DXF (por capas) y SVG (con layout global, marcas de alineación y planillas de corte).
 
 ## Requisitos e Instalación
-Instalar las dependencias con Python 3.10+:
+Requiere Node.js 18+:
+
 ```bash
-pip install -r requirements.txt
+cd web
+npm install
+npm run dev
+```
+
+Para ejecutar pruebas:
+```bash
+cd web
+npm test
 ```

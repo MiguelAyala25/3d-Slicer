@@ -1,17 +1,8 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-.venv/
-build/
+# Dependencies & Build
+node_modules/
 dist/
-*.egg-info/
 
-# IDEs y OS
+# IDEs & OS
 .idea/
 .vscode/
 *.swp
@@ -19,14 +10,16 @@ dist/
 Thumbs.db
 Desktop.ini
 
-# Archivos temporales de test o exports
-test_*.obj
-test_*.stl
+# Output exports & test artifacts
 *.dxf
 *.svg
 save*.json
-*.png
-!assets/
-!samples/
-CAR-PEUGEOT 206 - Copy.obj
+test-results/
 
+# Python (for auxiliary tooling/agents)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+env/
+venv/
+.venv/
