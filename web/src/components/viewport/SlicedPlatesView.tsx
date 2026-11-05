@@ -19,6 +19,7 @@ const NOOP_RAYCAST = () => null;
 
 export function SlicedPlatesView() {
   const sliceResult = useSculptureStore((s) => s.sliceResult);
+  const lastSliceAxis = useSculptureStore((s) => s.lastSliceAxis);
   const thickness = useSculptureStore((s) => s.params.thickness);
   const gap = useSculptureStore((s) => s.params.gap);
   const wireframe = useSculptureStore((s) => s.wireframe);
@@ -26,6 +27,21 @@ export function SlicedPlatesView() {
   const activeFloor = useSculptureStore((s) => s.activeFloor);
   const modeAddDiscs = useSculptureStore((s) => s.modeAddDiscs);
   const setActiveFloor = useSculptureStore((s) => s.setActiveFloor);
+
+  // Invertir la rotación aplicada por AxisSliceCache para que el modelo permanezca parado
+  // independientemente de si se corta en el eje X, Y o Z:
+  // - axis 'x': el slicer rotó -90° en Y ((x, y, z) -> (-z, y, x)). La inversa es +90° en Y.
+  // - axis 'y': el slicer rotó +90° en X ((x, y, z) -> (x, -z, y)). La inversa es -90° en X.
+  // - axis 'z': sin rotación.
+  const groupRotation = useMemo<[number, number, number]>(() => {
+    if (lastSliceAxis === 'x') {
+      return [0, Math.PI * 0.5, 0];
+    }
+    if (lastSliceAxis === 'y') {
+      return [-Math.PI * 0.5, 0, 0];
+    }
+    return [0, 0, 0];
+  }, [lastSliceAxis]);
 
   const builtPlates = useMemo<BuiltPlateGeometry[]>(() => {
     if (!sliceResult) return [];
@@ -71,7 +87,7 @@ export function SlicedPlatesView() {
   if (!sliceResult) return null;
 
   return (
-    <group>
+    <group rotation={groupRotation}>
       {builtPlates.map((item) => {
         const isCurrent = item.plateIndex === activeFloor;
         const isNextUpper = item.plateIndex === activeFloor + 1;

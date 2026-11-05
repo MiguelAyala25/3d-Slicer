@@ -204,6 +204,7 @@ export function normalizeAndValidateGeometry(
   const cleanForWeld = rawGeometry.clone();
   cleanForWeld.deleteAttribute('normal');
   cleanForWeld.deleteAttribute('uv');
+  cleanForWeld.deleteAttribute('color');
   const weldTolerance = Math.max(1e-9, diag * 1e-6);
   const indexedGeom = mergeVertices(cleanForWeld, weldTolerance);
 
@@ -408,13 +409,18 @@ export function normalizeAndValidateGeometry(
         const i0 = indices[f * 3];
         const i1 = indices[f * 3 + 1];
         const i2 = indices[f * 3 + 2];
+        const x0 = weldedPos.getX(i0);
+        const x1 = weldedPos.getX(i1);
+        const x2 = weldedPos.getX(i2);
+        // Descarte rápido: el rayo apunta hacia +X, omitir triángulos completamente detrás
+        if (x0 < ox && x1 < ox && x2 < ox) continue;
         if (
           rayIntersectsTriangle(
             ox, oy, oz,
             rdx, rdy, rdz,
-            weldedPos.getX(i0), weldedPos.getY(i0), weldedPos.getZ(i0),
-            weldedPos.getX(i1), weldedPos.getY(i1), weldedPos.getZ(i1),
-            weldedPos.getX(i2), weldedPos.getY(i2), weldedPos.getZ(i2)
+            x0, weldedPos.getY(i0), weldedPos.getZ(i0),
+            x1, weldedPos.getY(i1), weldedPos.getZ(i1),
+            x2, weldedPos.getY(i2), weldedPos.getZ(i2)
           )
         ) {
           hits++;

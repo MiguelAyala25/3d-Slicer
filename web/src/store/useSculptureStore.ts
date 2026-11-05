@@ -362,10 +362,76 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     loadMeshArrayBuffer: async (buffer, fileName, autoSlice = true) => {
       clearAutoSliceTimer();
       set({ isLoadingMesh: true, errorMessage: null, statusMessage: `Cargando ${fileName}...` });
+
+      // Ceder un frame al navegador para que pinte de inmediato el spinner en pantalla
+      await new Promise<void>((resolve) => {
+        if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+          window.requestAnimationFrame(() => setTimeout(resolve, 16));
+        } else {
+          setTimeout(resolve, 0);
+        }
+      });
+
       try {
-        const { geometry, metadata } = loadMeshFromBuffer(buffer, fileName);
         currentMeshId += 1;
         const meshId = currentMeshId;
+        const worker = getOrCreateWorker();
+
+        // Detectar si el modelo necesita orientación Y-up a Z-up
+        const ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));
+        const upOrientation = ext === '.obj' ? 'y-up' : undefined;
+
+        let geometry: THREE.BufferGeometry;
+        let metadata: MeshMetadata;
+
+        if (worker) {
+          // Procesar en Web Worker para no congelar la animación del spinner ni el navegador
+          latestJobId += 1;
+          const jobId = latestJobId;
+          const outcome = await new Promise<{ positions: Float32Array; metadata: MeshMetadata }>(
+            (resolve, reject) => {
+              const onMsg = (evt: MessageEvent<WorkerResponse>) => {
+                const msg = evt.data;
+                if (msg.jobId !== jobId) return;
+                worker.removeEventListener('message', onMsg);
+                worker.removeEventListener('error', onErr);
+                if (msg.type === 'LOAD_MESH_SUCCESS') {
+                  resolve({ positions: msg.positions, metadata: msg.metadata });
+                } else if (msg.type === 'LOAD_MESH_ERROR') {
+                  reject(new Error(msg.error));
+                }
+              };
+              const onErr = (e: ErrorEvent) => {
+                worker.removeEventListener('message', onMsg);
+                worker.removeEventListener('error', onErr);
+                reject(new Error(e.message || 'Error en el worker de carga'));
+              };
+              worker.addEventListener('message', onMsg);
+              worker.addEventListener('error', onErr);
+
+              const req: WorkerRequest = {
+                type: 'LOAD_MESH',
+                jobId,
+                meshId,
+                buffer,
+                fileName,
+                upOrientation,
+              };
+              worker.postMessage(req);
+            }
+          );
+
+          metadata = outcome.metadata;
+          geometry = new THREE.BufferGeometry();
+          geometry.setAttribute('position', new THREE.BufferAttribute(outcome.positions, 3));
+          geometry.computeVertexNormals();
+          geometry.computeBoundingBox();
+        } else {
+          // Fallback síncrono para tests en Vitest / Node
+          const loaded = loadMeshFromBuffer(buffer, fileName, { upOrientation });
+          geometry = loaded.geometry;
+          metadata = loaded.metadata;
+        }
 
         get().resetDiscs();
 
@@ -415,18 +481,6 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           isLoadingMesh: false,
           statusMessage: `Modelo '${fileName}' cargado (${metadata.vertexCount} vértices, ${metadata.faceCount} triángulos)`,
         });
-
-        const worker = getOrCreateWorker();
-        if (worker) {
-          const posAttr = geometry.getAttribute('position') as THREE.BufferAttribute;
-          const transferArray = new Float32Array(posAttr.array);
-          const req: WorkerRequest = {
-            type: 'SET_MESH',
-            meshId,
-            positions: transferArray,
-          };
-          worker.postMessage(req, [transferArray.buffer]);
-        }
 
         saveMeshBufferToIndexedDB(fileName, buffer).catch(() => {
           // Fallback silencioso si IndexedDB falla

@@ -1,5 +1,6 @@
 import { AxisSliceCache, sliceMeshFromCache } from '../core/slicer';
 import { getWaffleAxesConfig, sliceWaffleFromCaches } from '../core/waffle';
+import { loadMeshFromBuffer } from '../core/meshLoader';
 import type { Axis, WorkerRequest, WorkerResponse } from '../types/sculpture';
 
 let currentMeshId = -1;
@@ -8,6 +9,46 @@ let axisCaches: Partial<Record<Axis, AxisSliceCache>> = {};
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const msg = event.data;
+
+  if (msg.type === 'LOAD_MESH') {
+    const { jobId, meshId, buffer, fileName, upOrientation } = msg;
+    try {
+      const t0 = performance.now();
+      const { geometry, metadata } = loadMeshFromBuffer(buffer, fileName, {
+        upOrientation,
+      });
+      const posAttr = geometry.getAttribute('position');
+      const positions = new Float32Array(posAttr.array);
+
+      currentMeshId = meshId;
+      rawPositions = positions;
+      axisCaches = {};
+      const durationMs = performance.now() - t0;
+
+      // Crear una copia transferible para el hilo principal, manteniendo rawPositions intacto en el Worker
+      const transferPositions = new Float32Array(positions);
+
+      const resp: WorkerResponse = {
+        type: 'LOAD_MESH_SUCCESS',
+        jobId,
+        meshId,
+        positions: transferPositions,
+        metadata,
+        durationMs,
+      };
+      // Transfer Float32Array buffer to avoid cloning while preserving rawPositions
+      self.postMessage(resp, [transferPositions.buffer]);
+    } catch (err) {
+      const resp: WorkerResponse = {
+        type: 'LOAD_MESH_ERROR',
+        jobId,
+        meshId,
+        error: err instanceof Error ? err.message : String(err),
+      };
+      self.postMessage(resp);
+    }
+    return;
+  }
 
   if (msg.type === 'SET_MESH') {
     currentMeshId = msg.meshId;

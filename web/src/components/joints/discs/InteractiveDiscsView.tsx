@@ -18,6 +18,7 @@ interface DragState {
 
 export function InteractiveDiscsView() {
   const sliceResult = useSculptureStore((s) => s.sliceResult);
+  const lastSliceAxis = useSculptureStore((s) => s.lastSliceAxis);
   const thickness = useSculptureStore((s) => s.params.thickness);
   const gap = useSculptureStore((s) => s.params.gap);
   const activeFloor = useSculptureStore((s) => s.activeFloor);
@@ -28,6 +29,16 @@ export function InteractiveDiscsView() {
   const addDiscAtActiveFloor = useSculptureStore((s) => s.addDiscAtActiveFloor);
   const selectDisc = useSculptureStore((s) => s.selectDisc);
   const commitDiscMove = useSculptureStore((s) => s.commitDiscMove);
+
+  const groupRotation = useMemo<[number, number, number]>(() => {
+    if (lastSliceAxis === 'x') {
+      return [0, Math.PI * 0.5, 0];
+    }
+    if (lastSliceAxis === 'y') {
+      return [-Math.PI * 0.5, 0, 0];
+    }
+    return [0, 0, 0];
+  }, [lastSliceAxis]);
 
   const controls = useThree((s) => s.controls as { enabled?: boolean } | null);
   const dragRef = useRef<DragState | null>(null);
@@ -131,6 +142,7 @@ export function InteractiveDiscsView() {
 
   return (
     <group
+      rotation={groupRotation}
       onPointerMove={handleGlobalPointerMove}
       onPointerUp={handleGlobalPointerUp}
     >

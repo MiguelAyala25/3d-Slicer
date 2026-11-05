@@ -9,9 +9,11 @@ export function CameraToolbar({ className = '' }: CameraToolbarProps) {
   const viewMode = useSculptureStore((s) => s.viewMode);
   const wireframe = useSculptureStore((s) => s.wireframe);
   const sliceResult = useSculptureStore((s) => s.sliceResult);
+  const waffleResult = useSculptureStore((s) => s.waffleResult);
   const setViewMode = useSculptureStore((s) => s.setViewMode);
   const toggleWireframe = useSculptureStore((s) => s.toggleWireframe);
 
+  const hasResult = Boolean(sliceResult || waffleResult);
   const showingOriginal = viewMode === 'original';
 
   return (
@@ -20,7 +22,7 @@ export function CameraToolbar({ className = '' }: CameraToolbarProps) {
     >
       <button
         type="button"
-        disabled={!sliceResult}
+        disabled={!hasResult}
         onClick={() => setViewMode(showingOriginal ? 'plates' : 'original')}
         title="Alternar entre modelo 3D original y placas rebanadas"
         className="h-8 coarse:min-h-10 px-2.5 rounded-md bg-white/5 hover:bg-white/10 disabled:opacity-40 text-xs font-medium text-[#F4F4F5] flex items-center gap-1.5 select-none"

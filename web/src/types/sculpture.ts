@@ -158,6 +158,14 @@ export interface SheetLayout {
 
 export type WorkerRequest =
   | {
+      type: 'LOAD_MESH';
+      jobId: number;
+      meshId: number;
+      buffer: ArrayBuffer;
+      fileName: string;
+      upOrientation?: 'y-up' | 'z-up' | 'auto';
+    }
+  | {
       type: 'SET_MESH';
       meshId: number;
       positions: Float32Array;
@@ -177,6 +185,20 @@ export type WorkerRequest =
     };
 
 export type WorkerResponse =
+  | {
+      type: 'LOAD_MESH_SUCCESS';
+      jobId: number;
+      meshId: number;
+      positions: Float32Array;
+      metadata: MeshMetadata;
+      durationMs: number;
+    }
+  | {
+      type: 'LOAD_MESH_ERROR';
+      jobId: number;
+      meshId: number;
+      error: string;
+    }
   | {
       type: 'SLICE_SUCCESS';
       jobId: number;

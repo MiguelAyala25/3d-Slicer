@@ -111,9 +111,14 @@ function checkPLYHasFaces(buffer: ArrayBuffer): void {
   }
 }
 
+export interface LoadMeshOptions {
+  upOrientation?: 'y-up' | 'z-up' | 'auto';
+}
+
 export function loadMeshFromBuffer(
   buffer: ArrayBuffer,
-  fileName: string
+  fileName: string,
+  options?: LoadMeshOptions
 ): { geometry: THREE.BufferGeometry; metadata: MeshMetadata } {
   const ext = validateFileExtension(fileName, buffer.byteLength);
   let rawGeometry: THREE.BufferGeometry;
@@ -138,6 +143,13 @@ export function loadMeshFromBuffer(
     const extracted = extractMergedGeometryFromObject3D(group, 1.0);
     rawGeometry = extracted.geometry;
     loaderWarnings = extracted.warnings;
+
+    // Si se solicita convertir modelos con convención Y-up a Z-up
+    if (options?.upOrientation === 'y-up') {
+      // Rotación +90° alrededor del eje X: (x, y, z) -> (x, -z, y)
+      rawGeometry.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI * 0.5));
+      loaderWarnings.push('Se ajustó la orientación del modelo de Y-up a Z-up.');
+    }
   } else if (ext === '.3mf') {
     unitScaleApplied = extract3MFUnitScale(buffer);
     const loader = new ThreeMFLoader();

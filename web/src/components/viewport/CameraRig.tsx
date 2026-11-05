@@ -33,9 +33,9 @@ export function CameraRig() {
     } else if (sliceResult) {
       const [[minX, minY], [maxX, maxY]] = sliceResult.scaledBounds;
       span = Math.max(maxX - minX, maxY - minY, sliceResult.scaledHeight, 50);
-      cx = (minX + maxX) * 0.5;
-      cy = (minY + maxY) * 0.5;
-      cz = sliceResult.scaledHeight * 0.5;
+      cx = 0;
+      cy = 0;
+      cz = 0;
     } else if (meshMetadata) {
       span = Math.max(...meshMetadata.extents, 50);
     }

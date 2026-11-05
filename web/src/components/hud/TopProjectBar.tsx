@@ -45,6 +45,7 @@ export function TopProjectBar({ className = '' }: TopProjectBarProps) {
     const file = e.target.files?.[0];
     if (!file) return;
     try {
+      useSculptureStore.getState().setIsLoadingMesh(true);
       const buffer = await file.arrayBuffer();
       await loadMeshArrayBuffer(buffer, file.name, true);
     } finally {
