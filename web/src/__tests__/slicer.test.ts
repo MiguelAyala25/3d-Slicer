@@ -11,6 +11,9 @@ import {
 } from '../core/slicer';
 import {
   stitchAndUnionSegments,
+  cellKey,
+  CELL_OFFSET,
+  CELL_STRIDE,
   type DirectedSegment2D,
 } from '../core/polygonStitcher';
 import type { SculptureParams } from '../types/sculpture';
@@ -351,6 +354,78 @@ describe('slicer & polygon stitcher', () => {
             expect(Math.abs(scaledArea - baseArea) / baseArea).toBeLessThan(0.005);
           }
         }
+      }
+    });
+  });
+
+  describe('Numeric cellKey collision resistance and extreme coordinates (L4)', () => {
+    it('produces unique keys across negative, positive, swapped, and extreme +/-5000mm coordinates', () => {
+      // 5000 mm with SNAP_TOLERANCE 1e-3 gives cell coordinates of +/-5,000,000
+      const testCoords: [number, number][] = [
+        [0, 0],
+        [1, 0],
+        [0, 1],
+        [-1, 0],
+        [0, -1],
+        [-1, -1],
+        [1, 1],
+        [-100, 250],
+        [250, -100],
+        [-5_000_000, -5_000_000],
+        [5_000_000, 5_000_000],
+        [-5_000_000, 5_000_000],
+        [5_000_000, -5_000_000],
+        [-4_999_999, 4_999_999],
+        [4_999_999, -4_999_999],
+      ];
+
+      const keys = new Set<number>();
+      for (const [cx, cy] of testCoords) {
+        const k = cellKey(cx, cy);
+        expect(Number.isSafeInteger(k)).toBe(true);
+        expect(k).toBeGreaterThanOrEqual(0);
+        expect(keys.has(k)).toBe(false);
+        keys.add(k);
+
+        // Verify mathematical inverse
+        const offset = CELL_OFFSET;
+        const stride = CELL_STRIDE;
+        const cyRecovered = (k % stride) - offset;
+        const cxRecovered = Math.floor(k / stride) - offset;
+        expect(cxRecovered).toBe(cx);
+        expect(cyRecovered).toBe(cy);
+      }
+    });
+
+    it('stitches closed square loops at extreme coordinates (+/-5000 mm) without quadrant cross-merging', () => {
+      // 3 squares: one around (-5000, -5000), one at (0, 0), one at (+5000, +5000)
+      const segments: DirectedSegment2D[] = [
+        // Square 1: around -5000 mm (side 10 mm)
+        { x0: -5000, y0: -5000, x1: -4990, y1: -5000 },
+        { x0: -4990, y0: -5000, x1: -4990, y1: -4990 },
+        { x0: -4990, y0: -4990, x1: -5000, y1: -4990 },
+        { x0: -5000, y0: -4990, x1: -5000, y1: -5000 },
+
+        // Square 2: around (0, 0) (side 10 mm)
+        { x0: 0, y0: 0, x1: 10, y1: 0 },
+        { x0: 10, y0: 0, x1: 10, y1: 10 },
+        { x0: 10, y0: 10, x1: 0, y1: 10 },
+        { x0: 0, y0: 10, x1: 0, y1: 0 },
+
+        // Square 3: around +5000 mm (side 10 mm)
+        { x0: 4990, y0: 4990, x1: 5000, y1: 4990 },
+        { x0: 5000, y0: 4990, x1: 5000, y1: 5000 },
+        { x0: 5000, y0: 5000, x1: 4990, y1: 5000 },
+        { x0: 4990, y0: 5000, x1: 4990, y1: 4990 },
+      ];
+
+      const res = stitchAndUnionSegments(segments);
+      expect(res.openChainsDiscarded).toBe(0);
+      expect(res.openChainsRepaired).toBe(0);
+      expect(res.polygons.length).toBe(3);
+
+      for (const poly of res.polygons) {
+        expect(poly.area).toBeCloseTo(100, 1);
       }
     });
   });

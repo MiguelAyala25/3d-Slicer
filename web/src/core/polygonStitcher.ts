@@ -39,8 +39,11 @@ interface VertexNode {
   outEdges: number[];
 }
 
-function cellKey(cx: number, cy: number): string {
-  return `${cx},${cy}`;
+export const CELL_OFFSET = 33_554_432;  // 2^25 (~33,554 mm span at 1e-3 snap)
+export const CELL_STRIDE = 67_108_864;  // 2^26 (strictly < Number.MAX_SAFE_INTEGER)
+
+export function cellKey(cx: number, cy: number): number {
+  return (cx + CELL_OFFSET) * CELL_STRIDE + (cy + CELL_OFFSET);
 }
 
 export function polyTreeToPolygonsWithHoles(polyTree: PolyTree64): PolygonWithHoles[] {
@@ -109,7 +112,7 @@ export function stitchAndUnionSegments(
   }
 
   const invCell = 1.0 / SNAP_TOLERANCE;
-  const grid = new Map<string, number[]>();
+  const grid = new Map<number, number[]>();
   const vertices: VertexNode[] = [];
   const tolSq = SNAP_TOLERANCE * SNAP_TOLERANCE;
 
@@ -253,7 +256,7 @@ export function stitchAndUnionSegments(
       mergedAny = false;
 
       // Construir hash espacial de los heads de cadenas abiertas activas
-      const headGrid = new Map<string, number[]>();
+      const headGrid = new Map<number, number[]>();
       for (let cIdx = 0; cIdx < openChains.length; cIdx++) {
         if (!active[cIdx]) continue;
         const headV = vertices[openChains[cIdx][0]];
