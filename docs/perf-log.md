@@ -114,4 +114,30 @@ Mediana de 5 ejecuciones (con 1 calentamiento previo) midiendo tiempo de carga/v
 - **C2-5**: El test e2e de carga y corte sin conexión offline pasa limpiamente (8/12 pasados, idéntico a la línea base sin errores de buffer *detached*).
 - **C2-6**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
 
+---
+
+## 5. Optimización y Robustez del Stitcher (C3 / Issues M2, L4, O4)
+
+### 5.1 Mediciones de Rendimiento (B0 / scripts/bench-slice.ts)
+
+Mediana de 5 ejecuciones (con 1 calentamiento previo):
+
+| Malla | Triángulos | Slice 50p Antes (ms) | Slice 50p Después (ms) | Slice 200p Antes (ms) | Slice 200p Después (ms) | Reducción Tiempo (200p) |
+|---|---|---|---|---|---|---|
+| **Hand.OBJ** | 470 | 14.10 | 5.90 | 56.33 | 18.69 | **-66.8 %** |
+| **dragon-meshed.obj** | 500,000 | 475.13 | 266.71 | 2282.51 | 1038.97 | **-54.5 %** |
+| **Sphere ~998k** | 998,000 | 799.40 | 324.00 | 3540.99 | 1374.72 | **-61.2 %** |
+
+### 5.2 Caso Sintético de Malla Rota (O4 - 5000+ Cadenas Abiertas)
+- **Antes (reconstrucción cuadrática de `headGrid`)**: ~4,541 ms en ejecución Vitest.
+- **Después (mantenimiento incremental de `headGrid`)**: ~196 ms en ejecución Vitest (**aceleración > 23×**).
+- **Resultados de fusión/descarte**: Idénticos bit a bit (`5000` reparadas, `200` descartadas, `1250` polígonos).
+
+### 5.3 Verificación de Criterios C3
+- **C3-1 (M2)**: Creado `web/src/core/vendor/clipperPatch.ts` con `applyClipperPatch()` idempotente y `checkUnpatchedOutRecBug()`. `Select-String -Path src\core\polygonStitcher.ts -Pattern "as any"` retorna 0 coincidencias. Test `clipperPatch.test.ts` con test de guardia pasando.
+- **C3-2 (L4)**: `cellKey` ahora utiliza claves numéricas inyectivas sin interpolación de strings (`(cx + 33_554_432) * 67_108_864 + (cy + 33_554_432)`). Tests para coordenadas extremas (+/-5000 mm) pasando. Medición documentada en la tabla 5.1 demostrando una reducción de más del 50 % en tiempo de corte.
+- **C3-3 (O4)**: Test de caracterización con 5000+ cadenas abiertas agregado previamente (`b4cf9bc`), obteniendo exactamente los mismos resultados antes y después (`toEqual`).
+- **C3-4**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
+
+
 

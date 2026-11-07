@@ -143,8 +143,8 @@ Por qué este orden:
 |---|---|---|---|---|
 | C0 | ✅ PASSED | `8be7825` | `38d21e9` | ✅ Aprobado |
 | C1 | ✅ PASSED | `38d21e9` | `66bb171` | ✅ Aprobado |
-| C2 | ✅ PASSED (en revisión) | `66bb171` | `4f23657` | ⏳ En revisión |
-| C3 | ⬜ Pendiente | | | |
+| C2 | ✅ PASSED | `66bb171` | `41a7139` | ✅ Aprobado |
+| C3 | ✅ PASSED | `41a7139` | `e9aed4e` | ⏳ En revisión |
 | C4 | ⬜ Pendiente | | | |
 | C5 | ⬜ Pendiente | | | |
 | C6 | ⬜ Pendiente | | | |
@@ -507,6 +507,58 @@ Además de G1-G9:
 - **C3-2 (L4):** `cellKey` ya no construye strings (`Select-String -Pattern "\`\$\{cx\},\$\{cy\}\`"` sin coincidencias en `polygonStitcher.ts`); el test con coordenadas negativas y de ±5000 mm pasa; `docs/perf-log.md` tiene el tiempo de `stitchAndUnionSegments` antes/después (dragón, 200 placas) y **no empeora**.
 - **C3-3 (O4):** el test de caracterización con malla sintética rota (≥ 5000 cadenas abiertas) da **exactamente** el mismo `openChainsRepaired`, `openChainsDiscarded` y polígonos antes y después (`toEqual`); `perf-log.md` muestra la mejora de tiempo en ese caso. Si el resultado cambia, **STOP** y revertir ese commit.
 - **C3-4:** G5 vacío (ningún golden cambia en este chunk).
+
+#### Plan de ejecución — C3
+
+Hash de inicio (`<START>`): `41a7139` (`git status` limpio verificado).
+Se ejecutarán **4 commits separados** (1 para `M2`, 1 para `L4`, 1 de caracterización previa para `O4` según regla 8, y 1 de optimización para `O4`), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C3-1..C3-4`) al cerrar el chunk:
+
+1. **Issue M2 — Commit 1: `refactor(stitcher): isolate Clipper64 newOutRec patch with guard test`**
+   - **Objetivo (C3-1):** aislar el monkey-patch de `Clipper64.prototype.newOutRec` fuera de `polygonStitcher.ts`, eliminar todo uso de `as any` en `polygonStitcher.ts`, y proteger el parche con un test de guardia que avise si una futura versión de `clipper2-js` ya no tiene el bug.
+   - **Archivos a crear/modificar (líneas verificadas):**
+     - **Nuevo:** `web/src/core/vendor/clipperPatch.ts`:
+       - Capturar la referencia original `rawNewOutRec` de `Clipper64.prototype` antes de parchear (tipada mediante una interfaz interna sobre el prototipo sin usar `as any`, para no añadir warnings de `@typescript-eslint/no-explicit-any`).
+       - Exportar `applyClipperPatch(): void` idempotente (controlada por bandera en el prototipo `__patchedOutRec`) que asegura que toda instancia `OutRec` devuelta por `newOutRec()` tenga `bounds = new Rect64(false)` y `path = new Path64()` inicializados.
+       - Exportar un helper de inspección `checkUnpatchedOutRecBug(): { missingBounds: boolean; missingPath: boolean }` que invoque `rawNewOutRec` sobre una instancia limpia de `Clipper64` para comprobar si el bug del port `clipper2-js@1.2.4` sigue presente.
+     - **Modificar:** `web/src/core/polygonStitcher.ts:1-26`:
+       - Eliminar `Rect64` de los imports si ya no se usa directamente en `polygonStitcher.ts` y eliminar las líneas `:15-26` (el bloque con `as any`).
+       - Importar y ejecutar `applyClipperPatch()` al cargar el módulo.
+     - **Nuevo:** `web/src/__tests__/clipperPatch.test.ts`:
+       - **Test de guardia:** verificar que `checkUnpatchedOutRecBug()` confirma que `rawNewOutRec` devuelve `bounds === undefined` y/o `path === undefined`, lanzando un mensaje claro si algún día `clipper2-js` corrige el bug y el parche puede retirarse.
+       - **Test de idempotencia y `executePolyTree`:** llamar a `applyClipperPatch()` repetidas veces y verificar que `executePolyTree` con un polígono exterior y un hueco produce la jerarquía esperada sin fallar en `checkBounds`.
+   - **Verificación:** `Select-String -Path web\src\core\polygonStitcher.ts -Pattern "as any"` → 0 coincidencias; `npx tsc --noEmit`, `npx vitest run` y `npm run lint` (sin incremento de warnings).
+
+2. **Issue L4 — Commit 2: `perf(stitcher): replace string cell keys with collision-free numeric keys`**
+   - **Objetivo (C3-2):** eliminar la interpolación de strings `` `${cx},${cy}` `` en las consultas espaciales de `polygonStitcher.ts` (9 celdas por vértice en `getOrCreateVertex` `:133-146` y 9 por cadena en `:289-304`).
+   - **Cambios en `web/src/core/polygonStitcher.ts`:**
+     - Reemplazar `cellKey(cx: number, cy: number): string` (`:52-54`) por una función numérica exportada `cellKey(cx: number, cy: number): number`:
+       - Con `CELL_OFFSET = 67_108_864` ($2^{26}$) y `CELL_STRIDE = 134_217_728` ($2^{27}$), `return (cx + CELL_OFFSET) * CELL_STRIDE + (cy + CELL_OFFSET);`.
+       - Para coordenadas de hasta $\pm 67\,000\text{ mm}$ a resolución `SNAP_TOLERANCE = 1e-3` ($cx, cy \in [-6.7 \times 10^7, +6.7 \times 10^7]$), la clave resultante es un entero no negativo estrictamente menor que $2^{53} - 1$ (`Number.MAX_SAFE_INTEGER`), inyectivo (0 colisiones) y sin asignación en heap.
+     - Cambiar `grid` (`:122`) y `headGrid` (`:266`) de `Map<string, number[]>` a `Map<number, number[]>`.
+   - **Tests nuevos en `web/src/__tests__/slicer.test.ts`:**
+     - Verificar que `cellKey` no colisiona en coordenadas negativas, positivas, cruzadas `(cx, cy)` vs `(cy, cx)` ni en extremos de $\pm 5000\text{ mm}$ ($\pm 5\,000\,000$ celdas).
+     - Ejecutar `stitchAndUnionSegments` sobre lazos cuadrados en coordenadas extremas ($[-5000, -4990]$, $[+4990, +5000]$ y alrededor del origen) comprobando que une los vértices correctos sin falsas fusiones entre cuadrantes.
+   - **Medición (C3-2):** medir antes y después con `web/scripts/bench-slice.ts` (añadiendo desglose o medición directa de `stitchAndUnionSegments` / `sliceMeshFromCache` con 200 placas en `dragon-meshed.obj`) y registrar en `docs/perf-log.md`.
+
+3. **Issue O4 (Paso 1) — Commit 3: `test(stitcher): add characterization test for broken mesh with 5000+ open chains`**
+   - **Objetivo (regla 8 + C3-3):** fijar antes de optimizar el resultado exacto (`openChainsRepaired`, `openChainsDiscarded` y `polygons`) sobre un conjunto sintético determinista con $\ge 5000$ cadenas abiertas con micro-brechas reparables ($\le 0.05\text{ mm}$) y cadenas descartables.
+   - **Archivos a modificar:**
+     - `web/src/__tests__/slicer.test.ts`: añadir un test de caracterización que genere determinísticamente $\ge 5000$ cadenas abiertas (por ejemplo, 1250 anillos cuadrados partidos cada uno en 4 cadenas abiertas con micro-brechas de $0.02\text{ mm}$ en orden barajado determinista + 200 cadenas abiertas aisladas que se descartan), verifique el conteo exacto de `openChainsRepaired`, `openChainsDiscarded`, el número de polígonos y sus áreas/vértices con `toEqual`.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/slicer.test.ts`.
+
+4. **Issue O4 (Paso 2) — Commit 4: `perf(stitcher): maintain headGrid incrementally during open chain merging`**
+   - **Objetivo (C3-3):** eliminar la reconstrucción cuadrática $O(N^2)$ de `headGrid` en cada fusión (`polygonStitcher.ts:261-336`) manteniendo el resultado **100 % idéntico** al algoritmo actual.
+   - **Análisis de equivalencia exacta:**
+     - En el bucle actual (`:261-336`), cuando la cadena activa `i` (`chainA`) se fusiona con `bestOther` (`chainB`), `chainB` se concatena al final de `chainA` y `active[bestOther]` pasa a `0`. El vértice cabeza (`chainA[0]`) **nunca cambia de coordenadas ni de celda**, y ninguna cadena nueva se añade al conjunto de cabezas activas; únicamente desaparecen cabezas (`bestOther`, y `i` si `chainA` se cierra sobre sí misma).
+     - Como ninguna cabeza se mueve ni se crea, ninguna cadena `k < i` que ya haya buscado sin éxito en `headGrid` puede encontrar un candidato nuevo después de una fusión en `i`. El único extremo que cambia tras fusionar `chainA` con `chainB` es la **cola (`tail`) de la propia `chainA`**.
+     - Por tanto:
+       1. Se construye `headGrid` **una sola vez** antes de recorrer `openChains`, insertando los índices `cIdx = 0 .. openChains.length - 1` en el mismo orden ascendente.
+       2. Para eliminar una cadena de `headGrid` cuando pasa a inactiva (`bestOther` al fusionarse, o `i` al cerrarse), se remueve su índice del bucket de su celda preservando el orden relativo de los demás elementos del bucket.
+       3. Para cada `i = 0 .. openChains.length - 1`, un bucle `while (active[i])` extiende repetidamente la cola de `openChains[i]` buscando `bestOther` en la vecindad $3 \times 3$ de `headGrid` hasta que `openChains[i]` se cierre o su nueva cola no tenga candidatos en `headGrid`, momento en que se avanza a `i + 1`.
+     - Esto realiza exactamente la misma secuencia de fusiones y desempates (`dSq <= bestDistSq` en el mismo orden de celdas y de índices) en tiempo $O(N)$ en lugar de $O(N^2)$.
+   - **Medición y registro en `docs/perf-log.md` (C3-3):**
+     - Incluir en `web/scripts/bench-slice.ts` (y/o reportar en `docs/perf-log.md`) el tiempo antes y después de `stitchAndUnionSegments` sobre el caso sintético de $\ge 5000$ cadenas abiertas (más la tabla de `dragon-meshed.obj` 200 placas para `L4`+`O4`).
+   - **Verificación final del chunk:** ejecutar G1-G9 y comprobar C3-1 a C3-4 (incluyendo G5 vacío).
 
 ---
 
