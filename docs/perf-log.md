@@ -48,4 +48,17 @@ Script: `web/scripts/bench-slice.ts` ejecutado mediante `npx vite-node scripts/b
 ---
 
 ## 3. Optimizaciones y Tooling (C0)
-*(Se completará conforme avancen O6, L1, L2, L3)*
+
+### 3.1 Issue O6: Vitest con entorno `node` por defecto
+- **Configuración**: `vite.config.ts` actualizado a `test.environment = 'node'`.
+- Archivos anotados con `// @vitest-environment jsdom`:
+  1. `src/__tests__/validator.test.ts` (3MF loader usa `DOMParser`)
+  2. `src/__tests__/zeroGap.test.ts` (valida SVG generado con `DOMParser`)
+  3. `src/__tests__/waffleExporter.test.ts` (valida SVG generado con `DOMParser`)
+  4. `src/__tests__/exporter.test.ts` (valida SVG generado con `DOMParser`)
+  5. `src/__tests__/project.test.ts` (pruebas de autosave usan `localStorage`)
+- **Archivos en entorno nativo `node`**: 9 archivos (`slicer`, `sizing`, `waffleSlicer`, `baseline`, `architecture`, `discs`, `waffle2d`, `layout`, `joints`).
+- **Tests**: **14/14 archivos, 132/132 tests pasados** (0 fallos).
+- **Duración antes**: **31.48 s** (con jsdom ocupando 64% del tiempo, ~127.49 s acumulados).
+- **Duración después**: **19.97 s** (~36.5 % de reducción de tiempo de suite).
+

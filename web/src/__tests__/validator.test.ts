@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import * as fs from 'node:fs';
