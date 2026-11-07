@@ -429,4 +429,69 @@ describe('slicer & polygon stitcher', () => {
       }
     });
   });
+
+  describe('Broken mesh characterization with 5000+ open chains (O4)', () => {
+    it('characterizes open chain repair and discard behavior on 5000+ open chains synthetic test', () => {
+      // Deterministic PRNG (LCG)
+      let seed = 123456789;
+      function nextRand() {
+        seed = (1103515245 * seed + 12345) % 2147483648;
+        return seed / 2147483648;
+      }
+
+      const segments: DirectedSegment2D[] = [];
+
+      // 1250 square rings, each split into 4 edges with micro-gaps of 0.02 mm (< 0.05 mm repair limit)
+      // This produces 5000 open chains to be repaired and closed.
+      const RING_COUNT = 1250;
+      for (let r = 0; r < RING_COUNT; r++) {
+        const cx = (r % 50) * 20;
+        const cy = Math.floor(r / 50) * 20;
+        const size = 10;
+        const gap = 0.02; // Micro-gap bridgeable by MAX_REPAIR_GAP_MM (0.05 mm)
+
+        // Bottom edge: (cx, cy) to (cx + size - gap, cy)
+        segments.push({ x0: cx, y0: cy, x1: cx + size - gap, y1: cy });
+        // Right edge: (cx + size, cy) to (cx + size, cy + size - gap)
+        segments.push({ x0: cx + size, y0: cy, x1: cx + size, y1: cy + size - gap });
+        // Top edge: (cx + size, cy + size) to (cx + gap, cy + size)
+        segments.push({ x0: cx + size, y0: cy + size, x1: cx + gap, y1: cy + size });
+        // Left edge: (cx, cy + size) to (cx, cy + gap)
+        segments.push({ x0: cx, y0: cy + size, x1: cx, y1: cy + gap });
+      }
+
+      // Add 200 isolated segments with large gaps (1.0 mm) that will not be repairable and must be discarded
+      const DISCARD_COUNT = 200;
+      for (let d = 0; d < DISCARD_COUNT; d++) {
+        const x = 2000 + d * 5;
+        const y = 2000;
+        segments.push({ x0: x, y0: y, x1: x + 2.0, y1: y });
+      }
+
+      // Shuffle segments deterministically with Fisher-Yates
+      for (let i = segments.length - 1; i > 0; i--) {
+        const j = Math.floor(nextRand() * (i + 1));
+        const temp = segments[i];
+        segments[i] = segments[j];
+        segments[j] = temp;
+      }
+
+      const res = stitchAndUnionSegments(segments);
+
+      // Characterization baselines:
+      // All 1250 square rings have 4 micro-gaps repaired: 1250 * 4 = 5000 repaired gaps
+      expect(res.openChainsRepaired).toBe(5000);
+      // All 200 isolated chains are discarded
+      expect(res.openChainsDiscarded).toBe(200);
+      // 1250 clean closed polygons generated
+      expect(res.polygons.length).toBe(1250);
+
+      // Verify area consistency (each square is approximately 10x10 = 100 mm²)
+      let totalArea = 0;
+      for (const p of res.polygons) {
+        totalArea += p.area;
+      }
+      expect(totalArea).toBeCloseTo(1250 * 100, -2);
+    });
+  });
 });
