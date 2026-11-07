@@ -49,7 +49,12 @@ Script: `web/scripts/bench-slice.ts` ejecutado mediante `npx vite-node scripts/b
 
 ## 3. Optimizaciones y Tooling (C0)
 
-### 3.2 Issue L1: ESLint en modo warn (DEC-10 = A)
+### 3.3 Issue L2: Dependencias sin uso
+- Se confirmó con búsqueda exhaustiva que `clsx` y `tailwind-merge` tenían 0 usos.
+- Eliminadas `clsx` y `tailwind-merge` de `package.json` y `package-lock.json` (`npm ls clsx tailwind-merge` -> `(empty)`).
+- `dxf-parser` (usado únicamente en tests de exportación y `write-baseline.ts`) movido de `dependencies` a `devDependencies`.
+- Verificado con `tsc`, `vitest` (132/132) y `npm run build` en verde.
+
 - **Herramientas**: `eslint@9.21.0`, `typescript-eslint@8.26.0`, `eslint-plugin-react-hooks@5.2.0`, `globals@16.0.0`.
 - **Configuración**: `web/eslint.config.js` con `@typescript-eslint/no-explicit-any: 'warn'`.
 - **Script**: `"lint": "eslint src"`.
