@@ -1,66 +1,24 @@
 import { create } from 'zustand';
 import type * as THREE from 'three';
 import { DEFAULT_PARAMS, PARAM_BOUNDS } from '../core/params';
-import { generateSheetLayouts, generateWaffleSheetLayouts } from '../core/layout';
-import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
-import {
-  INITIAL_BUILD,
-  type BuildConfig,
-  type JointId,
-  type TechniqueId,
-} from '../core/build/types';
+import { INITIAL_BUILD, type BuildConfig, type JointId, type TechniqueId } from '../core/build/types';
 import { getJoint } from '../core/build/registry';
 import { validateBuildParams } from '../core/build/validateBuild';
 import { ValidationError } from '../core/validator';
-import {
-  computeAdaptiveWafflePitch,
-  computeInitialWaffleScale,
-  horizontalExtentsForUpAxis,
-  platesForTargetDimension,
-  scaleForTargetDimension,
-  waffleMaxFit,
-  type ModelDimension,
-  type ModelExtents,
-  type SizeIntent,
-} from '../core/sizing';
+import { platesForTargetDimension, scaleForTargetDimension, type ModelDimension, type ModelExtents, type SizeIntent } from '../core/sizing';
 import { createDiscsSlice, type DiscsSlice } from './discsSlice';
-import {
-  INITIAL_WAFFLE_STATE,
-  type WaffleActions,
-  type WaffleState,
-} from './waffleSlice';
-import {
-  AUTO_SLICE_DEBOUNCE_MS,
-  clearAutoSliceTimer,
-  loadMeshWithWorkerOrFallback,
-  runSliceJob,
-  scheduleAutoSlice,
-} from './workerClient';
-import { generateSlotCalibrationSheet } from '../core/waffle/calibrationSheet';
-import type { WaffleParams, WaffleSliceResult, WaffleSection } from '../core/waffle/types';
+import { computeUpdatedWaffleParamsForExtents, createWaffleSlice, type WaffleActions, type WaffleState } from './waffleSlice';
+import { AUTO_SLICE_DEBOUNCE_MS, clearAutoSliceTimer, loadMeshWithWorkerOrFallback, runSliceJob, scheduleAutoSlice } from './workerClient';
+import type { WaffleSliceResult } from '../core/waffle/types';
 import { saveMeshBufferToIndexedDB } from '../core/autosave';
-import {
-  createProjectSlice,
-  persistAutosaveIfLoaded,
-  type PendingAutosaveSession,
-  type ProjectSlice,
-} from './projectSlice';
-import type {
-  Axis,
-  MeshMetadata,
-  SculptureParams,
-  SheetLayout,
-  SliceResult,
-} from '../types/sculpture';
+import { createProjectSlice, persistAutosaveIfLoaded, type PendingAutosaveSession, type ProjectSlice } from './projectSlice';
+import { createViewSlice, getNextNonEmptyFloor, type CameraPreset, type ViewMode, type ViewSlice } from './viewSlice';
+import type { Axis, MeshMetadata, SculptureParams, SliceResult } from '../types/sculpture';
 
 export { AUTO_SLICE_DEBOUNCE_MS };
-export type { PendingAutosaveSession };
-
-export type CameraPreset = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
-export type ViewMode = 'original' | 'plates';
+export type { CameraPreset, PendingAutosaveSession, ViewMode };
 
 export interface SculptureState {
-  // Parámetros y banderas
   params: SculptureParams;
   build: BuildConfig;
   gapManuallyEdited: boolean;
@@ -68,8 +26,6 @@ export interface SculptureState {
   modelExtents: ModelExtents | null;
   sizeIntent: SizeIntent;
   sizeCommitSeq: number;
-
-  // Malla y corte
   meshGeometry: THREE.BufferGeometry | null;
   meshMetadata: MeshMetadata | null;
   meshFileName: string | null;
@@ -78,22 +34,6 @@ export interface SculptureState {
   sliceResult: SliceResult | null;
   lastSliceAxis: Axis | null;
   lastSliceDurationMs: number | null;
-
-  // Navegación de pisos y vista
-  viewMode: ViewMode;
-  wireframe: boolean;
-  showAllFloors: boolean;
-  activeFloor: number; // Índice físico 0 .. params.plates - 1
-
-  // Cámara
-  cameraPreset: CameraPreset;
-  cameraPresetTrigger: number;
-
-  // Modal de previsualización de hojas 2D
-  sheetLayouts: SheetLayout[] | null;
-  isPreviewModalOpen: boolean;
-
-  // Mensajes de estado y errores
   statusMessage: string;
   errorMessage: string | null;
 }
@@ -103,17 +43,9 @@ export interface SculptureActions {
   setIsLoadingMesh: (loading: boolean) => void;
   loadMeshArrayBuffer: (buffer: ArrayBuffer, fileName: string, autoSlice?: boolean) => Promise<void>;
   runSlice: () => Promise<void>;
-  setViewMode: (mode: ViewMode) => void;
-  toggleWireframe: () => void;
-  setShowAllFloors: (showAll: boolean) => void;
-  setActiveFloor: (floorIndex: number) => void;
-  stepFloor: (delta: 1 | -1) => void;
-  setCameraPreset: (preset: CameraPreset) => void;
   setPlatesFromDimension: (dim: ModelDimension, mm: number) => void;
   setTechnique: (id: TechniqueId, opts?: { confirmed?: boolean }) => { needsConfirmation: boolean; discCount: number };
   setJoint: (id: JointId, opts?: { confirmed?: boolean }) => { needsConfirmation: boolean; discCount: number };
-  openSheetPreviewModal: () => void;
-  closeSheetPreviewModal: () => void;
   clearError: () => void;
 }
 
@@ -121,36 +53,48 @@ export type SculptureStore = SculptureState &
   SculptureActions &
   DiscsSlice &
   ProjectSlice &
+  ViewSlice &
   WaffleState &
   WaffleActions;
 
-function getNextNonEmptyFloor(
-  plates: SliceResult['plates'],
-  current: number,
-  delta: 1 | -1
-): number {
-  const n = plates.length;
-  if (n === 0) return 0;
-  let idx = current + delta;
-  while (idx >= 0 && idx < n) {
-    if (plates[idx] && plates[idx].length > 0) {
-      return idx;
-    }
-    idx += delta;
+function isStackedSliceReady(build: BuildConfig): boolean {
+  return build.techniqueId === 'stacked' && (build.jointId === 'none' || build.jointId === 'discs');
+}
+
+function recalcPlatesForSizeIntent(
+  extents: ModelExtents | null,
+  intent: SizeIntent,
+  axis: Axis,
+  thickness: number,
+  gap: number,
+  fallbackPlates: number,
+  fallbackStatus: string
+): { plates: number; statusMessage: string } {
+  if (intent.kind !== 'size' || !extents) {
+    return { plates: fallbackPlates, statusMessage: fallbackStatus };
   }
-  return current;
+  const outcome = platesForTargetDimension(extents, axis, intent.dim, intent.targetMm, thickness, gap);
+  const statusMessage =
+    outcome.clamped === 'min'
+      ? 'Límite de placas alcanzado (2)'
+      : outcome.clamped === 'max'
+      ? 'Límite de placas alcanzado (200)'
+      : fallbackStatus;
+  return { plates: outcome.plates, statusMessage };
 }
 
 export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
   let lastSlicedAxis: Axis | null = null;
   const discsSlice = createDiscsSlice(set, get, api);
   const projectSlice = createProjectSlice(set, get, api);
+  const viewSlice = createViewSlice(set, get, api);
+  const waffleSlice = createWaffleSlice(set, get, api);
 
   return {
     ...discsSlice,
     ...projectSlice,
-    ...INITIAL_WAFFLE_STATE,
-
+    ...viewSlice,
+    ...waffleSlice,
     params: { ...DEFAULT_PARAMS },
     build: { ...INITIAL_BUILD },
     gapManuallyEdited: false,
@@ -158,7 +102,6 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     modelExtents: null,
     sizeIntent: { kind: 'plates' },
     sizeCommitSeq: 0,
-
     meshGeometry: null,
     meshMetadata: null,
     meshFileName: null,
@@ -167,18 +110,6 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     isLoadingMesh: false,
     lastSliceAxis: null,
     lastSliceDurationMs: null,
-
-    viewMode: 'original',
-    wireframe: false,
-    showAllFloors: true,
-    activeFloor: 0,
-
-    cameraPreset: 'iso',
-    cameraPresetTrigger: 0,
-
-    sheetLayouts: null,
-    isPreviewModalOpen: false,
-
     statusMessage: 'Carga un modelo 3D (.obj, .stl, .3mf, .ply) para comenzar',
     errorMessage: null,
 
@@ -187,7 +118,6 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       const nextParams: SculptureParams = { ...state.params, [key]: value };
       let nextGapEdited = state.gapManuallyEdited;
 
-      // Sincronización automática gap = thickness si el usuario no editó gap manualmente (unión por discos)
       if (key === 'thickness' && !state.gapManuallyEdited && state.build.jointId === 'discs') {
         nextParams.gap = value as number;
       } else if (key === 'gap') {
@@ -200,30 +130,20 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }
       }
 
-      let nextSizeIntent = state.sizeIntent;
+      const nextSizeIntent: SizeIntent = key === 'plates' ? { kind: 'plates' } : state.sizeIntent;
       let nextStatusMessage = state.statusMessage;
-
-      if (key === 'plates') {
-        nextSizeIntent = { kind: 'plates' };
-      } else if (
-        (key === 'thickness' || key === 'gap' || key === 'axis') &&
-        state.sizeIntent.kind === 'size' &&
-        state.modelExtents !== null
-      ) {
-        const outcome = platesForTargetDimension(
+      if (key === 'thickness' || key === 'gap' || key === 'axis') {
+        const recalc = recalcPlatesForSizeIntent(
           state.modelExtents,
+          nextSizeIntent,
           nextParams.axis,
-          state.sizeIntent.dim,
-          state.sizeIntent.targetMm,
           nextParams.thickness,
-          nextParams.gap
+          nextParams.gap,
+          nextParams.plates,
+          state.statusMessage
         );
-        nextParams.plates = outcome.plates;
-        if (outcome.clamped === 'min') {
-          nextStatusMessage = 'Límite de placas alcanzado (2)';
-        } else if (outcome.clamped === 'max') {
-          nextStatusMessage = 'Límite de placas alcanzado (200)';
-        }
+        nextParams.plates = recalc.plates;
+        nextStatusMessage = recalc.statusMessage;
       }
 
       set({
@@ -234,43 +154,27 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         isResultDirty: state.sliceResult !== null,
         errorMessage: null,
       });
-
-      // Autosave automático si hay malla cargada
       persistAutosaveIfLoaded(get());
 
       if (key === 'thickness' && !get().wafflePitchManuallyEdited) {
         set((s) => ({
-          waffleParams: {
-            ...s.waffleParams,
-            pitch: Number((4 * Number(value)).toFixed(2)),
-          },
+          waffleParams: { ...s.waffleParams, pitch: Number((4 * Number(value)).toFixed(2)) },
         }));
       }
 
-      // Auto-slice si está en técnica waffle
-      if (
-        state.meshGeometry &&
-        get().build.techniqueId === 'waffle' &&
-        (key === 'thickness' || key === 'kerf')
-      ) {
+      if (state.meshGeometry && get().build.techniqueId === 'waffle' && (key === 'thickness' || key === 'kerf')) {
         scheduleAutoSlice(() => void get().runSlice());
       }
 
-      // Auto-slice inteligente si el cambio afecta al corte
-      const sliceAffectingKeys = ['plates', 'thickness', 'gap', 'axis'];
       if (
-        sliceAffectingKeys.includes(key as string) &&
+        ['plates', 'thickness', 'gap', 'axis'].includes(key as string) &&
         state.meshGeometry &&
-        get().build.techniqueId === 'stacked' &&
-        (get().build.jointId === 'none' || get().build.jointId === 'discs')
+        isStackedSliceReady(get().build)
       ) {
         if (key === 'axis') {
-          // Cambio discreto de eje: ejecutar inmediatamente sin debounce
           clearAutoSliceTimer();
           void get().runSlice();
         } else {
-          // Parámetros continuos (placas, grosor, separación): debounce de 350ms
-          // para no recalcular cortes intermedios innecesarios al usar las flechitas o escribir
           scheduleAutoSlice(() => void get().runSlice());
         }
       }
@@ -282,7 +186,6 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       clearAutoSliceTimer();
       set({ isLoadingMesh: true, errorMessage: null, statusMessage: `Cargando ${fileName}...` });
 
-      // Ceder un frame al navegador para que pinte de inmediato el spinner en pantalla
       await new Promise<void>((resolve) => {
         if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
           window.requestAnimationFrame(() => setTimeout(resolve, 16));
@@ -292,21 +195,12 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       });
 
       try {
-        // Detectar si el modelo necesita orientación Y-up a Z-up
         const ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));
         const upOrientation = ext === '.obj' ? 'y-up' : undefined;
-
-        const { geometry, metadata } = await loadMeshWithWorkerOrFallback(
-          buffer,
-          fileName,
-          upOrientation
-        );
+        const { geometry, metadata } = await loadMeshWithWorkerOrFallback(buffer, fileName, upOrientation);
 
         get().resetDiscs();
-
-        if (!geometry.boundingBox) {
-          geometry.computeBoundingBox();
-        }
+        if (!geometry.boundingBox) geometry.computeBoundingBox();
         const bbox = geometry.boundingBox!;
         const extents: ModelExtents = {
           x: bbox.max.x - bbox.min.x,
@@ -315,21 +209,13 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         };
 
         const initialSizeIntent: SizeIntent = { kind: 'plates' };
-        const initialWaffleScale = computeInitialWaffleScale(
+        const nextWaffleParams = computeUpdatedWaffleParamsForExtents(
           extents,
           get().params,
-          get().waffleParams.upAxis,
-          get().waffleParams.pitch,
-          initialSizeIntent
+          get().waffleParams,
+          initialSizeIntent,
+          get().wafflePitchManuallyEdited
         );
-        const initialWafflePitch = get().wafflePitchManuallyEdited
-          ? get().waffleParams.pitch
-          : computeAdaptiveWafflePitch(
-              extents,
-              initialWaffleScale,
-              get().waffleParams.upAxis,
-              get().params.thickness
-            );
 
         set({
           meshGeometry: geometry,
@@ -337,11 +223,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           meshFileName: fileName,
           modelExtents: extents,
           sizeIntent: initialSizeIntent,
-          waffleParams: {
-            ...get().waffleParams,
-            targetScale: initialWaffleScale,
-            pitch: initialWafflePitch,
-          },
+          waffleParams: nextWaffleParams,
           sliceResult: null,
           waffleResult: null,
           selectedWafflePieceId: null,
@@ -351,16 +233,8 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           statusMessage: `Modelo '${fileName}' cargado (${metadata.vertexCount} vértices, ${metadata.faceCount} triángulos)`,
         });
 
-        saveMeshBufferToIndexedDB(fileName, buffer).catch(() => {
-          // Fallback silencioso si IndexedDB falla
-        });
-
-        if (
-          autoSlice &&
-          ((get().build.techniqueId === 'stacked' &&
-            (get().build.jointId === 'none' || get().build.jointId === 'discs')) ||
-            get().build.techniqueId === 'waffle')
-        ) {
+        saveMeshBufferToIndexedDB(fileName, buffer).catch(() => {});
+        if (autoSlice && (isStackedSliceReady(get().build) || get().build.techniqueId === 'waffle')) {
           await get().runSlice();
         }
       } catch (err) {
@@ -375,8 +249,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     runSlice: async () => {
       clearAutoSliceTimer();
       const state = get();
-      if (!state.meshGeometry) return;
-      if (!state.build.techniqueId || !state.build.jointId) return;
+      if (!state.meshGeometry || !state.build.techniqueId || !state.build.jointId) return;
 
       const isWaffle = state.build.techniqueId === 'waffle';
       const paramsSnapshot = { ...state.params };
@@ -403,13 +276,10 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         const prevScaleFactor = state.sliceResult?.scaleFactor ?? 0;
         const axisChanged = state.sliceResult !== null && lastSlicedAxis !== state.params.axis;
         lastSlicedAxis = state.params.axis;
-
         if (state.build.jointId === 'discs') {
           get().onSliceApplied({ axisChanged, prevScaleFactor, result });
         }
-
         const firstFloor = getNextNonEmptyFloor(result.plates, 0, 1);
-
         set((s) => ({
           sliceResult: result,
           lastSliceAxis: paramsSnapshot.axis,
@@ -417,15 +287,13 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           isSlicing: false,
           isResultDirty: false,
           viewMode: 'plates',
-          activeFloor: Math.min(s.activeFloor, result.plates.length - 1) >= 0
-            ? Math.min(s.activeFloor, result.plates.length - 1)
-            : firstFloor,
+          activeFloor:
+            Math.min(s.activeFloor, result.plates.length - 1) >= 0
+              ? Math.min(s.activeFloor, result.plates.length - 1)
+              : firstFloor,
           statusMessage: `Corte completado en ${Math.round(durationMs)} ms (${result.plates.length} placas)`,
         }));
-
-        if (state.meshFileName) {
-          persistAutosaveIfLoaded(get());
-        }
+        persistAutosaveIfLoaded(get());
       };
 
       const applyWaffleSliceOutcome = (result: WaffleSliceResult, durationMs: number) => {
@@ -436,7 +304,6 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           const nextSelected = stillSelected
             ? s.selectedWafflePieceId
             : (result.p1Sections[0]?.id ?? result.p2Sections[0]?.id ?? null);
-
           return {
             waffleResult: result,
             isSlicing: false,
@@ -446,10 +313,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
             statusMessage: `Corte Waffle completado en ${Math.round(durationMs)} ms (${totalPieces} piezas: ${result.p1Sections.length} X, ${result.p2Sections.length} Y)`,
           };
         });
-
-        if (state.meshFileName) {
-          persistAutosaveIfLoaded(get());
-        }
+        persistAutosaveIfLoaded(get());
       };
 
       await runSliceJob({
@@ -462,80 +326,37 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           onWaffleSuccess: applyWaffleSliceOutcome,
           onSkipped: () => set({ isSlicing: false }),
           onWorkerError: (errorMsg) =>
-            set({
-              isSlicing: false,
-              errorMessage: errorMsg,
-              statusMessage: 'Error durante el corte',
-            }),
-          onSyncError: (errorMsg) =>
-            set({
-              isSlicing: false,
-              errorMessage: errorMsg,
-            }),
+            set({ isSlicing: false, errorMessage: errorMsg, statusMessage: 'Error durante el corte' }),
+          onSyncError: (errorMsg) => set({ isSlicing: false, errorMessage: errorMsg }),
         },
       });
     },
-
-    setViewMode: (mode) => set({ viewMode: mode }),
-    toggleWireframe: () => set((s) => ({ wireframe: !s.wireframe })),
-    setShowAllFloors: (showAll) => set({ showAllFloors: showAll }),
-
-    setActiveFloor: (floorIndex) => {
-      const res = get().sliceResult;
-      if (!res) return;
-      const clamped = Math.max(0, Math.min(res.plates.length - 1, floorIndex));
-      set({ activeFloor: clamped, selectedDiscId: null });
-    },
-
-    stepFloor: (delta) => {
-      const { sliceResult, activeFloor } = get();
-      if (!sliceResult) return;
-      const next = getNextNonEmptyFloor(sliceResult.plates, activeFloor, delta);
-      set({ activeFloor: next, selectedDiscId: null });
-    },
-
-    setCameraPreset: (preset) =>
-      set((s) => ({
-        cameraPreset: preset,
-        cameraPresetTrigger: s.cameraPresetTrigger + 1,
-      })),
 
     setPlatesFromDimension: (dim, mm) => {
       if (!Number.isFinite(mm) || mm <= 0) return;
       const state = get();
       if (!state.modelExtents) return;
-      const outcome = platesForTargetDimension(
+      const intent: SizeIntent = { kind: 'size', dim, targetMm: mm };
+      const { plates, statusMessage } = recalcPlatesForSizeIntent(
         state.modelExtents,
+        intent,
         state.params.axis,
-        dim,
-        mm,
         state.params.thickness,
-        state.params.gap
+        state.params.gap,
+        state.params.plates,
+        state.statusMessage
       );
-      const statusMessage =
-        outcome.clamped === 'min'
-          ? 'Límite de placas alcanzado (2)'
-          : outcome.clamped === 'max'
-          ? 'Límite de placas alcanzado (200)'
-          : state.statusMessage;
-
       const nextWaffleScale = scaleForTargetDimension(state.modelExtents, dim, mm);
       set({
-        params: { ...state.params, plates: outcome.plates },
+        params: { ...state.params, plates },
         waffleParams: { ...state.waffleParams, targetScale: nextWaffleScale },
-        sizeIntent: { kind: 'size', dim, targetMm: mm },
+        sizeIntent: intent,
         sizeCommitSeq: state.sizeCommitSeq + 1,
         isResultDirty: state.sliceResult !== null,
         statusMessage,
       });
-
       persistAutosaveIfLoaded(get());
-
-      if (
-        state.meshGeometry &&
-        get().build.techniqueId === 'stacked' &&
-        (get().build.jointId === 'none' || get().build.jointId === 'discs')
-      ) {
+      if (state.meshGeometry && isStackedSliceReady(get().build)) {
         scheduleAutoSlice(() => void get().runSlice());
       }
     },
@@ -545,11 +366,8 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       if (id !== 'stacked' && id !== 'waffle') {
         throw new ValidationError(`Técnica desconocida: '${id}'.`);
       }
-      const currentTechniqueId = get().build.techniqueId;
-      const currentJointId = get().build.jointId;
-      if (id === currentTechniqueId) {
-        return { needsConfirmation: false, discCount: 0 };
-      }
+      const { techniqueId: currentTechniqueId, jointId: currentJointId } = get().build;
+      if (id === currentTechniqueId) return { needsConfirmation: false, discCount: 0 };
 
       const discs = get().discs;
       if (currentTechniqueId === 'stacked' && currentJointId === 'discs' && discs.length > 0 && !opts?.confirmed) {
@@ -558,71 +376,33 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
       if (id === 'waffle') {
         if (currentJointId === 'discs') {
-          get().discManager.loadDiscsFromProject([]);
-          set({
-            selectedDiscId: null,
-            modeAddDiscs: false,
-            discs: [],
-            canUndo: false,
-            canRedo: false,
-          });
+          get().resetDiscs();
+          set({ modeAddDiscs: false });
         }
-
-        set((s) => {
-          const nextScale = s.modelExtents
-            ? computeInitialWaffleScale(
-                s.modelExtents,
-                s.params,
-                s.waffleParams.upAxis,
-                s.waffleParams.pitch,
-                s.sizeIntent
-              )
-            : s.waffleParams.targetScale;
-
-          const nextPitch = s.wafflePitchManuallyEdited
-            ? s.waffleParams.pitch
-            : computeAdaptiveWafflePitch(
-                s.modelExtents,
-                nextScale,
-                s.waffleParams.upAxis,
-                s.params.thickness
-              );
-
-          return {
-            build: { ...s.build, techniqueId: 'waffle', jointId: 'slots' },
-            waffleParams: {
-              ...s.waffleParams,
-              targetScale: nextScale,
-              pitch: nextPitch,
-            },
-            isResultDirty: s.waffleResult !== null,
-          };
-        });
-
-        persistAutosaveIfLoaded(get());
-
-        if (get().meshGeometry) {
-          void get().runSlice();
-        }
-      } else if (id === 'stacked') {
-        set((s) => {
-          const nextJointId =
-            s.build.jointId && s.build.jointId !== 'slots'
-              ? s.build.jointId
-              : '';
-          return {
-            build: { ...s.build, techniqueId: 'stacked', jointId: nextJointId },
-            isResultDirty: s.sliceResult !== null,
-          };
-        });
-
-        persistAutosaveIfLoaded(get());
-
-        if (get().meshGeometry) {
-          void get().runSlice();
-        }
+        set((s) => ({
+          build: { ...s.build, techniqueId: 'waffle', jointId: 'slots' },
+          waffleParams: computeUpdatedWaffleParamsForExtents(
+            s.modelExtents,
+            s.params,
+            s.waffleParams,
+            s.sizeIntent,
+            s.wafflePitchManuallyEdited
+          ),
+          isResultDirty: s.waffleResult !== null,
+        }));
+      } else {
+        set((s) => ({
+          build: {
+            ...s.build,
+            techniqueId: 'stacked',
+            jointId: s.build.jointId && s.build.jointId !== 'slots' ? s.build.jointId : '',
+          },
+          isResultDirty: s.sliceResult !== null,
+        }));
       }
 
+      persistAutosaveIfLoaded(get());
+      if (get().meshGeometry) void get().runSlice();
       return { needsConfirmation: false, discCount: 0 };
     },
 
@@ -639,320 +419,59 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         throw new ValidationError('La técnica «Waffle» solo admite la unión «Encaje por ranuras».');
       }
       const currentJointId = get().build.jointId;
-      if (id === currentJointId) {
-        return { needsConfirmation: false, discCount: 0 };
-      }
+      if (id === currentJointId) return { needsConfirmation: false, discCount: 0 };
+
       const discs = get().discs;
       if (currentJointId === 'discs' && discs.length > 0 && !opts?.confirmed) {
         return { needsConfirmation: true, discCount: discs.length };
       }
 
       if (currentJointId === 'discs') {
-        get().discManager.loadDiscsFromProject([]);
+        get().resetDiscs();
         set({
-          selectedDiscId: null,
           modeAddDiscs: false,
-          discs: [],
-          canUndo: false,
-          canRedo: false,
           discGapMemory: get().params.gap,
           discGapManuallyEditedMemory: get().gapManuallyEdited,
         });
       }
 
-      if (id === 'none') {
-        const nextGap = 0;
-        let nextPlates = get().params.plates;
-        let nextStatusMessage = get().statusMessage;
-        if (get().sizeIntent.kind === 'size' && get().modelExtents !== null) {
-          const intent = get().sizeIntent as { kind: 'size'; dim: ModelDimension; targetMm: number };
-          const outcome = platesForTargetDimension(
-            get().modelExtents!,
-            get().params.axis,
-            intent.dim,
-            intent.targetMm,
-            get().params.thickness,
-            nextGap
-          );
-          nextPlates = outcome.plates;
-          if (outcome.clamped === 'min') {
-            nextStatusMessage = 'Límite de placas alcanzado (2)';
-          } else if (outcome.clamped === 'max') {
-            nextStatusMessage = 'Límite de placas alcanzado (200)';
-          }
-        }
-        set((s) => ({
-          build: { ...s.build, jointId: id },
-          params: { ...s.params, gap: nextGap, plates: nextPlates },
-          statusMessage: nextStatusMessage,
-          isResultDirty: s.sliceResult !== null,
-        }));
-      } else if (id === 'discs') {
+      if (id === 'none' || id === 'discs') {
         const memory = get().discGapMemory;
         const memoryEdited = get().discGapManuallyEditedMemory;
         const nextGap =
-          memory !== null && memory >= PARAM_BOUNDS.gap.min
+          id === 'none'
+            ? 0
+            : memory !== null && memory >= PARAM_BOUNDS.gap.min
             ? memory
             : Math.max(PARAM_BOUNDS.gap.min, get().params.thickness);
-        const nextGapEdited = memory !== null ? memoryEdited : false;
-        let nextPlates = get().params.plates;
-        let nextStatusMessage = get().statusMessage;
-        if (get().sizeIntent.kind === 'size' && get().modelExtents !== null) {
-          const intent = get().sizeIntent as { kind: 'size'; dim: ModelDimension; targetMm: number };
-          const outcome = platesForTargetDimension(
-            get().modelExtents!,
-            get().params.axis,
-            intent.dim,
-            intent.targetMm,
-            get().params.thickness,
-            nextGap
-          );
-          nextPlates = outcome.plates;
-          if (outcome.clamped === 'min') {
-            nextStatusMessage = 'Límite de placas alcanzado (2)';
-          } else if (outcome.clamped === 'max') {
-            nextStatusMessage = 'Límite de placas alcanzado (200)';
-          }
-        }
+        const nextGapEdited =
+          id === 'none' ? get().gapManuallyEdited : memory !== null ? memoryEdited : false;
+
+        const { plates: nextPlates, statusMessage: nextStatusMessage } = recalcPlatesForSizeIntent(
+          get().modelExtents,
+          get().sizeIntent,
+          get().params.axis,
+          get().params.thickness,
+          nextGap,
+          get().params.plates,
+          get().statusMessage
+        );
+
         set((s) => ({
           build: { ...s.build, jointId: id },
           params: { ...s.params, gap: nextGap, plates: nextPlates },
-          gapManuallyEdited: nextGapEdited,
+          ...(id === 'discs' ? { gapManuallyEdited: nextGapEdited } : {}),
           statusMessage: nextStatusMessage,
           isResultDirty: s.sliceResult !== null,
         }));
       }
 
       persistAutosaveIfLoaded(get(), undefined, false);
-
-      if (
-        get().meshGeometry &&
-        get().build.techniqueId === 'stacked' &&
-        (get().build.jointId === 'none' || get().build.jointId === 'discs')
-      ) {
+      if (get().meshGeometry && isStackedSliceReady(get().build)) {
         void get().runSlice();
       }
-
       return { needsConfirmation: false, discCount: 0 };
     },
-
-    setWaffleParam: (key, value) => {
-      const current = get().waffleParams;
-      if (current[key] === value) return;
-
-      const nextWaffleParams = { ...current, [key]: value };
-      const pitchManuallyEdited =
-        key === 'pitch' || key === 'count1' || key === 'count2' || key === 'distance1' || key === 'distance2'
-          ? true
-          : get().wafflePitchManuallyEdited;
-
-      if (key === 'distributionMethod') {
-        const result = get().waffleResult;
-        if (result) {
-          if (value === 'distance') {
-            const p1Len = result.p1Sections.length;
-            const p2Len = result.p2Sections.length;
-            const extX = result.scaledBounds3D.max[0] - result.scaledBounds3D.min[0];
-            const extY = result.scaledBounds3D.max[1] - result.scaledBounds3D.min[1];
-            if (p1Len > 0 && extX > 0) {
-              nextWaffleParams.distance1 = Math.max(2 * get().params.thickness, Number((extX / p1Len).toFixed(1)));
-            }
-            if (p2Len > 0 && extY > 0) {
-              nextWaffleParams.distance2 = Math.max(2 * get().params.thickness, Number((extY / p2Len).toFixed(1)));
-            }
-          } else if (value === 'count') {
-            if (result.p1Sections.length > 0) {
-              nextWaffleParams.count1 = result.p1Sections.length;
-            }
-            if (result.p2Sections.length > 0) {
-              nextWaffleParams.count2 = result.p2Sections.length;
-            }
-          }
-        }
-      }
-
-      set({
-        waffleParams: nextWaffleParams,
-        wafflePitchManuallyEdited: pitchManuallyEdited,
-        isResultDirty: get().waffleResult !== null,
-      });
-
-      persistAutosaveIfLoaded(get(), nextWaffleParams);
-
-      if (get().meshGeometry && get().build.techniqueId === 'waffle') {
-        if (key === 'upAxis') {
-          clearAutoSliceTimer();
-          void get().runSlice();
-        } else {
-          scheduleAutoSlice(() => void get().runSlice());
-        }
-      }
-    },
-
-    setWaffleDimensionTarget: (dim, targetMm) => {
-      if (!Number.isFinite(targetMm) || targetMm <= 0) return;
-      const state = get();
-      if (!state.modelExtents) return;
-
-      const nextScale = scaleForTargetDimension(state.modelExtents, dim, targetMm);
-      const nextWaffleParams = {
-        ...state.waffleParams,
-        targetScale: nextScale,
-      };
-
-      set({
-        waffleParams: nextWaffleParams,
-        sizeIntent: { kind: 'size', dim, targetMm },
-        sizeCommitSeq: state.sizeCommitSeq + 1,
-        isResultDirty: state.waffleResult !== null,
-      });
-
-      persistAutosaveIfLoaded(get(), nextWaffleParams);
-
-      if (state.meshGeometry && get().build.techniqueId === 'waffle') {
-        scheduleAutoSlice(() => void get().runSlice());
-      }
-    },
-
-    setWaffleFamilyFilter: (filter) => set({ waffleFamilyFilter: filter }),
-
-    selectWafflePiece: (pieceId) => set({ selectedWafflePieceId: pieceId }),
-
-    stepWafflePiece: (delta) => {
-      const { waffleResult, waffleFamilyFilter, selectedWafflePieceId } = get();
-      if (!waffleResult) return;
-      const pieces: WaffleSection[] =
-        waffleFamilyFilter === 'P1'
-          ? waffleResult.p1Sections
-          : waffleFamilyFilter === 'P2'
-          ? waffleResult.p2Sections
-          : [...waffleResult.p1Sections, ...waffleResult.p2Sections];
-
-      if (pieces.length === 0) return;
-      const currentIndex = pieces.findIndex((p: WaffleSection) => p.id === selectedWafflePieceId);
-      const nextIndex =
-        currentIndex === -1
-          ? 0
-          : (currentIndex + delta + pieces.length) % pieces.length;
-      set({ selectedWafflePieceId: pieces[nextIndex].id });
-    },
-
-    openCalibrationSheetPreview: () => {
-      const { params, waffleParams } = get();
-      try {
-        const calSheet = generateSlotCalibrationSheet(
-          params.thickness,
-          params.kerf,
-          waffleParams.slotClearance
-        );
-        set({
-          sheetLayouts: [calSheet],
-          isPreviewModalOpen: true,
-          isCalibrationSheetModalOpen: true,
-          errorMessage: null,
-        });
-      } catch (err) {
-        set({
-          errorMessage: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-    closeCalibrationSheetPreview: () => set({ isCalibrationSheetModalOpen: false }),
-
-    optimizeWaffleGridForTargetSections: (targetSectionsPerAxis = 6) => {
-      const state = get();
-      if (!state.modelExtents) return;
-
-      const { h1, h2 } = horizontalExtentsForUpAxis(
-        state.modelExtents,
-        state.waffleParams.upAxis
-      );
-      const minHoriz = Math.min(h1, h2);
-      if (minHoriz <= 0) return;
-
-      const minLegalPitch = Math.max(
-        2 * state.params.thickness,
-        Number(
-          (
-            state.params.thickness +
-            state.waffleParams.slotClearance -
-            state.params.kerf +
-            0.5
-          ).toFixed(2)
-        )
-      );
-
-      let nextScale = state.waffleParams.targetScale;
-      let nextPitch = state.waffleParams.pitch;
-
-      const currentMinHorizMm = minHoriz * nextScale;
-      const candidatePitch = Math.floor((currentMinHorizMm / targetSectionsPerAxis) * 2) / 2;
-
-      if (candidatePitch >= minLegalPitch) {
-        nextPitch = Number(candidatePitch.toFixed(2));
-      } else {
-        nextPitch = minLegalPitch;
-        const neededScale = (targetSectionsPerAxis * nextPitch) / minHoriz;
-        const fit = waffleMaxFit(state.modelExtents, state.waffleParams.upAxis, state.params);
-        nextScale = fit && fit.maxScale > 0
-          ? Math.min(neededScale, fit.maxScale * 0.85)
-          : neededScale;
-      }
-
-      const nextWaffleParams: WaffleParams = {
-        ...state.waffleParams,
-        targetScale: nextScale,
-        pitch: nextPitch,
-        gridOffset: Math.max(-nextPitch * 0.5, Math.min(nextPitch * 0.5, state.waffleParams.gridOffset)),
-      };
-
-      set({
-        waffleParams: nextWaffleParams,
-        wafflePitchManuallyEdited: true,
-        sizeCommitSeq: state.sizeCommitSeq + 1,
-        isResultDirty: state.waffleResult !== null,
-      });
-
-      persistAutosaveIfLoaded(get(), nextWaffleParams);
-
-      if (state.meshGeometry && get().build.techniqueId === 'waffle') {
-        clearAutoSliceTimer();
-        void get().runSlice();
-      }
-    },
-
-    openSheetPreviewModal: () => {
-      const { sliceResult, waffleResult, discs, params, build } = get();
-      if (build.techniqueId === 'waffle') {
-        if (!waffleResult) return;
-        try {
-          const layouts = generateWaffleSheetLayouts(waffleResult, params);
-          set({ sheetLayouts: layouts, isPreviewModalOpen: true, errorMessage: null });
-        } catch (err) {
-          set({
-            errorMessage: err instanceof Error ? err.message : String(err),
-            statusMessage: 'Error al generar la distribución de hojas',
-          });
-        }
-        return;
-      }
-
-      if (!sliceResult) return;
-      try {
-        const layouts =
-          build.jointId === 'discs'
-            ? generateDiscsLayouts(sliceResult, discs, params)
-            : generateSheetLayouts(sliceResult, params);
-        set({ sheetLayouts: layouts, isPreviewModalOpen: true, errorMessage: null });
-      } catch (err) {
-        set({
-          errorMessage: err instanceof Error ? err.message : String(err),
-          statusMessage: 'Error al generar la distribución de hojas',
-        });
-      }
-    },
-
-    closeSheetPreviewModal: () => set({ isPreviewModalOpen: false }),
 
     clearError: () => set({ errorMessage: null }),
   };
