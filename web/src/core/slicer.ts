@@ -34,6 +34,14 @@ export function computeCutPositions(
 export class AxisSliceCache {
   readonly axis: Axis;
   readonly triCount: number;
+  /**
+   * Coordenadas de los triángulos rotados y centrados en el origen.
+   * Se utiliza Float32Array (precisión simple, ~7 dígitos significativos, error relativo ~1e-7).
+   * Al centrar el modelo en su bounding box (restando cx, cy, cz), las magnitudes se mantienen
+   * pequeñas y no se pierde precisión en los vértices. Durante el seccionado en extractSegmentsAtZ,
+   * el scaleFactor y la interpolación se calculan en precisión doble (number de 64 bits de JS),
+   * lo que evita acumulación de errores al proyectar los segmentos 2D.
+   */
   readonly coords: Float32Array;   // 9 floats por triángulo (x0,y0,z0, x1,y1,z1, x2,y2,z2)
   readonly normalsXY: Float32Array; // 2 floats por triángulo (nx, ny) de (v1-v0)x(v2-v0)
   readonly triMinZ: Float32Array;

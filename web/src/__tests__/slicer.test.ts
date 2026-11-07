@@ -306,4 +306,52 @@ describe('slicer & polygon stitcher', () => {
       console.log(`[Benchmark] 10,000 segments stitched in ${durationMs.toFixed(2)} ms (target < 50 ms)`);
     });
   });
+
+  describe('Float32 precision across extreme mesh scales (D3)', () => {
+    const objBuf = toArrayBuffer(fs.readFileSync(path.join(FIXTURES_DIR, 'test_l_block.obj')));
+    const mesh = loadMeshFromBuffer(objBuf, 'test_l_block.obj');
+    const basePositions = mesh.geometry.getAttribute('position').array as Float32Array;
+
+    const baseParams: SculptureParams = {
+      ...DEFAULT_PARAMS,
+      plates: 5,
+      thickness: 3.0,
+      gap: 2.0,
+      axis: 'z',
+    };
+
+    it('slices extreme scale meshes without open chains or polygon loss', () => {
+      const baseResult = sliceMesh(basePositions, baseParams);
+
+      for (const scale of [1e-3, 1e3]) {
+        const scaledPositions = new Float32Array(basePositions.length);
+        for (let i = 0; i < basePositions.length; i++) {
+          scaledPositions[i] = basePositions[i] * scale;
+        }
+
+        const result = sliceMesh(scaledPositions, baseParams);
+
+        // Sin advertencias de cadenas abiertas descartadas
+        const totalDiscarded = result.warnings.reduce(
+          (sum, w) => sum + w.openChainsDiscarded,
+          0
+        );
+        expect(totalDiscarded).toBe(0);
+        for (const warning of result.warnings) {
+          expect(warning.openChainsDiscarded).toBe(0);
+        }
+
+        // Mismo número de placas y mismo número de polígonos por placa que en escala base
+        expect(result.plates.length).toBe(baseResult.plates.length);
+        for (let i = 0; i < result.plates.length; i++) {
+          expect(result.plates[i].length).toBe(baseResult.plates[i].length);
+          if (baseResult.plates[i].length > 0) {
+            const baseArea = baseResult.plates[i][0].area;
+            const scaledArea = result.plates[i][0].area;
+            expect(Math.abs(scaledArea - baseArea) / baseArea).toBeLessThan(0.005);
+          }
+        }
+      }
+    });
+  });
 });
