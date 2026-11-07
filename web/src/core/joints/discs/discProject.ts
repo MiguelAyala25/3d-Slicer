@@ -2,7 +2,7 @@ import { PARAM_BOUNDS } from '../../params';
 import { ValidationError } from '../../validator';
 import type { Disc } from '../../../types/sculpture';
 
-function formatPythonFloat(n: number): string {
+export function formatCanonicalFloat(n: number): string {
   return Number.isInteger(n) ? `${n.toFixed(1)}` : `${n}`;
 }
 
@@ -12,9 +12,9 @@ export function serializeDiscsHueco(discs: Disc[]): string {
       '    {',
       `      "id": ${d.id},`,
       `      "hueco": ${d.gapIndex},`,
-      `      "x": ${formatPythonFloat(d.x)},`,
-      `      "y": ${formatPythonFloat(d.y)},`,
-      `      "diameter": ${formatPythonFloat(d.diameter)}`,
+      `      "x": ${formatCanonicalFloat(d.x)},`,
+      `      "y": ${formatCanonicalFloat(d.y)},`,
+      `      "diameter": ${formatCanonicalFloat(d.diameter)}`,
       '    }',
     ];
     return lines.join('\n');

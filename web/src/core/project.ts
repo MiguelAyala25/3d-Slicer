@@ -23,7 +23,7 @@ export interface ParsedProjectData {
   waffleParams?: WaffleParams;
 }
 
-export function formatPythonFloat(n: number): string {
+export function formatCanonicalFloat(n: number): string {
   return Number.isInteger(n) ? `${n.toFixed(1)}` : `${n}`;
 }
 
@@ -55,9 +55,9 @@ export function serializeProjectJson(
       '    {',
       `      "id": ${d.id},`,
       `      "hueco": ${d.gapIndex},`,
-      `      "x": ${formatPythonFloat(d.x)},`,
-      `      "y": ${formatPythonFloat(d.y)},`,
-      `      "diameter": ${formatPythonFloat(d.diameter)}`,
+      `      "x": ${formatCanonicalFloat(d.x)},`,
+      `      "y": ${formatCanonicalFloat(d.y)},`,
+      `      "diameter": ${formatCanonicalFloat(d.diameter)}`,
       '    }',
     ];
     return lines.join('\n');
@@ -72,8 +72,8 @@ export function serializeProjectJson(
     '{',
     `  "version": "${FORMAT_VERSION}",`,
     `  "plates": ${params.plates},`,
-    `  "thickness": ${formatPythonFloat(params.thickness)},`,
-    `  "gap": ${formatPythonFloat(params.gap)},`,
+    `  "thickness": ${formatCanonicalFloat(params.thickness)},`,
+    `  "gap": ${formatCanonicalFloat(params.gap)},`,
     `  "axis": "${params.axis}",`,
     discsSection,
     '}',
@@ -90,12 +90,12 @@ function serializeProject2(
     '{',
     '  "version": "2.0",',
     '  "material": {',
-    `    "thickness": ${formatPythonFloat(params.thickness)},`,
-    `    "sheetW": ${formatPythonFloat(params.sheetW)},`,
-    `    "sheetH": ${formatPythonFloat(params.sheetH)},`,
-    `    "sheetMargin": ${formatPythonFloat(params.sheetMargin)},`,
-    `    "partGap": ${formatPythonFloat(params.partGap)},`,
-    `    "kerf": ${formatPythonFloat(params.kerf)},`,
+    `    "thickness": ${formatCanonicalFloat(params.thickness)},`,
+    `    "sheetW": ${formatCanonicalFloat(params.sheetW)},`,
+    `    "sheetH": ${formatCanonicalFloat(params.sheetH)},`,
+    `    "sheetMargin": ${formatCanonicalFloat(params.sheetMargin)},`,
+    `    "partGap": ${formatCanonicalFloat(params.partGap)},`,
+    `    "kerf": ${formatCanonicalFloat(params.kerf)},`,
     `    "scrapTagEnabled": ${params.scrapTagEnabled ? 'true' : 'false'}`,
     '  },',
   ];
@@ -111,11 +111,11 @@ function serializeProject2(
     };
     const tLines = [
       `      "upAxis": "${wp.upAxis}",`,
-      `      "pitch": ${formatPythonFloat(wp.pitch)},`,
-      `      "slotClearance": ${formatPythonFloat(wp.slotClearance)},`,
-      `      "gridOffset": ${formatPythonFloat(wp.gridOffset)},`,
+      `      "pitch": ${formatCanonicalFloat(wp.pitch)},`,
+      `      "slotClearance": ${formatCanonicalFloat(wp.slotClearance)},`,
+      `      "gridOffset": ${formatCanonicalFloat(wp.gridOffset)},`,
       `      "slotLabelsEnabled": ${wp.slotLabelsEnabled ? 'true' : 'false'},`,
-      `      "targetScale": ${formatPythonFloat(wp.targetScale)}`,
+      `      "targetScale": ${formatCanonicalFloat(wp.targetScale)}`,
     ];
     if (wp.distributionMethod) {
       tLines[tLines.length - 1] += ',';
@@ -131,19 +131,19 @@ function serializeProject2(
     }
     if (wp.distance1 !== undefined) {
       tLines[tLines.length - 1] += ',';
-      tLines.push(`      "distance1": ${formatPythonFloat(wp.distance1)}`);
+      tLines.push(`      "distance1": ${formatCanonicalFloat(wp.distance1)}`);
     }
     if (wp.distance2 !== undefined) {
       tLines[tLines.length - 1] += ',';
-      tLines.push(`      "distance2": ${formatPythonFloat(wp.distance2)}`);
+      tLines.push(`      "distance2": ${formatCanonicalFloat(wp.distance2)}`);
     }
     if (wp.notchFactor !== undefined) {
       tLines[tLines.length - 1] += ',';
-      tLines.push(`      "notchFactor": ${formatPythonFloat(wp.notchFactor)}`);
+      tLines.push(`      "notchFactor": ${formatCanonicalFloat(wp.notchFactor)}`);
     }
     if (wp.notchAngle !== undefined) {
       tLines[tLines.length - 1] += ',';
-      tLines.push(`      "notchAngle": ${formatPythonFloat(wp.notchAngle)}`);
+      tLines.push(`      "notchAngle": ${formatCanonicalFloat(wp.notchAngle)}`);
     }
 
     lines.push(
@@ -176,9 +176,9 @@ function serializeProject2(
     } else if (build.jointId === 'discs') {
       lines.push(
         '    "params": {',
-        `      "gap": ${formatPythonFloat(params.gap)},`,
-        `      "discDiameter": ${formatPythonFloat(params.discDiameter)},`,
-        `      "engraveClearance": ${formatPythonFloat(params.engraveClearance)}`,
+        `      "gap": ${formatCanonicalFloat(params.gap)},`,
+        `      "discDiameter": ${formatCanonicalFloat(params.discDiameter)},`,
+        `      "engraveClearance": ${formatCanonicalFloat(params.engraveClearance)}`,
         '    },'
       );
       if (discs.length === 0) {
@@ -188,9 +188,9 @@ function serializeProject2(
           '      {',
           `        "id": ${d.id},`,
           `        "hueco": ${d.gapIndex},`,
-          `        "x": ${formatPythonFloat(d.x)},`,
-          `        "y": ${formatPythonFloat(d.y)},`,
-          `        "diameter": ${formatPythonFloat(d.diameter)}`,
+          `        "x": ${formatCanonicalFloat(d.x)},`,
+          `        "y": ${formatCanonicalFloat(d.y)},`,
+          `        "diameter": ${formatCanonicalFloat(d.diameter)}`,
           '      }',
         ].join('\n'));
         lines.push(`    "discs": [\n${discBlocks.join(',\n')}\n    ]`);
