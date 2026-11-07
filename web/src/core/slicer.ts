@@ -173,65 +173,116 @@ export class AxisSliceCache {
       );
     const candidates = this.buckets[bucketIdx];
     const segments: DirectedSegment2D[] = [];
+    const coords = this.coords;
+    const normalsXY = this.normalsXY;
+    const triMinZ = this.triMinZ;
+    const triMaxZ = this.triMaxZ;
 
     for (let i = 0; i < candidates.length; i++) {
       const t = candidates[i];
       // Con la regla above = (z >= zUnit), si triMaxZ < zUnit (todos abajo)
       // o triMinZ >= zUnit (todos arriba, incluyendo triángulos coplanares o que solo tocan desde arriba),
       // no hay cruce.
-      if (this.triMaxZ[t] < zUnit || this.triMinZ[t] >= zUnit) {
+      if (triMaxZ[t] < zUnit || triMinZ[t] >= zUnit) {
         continue;
       }
 
       const base = t * 9;
-      const vx = [this.coords[base], this.coords[base + 3], this.coords[base + 6]];
-      const vy = [
-        this.coords[base + 1],
-        this.coords[base + 4],
-        this.coords[base + 7],
-      ];
-      const vz = [
-        this.coords[base + 2],
-        this.coords[base + 5],
-        this.coords[base + 8],
-      ];
-      const above = [vz[0] >= zUnit, vz[1] >= zUnit, vz[2] >= zUnit];
+      const vx0 = coords[base],     vy0 = coords[base + 1], vz0 = coords[base + 2];
+      const vx1 = coords[base + 3], vy1 = coords[base + 4], vz1 = coords[base + 5];
+      const vx2 = coords[base + 6], vy2 = coords[base + 7], vz2 = coords[base + 8];
 
-      const ptsX: number[] = [];
-      const ptsY: number[] = [];
+      const a0 = vz0 >= zUnit;
+      const a1 = vz1 >= zUnit;
+      const a2 = vz2 >= zUnit;
 
-      for (let e = 0; e < 3; e++) {
-        const a = e;
-        const b = (e + 1) % 3;
-        if (above[a] === above[b]) continue;
+      let p0x = 0, p0y = 0;
+      let p1x = 0, p1y = 0;
+      let ptCount = 0;
 
-        // Orden canónico (pMin, pMax) por (z, x, y) para que triángulos adyacentes
-        // evalúen los mismos operandos IEEE-754 en el mismo orden.
-        let iMin = a;
-        let iMax = b;
+      // Arista 0: (v0, v1)
+      if (a0 !== a1) {
+        let minVx: number, minVy: number, minVz: number;
+        let maxVx: number, maxVy: number, maxVz: number;
         if (
-          vz[a] > vz[b] ||
-          (vz[a] === vz[b] &&
-            (vx[a] > vx[b] || (vx[a] === vx[b] && vy[a] > vy[b])))
+          vz0 > vz1 ||
+          (vz0 === vz1 && (vx0 > vx1 || (vx0 === vx1 && vy0 > vy1)))
         ) {
-          iMin = b;
-          iMax = a;
+          minVx = vx1; minVy = vy1; minVz = vz1;
+          maxVx = vx0; maxVy = vy0; maxVz = vz0;
+        } else {
+          minVx = vx0; minVy = vy0; minVz = vz0;
+          maxVx = vx1; maxVy = vy1; maxVz = vz1;
         }
-
-        const zA = vz[iMin];
-        const zB = vz[iMax];
-        const dz = zB - zA;
-        const alpha = dz === 0 ? 0 : (zUnit - zA) / dz;
-        const ix = (vx[iMin] + alpha * (vx[iMax] - vx[iMin])) * scaleFactor;
-        const iy = (vy[iMin] + alpha * (vy[iMax] - vy[iMin])) * scaleFactor;
-        ptsX.push(ix);
-        ptsY.push(iy);
+        const dz = maxVz - minVz;
+        const alpha = dz === 0 ? 0 : (zUnit - minVz) / dz;
+        p0x = (minVx + alpha * (maxVx - minVx)) * scaleFactor;
+        p0y = (minVy + alpha * (maxVy - minVy)) * scaleFactor;
+        ptCount = 1;
       }
 
-      if (ptsX.length !== 2) continue;
+      // Arista 1: (v1, v2)
+      if (a1 !== a2) {
+        let minVx: number, minVy: number, minVz: number;
+        let maxVx: number, maxVy: number, maxVz: number;
+        if (
+          vz1 > vz2 ||
+          (vz1 === vz2 && (vx1 > vx2 || (vx1 === vx2 && vy1 > vy2)))
+        ) {
+          minVx = vx2; minVy = vy2; minVz = vz2;
+          maxVx = vx1; maxVy = vy1; maxVz = vz1;
+        } else {
+          minVx = vx1; minVy = vy1; minVz = vz1;
+          maxVx = vx2; maxVy = vy2; maxVz = vz2;
+        }
+        const dz = maxVz - minVz;
+        const alpha = dz === 0 ? 0 : (zUnit - minVz) / dz;
+        const ix = (minVx + alpha * (maxVx - minVx)) * scaleFactor;
+        const iy = (minVy + alpha * (maxVy - minVy)) * scaleFactor;
+        if (ptCount === 0) {
+          p0x = ix;
+          p0y = iy;
+          ptCount = 1;
+        } else {
+          p1x = ix;
+          p1y = iy;
+          ptCount = 2;
+        }
+      }
 
-      let x0 = ptsX[0], y0 = ptsY[0];
-      let x1 = ptsX[1], y1 = ptsY[1];
+      // Arista 2: (v2, v0)
+      if (a2 !== a0) {
+        let minVx: number, minVy: number, minVz: number;
+        let maxVx: number, maxVy: number, maxVz: number;
+        if (
+          vz2 > vz0 ||
+          (vz2 === vz0 && (vx2 > vx0 || (vx2 === vx0 && vy2 > vy0)))
+        ) {
+          minVx = vx0; minVy = vy0; minVz = vz0;
+          maxVx = vx2; maxVy = vy2; maxVz = vz2;
+        } else {
+          minVx = vx2; minVy = vy2; minVz = vz2;
+          maxVx = vx0; maxVy = vy0; maxVz = vz0;
+        }
+        const dz = maxVz - minVz;
+        const alpha = dz === 0 ? 0 : (zUnit - minVz) / dz;
+        const ix = (minVx + alpha * (maxVx - minVx)) * scaleFactor;
+        const iy = (minVy + alpha * (maxVy - minVy)) * scaleFactor;
+        if (ptCount === 0) {
+          p0x = ix;
+          p0y = iy;
+          ptCount = 1;
+        } else {
+          p1x = ix;
+          p1y = iy;
+          ptCount = 2;
+        }
+      }
+
+      if (ptCount !== 2) continue;
+
+      let x0 = p0x, y0 = p0y;
+      let x1 = p1x, y1 = p1y;
       const dx = x1 - x0;
       const dy = y1 - y0;
       if (dx * dx + dy * dy <= 1e-16) continue;
@@ -239,8 +290,8 @@ export class AxisSliceCache {
       // Orientar el segmento para que la normal exterior quede a la derecha
       // y el interior sólido quede a la izquierda (contornos exteriores CCW, huecos CW):
       // det([d, n_xy]) = dx * ny - dy * nx < 0
-      const nx = this.normalsXY[t * 2];
-      const ny = this.normalsXY[t * 2 + 1];
+      const nx = normalsXY[t * 2];
+      const ny = normalsXY[t * 2 + 1];
       if (dx * ny - dy * nx > 0) {
         const tx = x0, ty = y0;
         x0 = x1; y0 = y1;
