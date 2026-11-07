@@ -148,7 +148,7 @@ Por qué este orden:
 | C4 | ✅ PASSED | `f071fce` | `3dfbb58` | ✅ Aprobado |
 | C5 | ✅ PASSED | `3dfbb58` | `ac91cc2` | ✅ Aprobado |
 | C6 | ✅ PASSED | `85d3a8d` | `f8d103e` | ✅ Aprobado |
-| C7 | ✅ PASSED | `5fa807f` | `1417242` | ⏳ En revisión |
+| C7 | ✅ PASSED | `5fa807f` | `1417242` | ✅ Aprobado |
 | C8 | ⬜ Pendiente | | | |
 | C9 | ⬜ Pendiente | | | |
 | C10 | ⬜ Pendiente | | | |
@@ -908,6 +908,53 @@ Además de G1-G9:
 - **C8-4:** `project.test.ts` y `golden/l_block_project.json` pasan sin cambios (G5 vacío). Un proyecto guardado antes del cambio se abre igual (cubierto por el corpus).
 - **C8-5:** `core/projectSchema.ts` no importa nada de UI (`architecture.test.ts` pasa).
 - **C8-6:** no se inventó formato nuevo: si no existía `schemaVersion`, se anotó como mejora posterior y no se añadió.
+
+#### Plan de ejecución — C8
+
+Hash de inicio (`<START>`): `8da6005` (`git status` limpio verificado).
+Se ejecutarán **4 commits separados** (1 para la dependencia `zod` según `C8-1`, 1 de caracterización previa con el corpus completo según regla 8 + `C8-3`, 1 para `M5` con `core/projectSchema.ts`, y 1 para `M7` de serialización limpia y renombrado de `formatPythonFloat` preservando compatibilidad byte a byte con `golden/l_block_project.json`), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C8-1..C8-6`) al cerrar el chunk:
+
+1. **Paso 0 — Commit de dependencia (`chore(deps): add zod`)**
+   - **Objetivo (`C8-1`):** instalar `zod` en `dependencies` de `web/package.json` con **versión exacta** (`--save-exact`, sin `^` ni `~`, ej. `"zod": "3.25.76"`), actualizando `web/package-lock.json`.
+   - **Seguridad:** ejecutar `npm audit --omit=dev` antes y después de instalar `zod` para confirmar que no introduce ninguna vulnerabilidad nueva respecto a la línea base de `C0`.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run`.
+
+2. **Paso 1 — Commit de caracterización previo (`test(project): add comprehensive corpus characterization for parseProjectJson and serializeProject`)**
+   - **Objetivo (`C8-3`, `C8-4` + regla 8):** fijar antes de tocar `project.ts` un corpus exhaustivo de proyectos válidos e inválidos en `web/src/__tests__/project.test.ts` comprobando con comparación exacta (`toThrow(new ValidationError(...))` con string exacto y `toEqual` sobre `ParsedProjectData`):
+     1. **Corpus de proyectos válidos (`1.0` y `2.0`):**
+        - `1.0` canónico (`golden/l_block_project.json`, con y sin discos, y con eje en mayúscula `'Z'` que se normaliza a `'z'`).
+        - `2.0` `stacked` + `none` y `stacked` + `discs` (incluyendo múltiples discos).
+        - `2.0` `waffle` + `slots` con campos obligatorios y con todos los campos opcionales (`distributionMethod`, `count1`, `count2`, `distance1`, `distance2`, `notchFactor`, `notchAngle`).
+     2. **Corpus de proyectos inválidos con mensaje de error exacto (`C8-3`):**
+        - JSON malformado → `"El archivo de proyecto no contiene un JSON válido."`
+        - Raíz no objeto (`null`, `[]`, número, string) → `"El formato del archivo de proyecto es inválido."`
+        - Versión ausente o no soportada (`undefined`, `'0.9'`, `'3.0'`, `2`) → `"Versión de archivo no soportada: '...' (se esperaba '1.0' o '2.0')."`
+        - **En `1.0`:** falta de cada clave obligatoria en orden (`plates`, `thickness`, `gap`, `axis`, `discs`) → `"Falta el campo obligatorio '<key>' en el archivo JSON."`
+        - **En `discs` (`1.0` y `2.0`):** `discs` no es array (`"El archivo de proyecto no contiene una lista 'discs' válida."`), elemento no objeto (`"El disco en la posición 0 es inválido."`), `id` no entero o `<= 0` (`"El disco #0 tiene un 'id' inválido (...)."`), `id` duplicado (`"El archivo contiene IDs de disco duplicados (id=1)."`), `x`/`y` no finitos (`"El disco id=1 tiene coordenadas (x, y) no numéricas."`), `diameter` fuera de `[PARAM_BOUNDS.discDiameter.min, max]` (`"El disco id=1 tiene un diámetro inválido (... mm)."`), `hueco` fuera de `[0, plates - 2]` (`"El disco id=1 tiene un hueco fuera de rango (...; máximo permitido ...)."`).
+        - **En `2.0` raíz:** falta de `material`, `technique` o `joint` (`"Falta el campo obligatorio '<k>' en el archivo JSON."`), clave extra en raíz (`"Campo no reconocido '<k>' en la raíz."`).
+        - **En `2.0` `material`:** no objeto (`"El campo 'material' debe ser un objeto."`), falta de cada una de las 7 claves (`"Falta el campo obligatorio 'material.<rk>' en el archivo JSON."`), clave extra (`"Campo no reconocido '<k>' en 'material'."`), tipo no numérico en las 6 claves numéricas (`"El campo 'material.<nk>' debe ser numérico."`), tipo no booleano en `scrapTagEnabled` (`"El campo 'material.scrapTagEnabled' debe ser booleano."`).
+        - **En `2.0` `technique`:** no objeto (`"El campo 'technique' debe ser un objeto."`), falta `id` o `params`, clave extra en `technique` (`"Campo no reconocido '<k>' en 'technique'."`), `id` desconocido (`"Técnica desconocida: '<id>'."`), `technique.params` no objeto (`"El campo 'technique.params' debe ser un objeto."`).
+        - **En `2.0` `technique.params` (`stacked`):** falta `plates` o `axis`, clave extra (`"Campo no reconocido '<k>' en 'technique.params'."`), `plates` no numérico (`"El campo 'technique.params.plates' debe ser numérico."`).
+        - **En `2.0` `technique.params` (`waffle`):** falta cada una de las 6 claves obligatorias (`upAxis`, `pitch`, `slotClearance`, `gridOffset`, `slotLabelsEnabled`, `targetScale`), clave extra no permitida (`"Campo no reconocido '<k>' en 'technique.params'."`), `upAxis` inválido (`"El campo 'technique.params.upAxis' debe ser 'x', 'y' o 'z'."`), no numérico en `pitch`/`slotClearance`/`gridOffset`/`targetScale` (`"El campo 'technique.params.<nk>' debe ser numérico."`), no booleano en `slotLabelsEnabled` (`"El campo 'technique.params.slotLabelsEnabled' debe ser booleano."`).
+        - **En `2.0` `joint`:** no objeto (`"El campo 'joint' debe ser un objeto."`), falta `id` o `params`, incompatibilidades técnica-unión (`waffle` con `!= 'slots'`, `stacked` con `'slots'`, unión desconocida, `'rod'` no disponible), presencia/ausencia de `discs` según `jointId` y claves extra en `joint` (`"Campo no reconocido '<k>' en 'joint'."`), `joint.params` no objeto (`"El campo 'joint.params' debe ser un objeto."`), claves extra en `joint.params` para `none`/`slots` y para `discs`, falta de `gap`/`discDiameter`/`engraveClearance` y tipo no numérico en `joint.params.<rk>`.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/project.test.ts` (pasa sobre el código actual sin tocar producción).
+
+3. **Paso 2 — Commit de M5 (`refactor(project): replace manual validation and as-any casts with zod schemas in projectSchema.ts`)**
+   - **Objetivo (`C8-2`, `C8-3`, `C8-5`, `C8-6`):**
+     - **Nuevo:** `web/src/core/projectSchema.ts` (100 % headless, sin imports de UI):
+       - Definir esquemas `zod` tipados (`.strict()` donde se rechazan claves extra) para `MaterialSchema`, `StackedTechniqueParamsSchema`, `WaffleTechniqueParamsSchema`, `DistributionMethodSchema`, `DiscItemSchema`, `JointParamsDiscsSchema`, `JointParamsEmptySchema`, `ProjectV1Schema` y `ProjectV2Schema`.
+       - Mapear las validaciones estructurales y los `ZodIssue` (`invalid_type`, `unrecognized_keys`, `custom`, etc.) a `ValidationError` conservando **exactamente** el orden de prioridad y los mismos textos de error en español que hoy produce `parseProjectJson`.
+     - **Modificar:** `web/src/core/project.ts`:
+       - Delegar la validación y parseo estructural de `parseProjectJson` y `parseDiscsList` en `core/projectSchema.ts`, eliminando los 4 usos de `as any` (`:346`, `:416`, `:444`, `:545`) y las listas manuales redundantes.
+       - Mantener sin cambios la firma pública `parseProjectJson(jsonText: string, baseParams?: SculptureParams): ParsedProjectData` y las llamadas posteriores a `validateParams` / `validateBuildParams`.
+       - **Sobre `schemaVersion` (`C8-6`):** el formato ya usa el campo `"version": "1.0" | "2.0"`; **no** se añade un campo nuevo `schemaVersion` para no alterar el JSON guardado, dejándolo anotado como innecesario/mejora futura si cambiara la especificación.
+   - **Verificación:** `Select-String -Path web/src/core/project.ts,web/src/core/projectSchema.ts -Pattern "as any"` → **0 coincidencias** (`C8-2`); `npx eslint src/core/project.ts src/core/projectSchema.ts` → **0 warnings/errors**; `npx tsc --noEmit` y `npx vitest run`.
+
+4. **Paso 3 — Commit de M7 (`refactor(project): structure JSON serialization with JSON.stringify and remove formatPythonFloat`)**
+   - **Objetivo (`M7` en tabla 1 y nota de `M3` en `C1`, manteniendo `C8-4` y `G5` vacío):**
+     - En `web/src/core/project.ts` y `web/src/core/joints/discs/discProject.ts`, reemplazar la concatenación manual de líneas de string (`tLines[tLines.length - 1] += ','`, bloques manuales de texto) por serialización basada en `JSON.stringify(obj, null, 2)` combinada con formateo canónico de flotantes (`formatCanonicalFloat`, que preserva el `.0` en números enteros de punto flotante como `thickness`, `gap`, `x`, `y`, `diameter`, `sheetW`, etc. requeridos byte a byte por `web/golden/l_block_project.json` y `project.test.ts`).
+     - Eliminar el identificador obsoleto `formatPythonFloat` en `project.ts` y `discProject.ts` (verificado que no tiene ningún import externo en el repositorio).
+   - **Verificación final del chunk:** ejecutar G1-G9 (`npx tsc --noEmit`, `npx vitest run`, `npm run build`, `npx playwright test`, `git diff` de goldens vacío) y comprobar todos los criterios `C8-1` a `C8-6`.
 
 ---
 
