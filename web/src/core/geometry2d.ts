@@ -31,17 +31,6 @@ export function closestPointOnSegment(
   return [projX, projY, Math.hypot(px - projX, py - projY)];
 }
 
-export function pointToSegmentDistance(
-  px: number,
-  py: number,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number
-): number {
-  return closestPointOnSegment(px, py, x0, y0, x1, y1)[2];
-}
-
 export function closestPointOnRing(
   px: number,
   py: number,

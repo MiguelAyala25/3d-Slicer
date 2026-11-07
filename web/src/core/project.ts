@@ -7,26 +7,6 @@ import type { Axis, Disc, SculptureParams } from '../types/sculpture';
 import type { WaffleParams } from './waffle/types';
 
 export const FORMAT_VERSION = '1.0';
-export const FORMAT_VERSION_V1 = '1.0';
-export const FORMAT_VERSION_V2 = '2.0';
-
-/**
- * Esquema serializado del archivo de proyecto v1.0 compatible con web/golden/l_block_project.json.
- */
-export interface SerializedProjectFile {
-  version: string;
-  plates: number;
-  thickness: number;
-  gap: number;
-  axis: Axis;
-  discs: Array<{
-    id: number;
-    hueco: number;
-    x: number;
-    y: number;
-    diameter: number;
-  }>;
-}
 
 export interface ParsedProjectData {
   version: '1.0' | '2.0';

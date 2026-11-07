@@ -4,7 +4,6 @@ import { NONE_JOINT } from '../joints/none';
 import type {
   JointDefinition,
   JointId,
-  RegistryEntry,
   TechniqueDefinition,
   TechniqueId,
 } from './types';
@@ -66,8 +65,4 @@ export function getTechnique(id: TechniqueId): TechniqueDefinition {
     throw new ValidationError(`Técnica desconocida: '${id}'.`);
   }
   return tech;
-}
-
-export function isAvailable<T extends string>(entry: RegistryEntry<T>): boolean {
-  return entry.available;
 }
