@@ -610,4 +610,40 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     // Close preview modal
     await page.click('button[aria-label="Cerrar previsualización"]');
   });
+
+  test('14. Model assumed original size and extreme scale warning (DEC-4 / D6 / C9-4)', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await loadMeshAndSlice(page);
+
+    // Assumed original size is displayed
+    const assumedSize = page.locator('[data-testid="assumed-original-size"]');
+    await expect(assumedSize).toBeVisible();
+    await expect(assumedSize).toContainText('30.0 × 30.0 × 15.0 mm');
+
+    // Warning is absent for healthy model
+    await expect(page.locator('[data-testid="assumed-units-warning"]')).not.toBeVisible();
+
+    // Simulate extreme dimensions (< 1 mm, e.g. model drafted in meters)
+    await page.evaluate(() => {
+      const store = (window as any).__SCULPTURE_STORE__;
+      if (store) {
+        const meta = store.getState().meshMetadata;
+        if (meta) {
+          store.setState({
+            meshMetadata: {
+              ...meta,
+              extents: [0.03, 0.015, 0.03],
+            },
+          });
+        }
+      }
+    });
+
+    // Warning is now visible
+    const warning = page.locator('[data-testid="assumed-units-warning"]');
+    await expect(warning).toBeVisible();
+    await expect(warning).toContainText('Dimensiones inusuales');
+  });
 });

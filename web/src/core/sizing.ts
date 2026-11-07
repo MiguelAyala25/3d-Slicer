@@ -344,3 +344,22 @@ export function computeAdaptiveWafflePitch(
   return Math.max(minPitch, Math.min(defaultPitch, Number(stepped.toFixed(2))));
 }
 
+export const MIN_ASSUMED_DIM_MM = 1.0;
+export const MAX_ASSUMED_DIM_MM = 5000.0;
+
+/**
+ * Detecta si alguna dimensión asumida en mm es inusualmente pequeña (< 1 mm) o grande (> 5000 mm),
+ * sugiriendo que el archivo 3D original podría estar en metros, pulgadas u otras unidades (DEC-4 / D6).
+ */
+export function hasExtremeAssumedDimensions(
+  extents: readonly [number, number, number] | ModelExtents | null | undefined
+): boolean {
+  if (!extents) return false;
+  const values = 'x' in extents
+    ? [extents.x, extents.y, extents.z]
+    : [extents[0], extents[1], extents[2]];
+  return values.some(
+    (v) => Number.isFinite(v) && (v < MIN_ASSUMED_DIM_MM || v > MAX_ASSUMED_DIM_MM)
+  );
+}
+

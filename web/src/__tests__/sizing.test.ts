@@ -11,6 +11,7 @@ import {
   finalSize,
   platesForTargetDimension,
   maxFit,
+  hasExtremeAssumedDimensions,
   DIMENSION_LABELS,
   TIE_TOLERANCE,
   type ModelExtents,
@@ -258,5 +259,36 @@ describe('Sizing engine (sizing.ts & store integration)', () => {
       store.setParam('plates', p);
     }
     expect(useSculptureStore.getState().params.plates).toBe(130);
+  });
+
+  describe('Assumed unit scale notice and extreme dimension detection (DEC-4 / D6 / C9-4)', () => {
+    it('hasExtremeAssumedDimensions identifies < 1 mm and > 5000 mm boundaries', () => {
+      // Normal sizes in millimeters
+      expect(hasExtremeAssumedDimensions([30, 15, 30])).toBe(false);
+      expect(hasExtremeAssumedDimensions({ x: 100, y: 200, z: 50 })).toBe(false);
+      expect(hasExtremeAssumedDimensions([1.0, 5000.0, 250.0])).toBe(false);
+
+      // Micro dimensions (< 1 mm, e.g. modeled in meters like 0.03 m)
+      expect(hasExtremeAssumedDimensions([0.03, 0.015, 0.03])).toBe(true);
+      expect(hasExtremeAssumedDimensions({ x: 0.99, y: 10, z: 20 })).toBe(true);
+      expect(hasExtremeAssumedDimensions([10, 0.5, 20])).toBe(true);
+      expect(hasExtremeAssumedDimensions([10, 20, 0.001])).toBe(true);
+
+      // Huge dimensions (> 5000 mm)
+      expect(hasExtremeAssumedDimensions([5001, 100, 200])).toBe(true);
+      expect(hasExtremeAssumedDimensions({ x: 10, y: 6000, z: 10 })).toBe(true);
+      expect(hasExtremeAssumedDimensions([10, 20, 10000])).toBe(true);
+
+      // Null / undefined safe
+      expect(hasExtremeAssumedDimensions(null)).toBe(false);
+      expect(hasExtremeAssumedDimensions(undefined)).toBe(false);
+    });
+
+    it('loadMeshFromBuffer populates metadata.extents matching original assumed mm dimensions', () => {
+      const buf = toArrayBuffer(fs.readFileSync(path.join(FIXTURES_DIR, 'test_l_block.obj')));
+      const { metadata } = loadMeshFromBuffer(buf, 'test_l_block.obj');
+      expect(metadata.extents).toEqual([30, 15, 30]);
+      expect(hasExtremeAssumedDimensions(metadata.extents)).toBe(false);
+    });
   });
 });

@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import { AlertTriangle, Layers, Lock, Ruler } from 'lucide-react';
 import {
   DIMENSION_LABELS,
   finalSize,
   finalSizeFromScale,
+  hasExtremeAssumedDimensions,
   linkedDimension,
   maxFit,
   waffleMaxFit,
@@ -15,6 +17,7 @@ const DIMENSIONS: ModelDimension[] = ['alto', 'ancho', 'largo'];
 
 export function ModelSection() {
   const build = useSculptureStore((s) => s.build);
+  const meshMetadata = useSculptureStore((s) => s.meshMetadata);
   const modelExtents = useSculptureStore((s) => s.modelExtents);
   const params = useSculptureStore((s) => s.params);
   const sizeIntent = useSculptureStore((s) => s.sizeIntent);
@@ -49,6 +52,26 @@ export function ModelSection() {
   const waffleFit = modelExtents && isWaffle
     ? waffleMaxFit(modelExtents, waffleParams.upAxis, params)
     : null;
+
+  const assumedDims = useMemo(() => {
+    if (meshMetadata?.extents) {
+      return {
+        x: meshMetadata.extents[0],
+        y: meshMetadata.extents[1],
+        z: meshMetadata.extents[2],
+      };
+    }
+    if (modelExtents) {
+      return {
+        x: modelExtents.x,
+        y: modelExtents.y,
+        z: modelExtents.z,
+      };
+    }
+    return null;
+  }, [meshMetadata?.extents, modelExtents]);
+
+  const isExtremeAssumed = assumedDims ? hasExtremeAssumedDimensions(assumedDims) : false;
 
   return (
     <section data-testid="section-model" className="flex flex-col gap-2.5">
@@ -207,6 +230,30 @@ export function ModelSection() {
                 Máx. garantizado en hoja: {stackedFit.plates} placas ·{' '}
                 {stackedFit.size.ancho.toFixed(1)} × {stackedFit.size.largo.toFixed(1)} ×{' '}
                 {stackedFit.size.alto.toFixed(1)} mm
+              </span>
+            </div>
+          )}
+          {assumedDims && (
+            <div
+              data-testid="assumed-original-size"
+              className="text-[11px] text-[#A1A1AA] font-mono-tabular select-none border-t border-white/[0.06] pt-1.5"
+            >
+              <span>
+                Tamaño original asumido:{' '}
+                {assumedDims.x.toFixed(1)} × {assumedDims.y.toFixed(1)} ×{' '}
+                {assumedDims.z.toFixed(1)} mm
+              </span>
+            </div>
+          )}
+
+          {isExtremeAssumed && (
+            <div
+              data-testid="assumed-units-warning"
+              className="flex items-start gap-1.5 p-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>
+                Dimensiones inusuales (&lt; 1 mm o &gt; 5000 mm). Verifica si el modelo original fue diseñado en otras unidades (cm, m, pulgadas).
               </span>
             </div>
           )}
