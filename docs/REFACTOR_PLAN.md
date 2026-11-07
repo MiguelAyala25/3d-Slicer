@@ -146,7 +146,7 @@ Por qué este orden:
 | C2 | ✅ PASSED | `66bb171` | `41a7139` | ✅ Aprobado |
 | C3 | ✅ PASSED | `41a7139` | `f071fce` | ✅ Aprobado |
 | C4 | ✅ PASSED | `f071fce` | `3dfbb58` | ✅ Aprobado |
-| C5 | ✅ PASSED | `3dfbb58` | `ac91cc2` | ⏳ En revisión |
+| C5 | ✅ PASSED | `3dfbb58` | `ac91cc2` | ✅ Aprobado |
 | C6 | ⬜ Pendiente | | | |
 | C7 | ⬜ Pendiente | | | |
 | C8 | ⬜ Pendiente | | | |
@@ -736,6 +736,64 @@ Además de G1-G9:
 - **C6-3 (O3):** el fixture de componentes anidadas (esfera dentro de esfera + dos separadas) da el mismo `nestingDepth` e inversiones antes y después; `perf-log.md` muestra antes/después de `normalizeAndValidateGeometry` con ~200 componentes cerradas pequeñas y **no empeora**. La dirección del rayo **no** cambió.
 - **C6-4:** `Select-String -Path src\core\meshRepair.ts -Pattern "getX\(|getY\(|getZ\("` ya no aparece dentro del bucle de anidamiento.
 - **C6-5:** G5 vacío.
+
+#### Plan de ejecución — C6
+
+Hash de inicio (`<START>`): `85ed580` (`git status` limpio verificado).
+Se ejecutarán **4 commits separados** (1 de caracterización previa de `M4` según regla 8 + `C6-2`, 1 de refactor puro para `M4`, 1 de caracterización previa de `O3` según regla 8 + `C6-3`, y 1 de optimización para `O3`), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C6-1..C6-5`) al cerrar el chunk:
+
+1. **Paso 1 — Commit de caracterización previo de M4 (`test(validator): add exact error message and boundary characterization tests for validateParams`)**
+   - **Objetivo (`C6-2` + regla 8):** fijar antes de tocar producción el texto exacto de error de cada validación y el comportamiento en los límites inferiores y superiores (`min` y `max`) de `validateParams` y `validateFileExtension`.
+   - **Archivos a modificar:**
+     - `web/src/__tests__/validator.test.ts`: añadir un bloque `describe('validateParams & validateFileExtension exact message characterization (M4 / C6-2)', ...)` que compruebe:
+       1. **Límites válidos (`min` y `max`):** `plates` (`2` y `200`), `thickness` (`0.1` y `100.0`), `gap` (`0` y `1000.0`), `axis` (`'x'`, `'y'`, `'z'`), `sheetW` (`10.0` y `5000.0`), `sheetH` (`10.0` y `5000.0`), `sheetMargin` (`0.0` y `200.0` con hoja suficientemente grande), `partGap` (`0.0` y `100.0`), `kerf` (`0.0` y `5.0`), `scrapTagEnabled` (`true` y `false`).
+       2. **Texto exacto de `ValidationError` por cada campo inválido:**
+          - `plates` no entero (`2.5`), `< 2` (`1`) y `> 200` (`201`) → `"El número de placas debe ser un entero entre 2 y 200 (recibido: ...)."`
+          - `thickness` `< 0.1`, `> 100` y `NaN` → `"El grosor debe estar entre 0.1 y 100 mm (recibido: ...)."`
+          - `gap` `< 0` (`-0.1`) y `> 1000` (`1000.1`) → `"La separación debe ser mayor o igual a 0 mm y menor o igual a 1000 mm (recibido: ...)."`
+          - `axis` inválido (`'w'`) → `"El eje de corte debe ser 'x', 'y' o 'z' (recibido: 'w')."`
+          - `sheetW` / `sheetH` fuera de `[10, 5000]` → `"Las dimensiones de la hoja deben estar entre 10 y 5000 mm (recibido: ... x ...)."`
+          - `sheetMargin` fuera de `[0, 200]` → `"El margen de la hoja debe estar entre 0 y 200 mm (recibido: ...)."`
+          - `sheetMargin * 2 >= Math.min(sheetW, sheetH)` → `"El margen (... mm) es demasiado grande para la hoja de ... x ... mm."`
+          - `partGap` fuera de `[0, 100]` → `"La separación entre piezas debe estar entre 0 y 100 mm (recibido: ...)."`
+          - `kerf` fuera de `[0, 5]` → `"El kerf debe estar entre 0 y 5 mm (recibido: ...)."`
+          - `scrapTagEnabled` no booleano → `"scrapTagEnabled debe ser un valor booleano."`
+       3. **Texto exacto de `validateFileExtension`:** ruta vacía, extensión no soportada (con y sin extensión), archivo de `0` bytes y archivo `> MAX_FILE_SIZE_BYTES`.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/validator.test.ts`.
+
+2. **Paso 2 — Commit del issue M4 (`refactor(validator): split into errors, paramValidation and meshRepair modules`)**
+   - **Objetivo (`C6-1`, `C6-2`):** separar responsabilidades sin romper ningún import existente ni cambiar textos de error.
+   - **Archivos a crear/modificar:**
+     - **Nuevo:** `web/src/core/errors.ts`:
+       - Define y exporta `ValidationError` (movido desde `validator.ts:10-15`).
+     - **Nuevo:** `web/src/core/paramValidation.ts`:
+       - Define y exporta `SUPPORTED_EXTENSIONS`, `MAX_FILE_SIZE_BYTES`, `validateFileExtension` y `validateParams` (movidos desde `validator.ts:6-7, 17-122`).
+       - Refactoriza `validateParams` para que las reglas de rango numérico sean *data-driven* a partir de `PARAM_BOUNDS` y `CORE_GAP_BOUNDS` (usando `${CORE_GAP_BOUNDS.min}` y `${CORE_GAP_BOUNDS.max}` en vez de los literales `0` y `1000` en el mensaje de `gap`, preservando el **texto exacto** y el mismo orden de evaluación).
+     - **Nuevo:** `web/src/core/meshRepair.ts`:
+       - Define y exporta `MAX_TRIANGLES` y `normalizeAndValidateGeometry` (junto con `rayIntersectsTriangle` y `ClosedComponentInfo`, movidos desde `validator.ts:8, 124-509`).
+       - Importa `ValidationError` desde `./errors`.
+     - **Modificar:** `web/src/core/validator.ts`:
+       - Queda como fachada limpia de reexportación (`export { ValidationError } from './errors'; export { SUPPORTED_EXTENSIONS, MAX_FILE_SIZE_BYTES, validateFileExtension, validateParams } from './paramValidation'; export { MAX_TRIANGLES, normalizeAndValidateGeometry } from './meshRepair';`).
+       - Se mantienen intactas las llamadas a `validateParams` en `slicer.ts:261,311` y `layout.ts:268`.
+   - **Verificación:** `npx tsc --noEmit`, `npx vitest run` (incluyendo `validator.test.ts` y `architecture.test.ts`) y `npm run lint`.
+
+3. **Paso 3 — Commit de caracterización previo de O3 (`test(validator): add nested and disjoint closed components characterization test`)**
+   - **Objetivo (`C6-3` + regla 8):** fijar antes de optimizar el comportamiento exacto de `normalizeAndValidateGeometry` sobre componentes cerradas anidadas y separadas.
+   - **Archivos a modificar:**
+     - `web/src/__tests__/validator.test.ts`: añadir un test en `three mandatory winding & nesting depth tests` que construya un fixture combinado con:
+       1. Dos componentes cerradas anidadas (esfera/caja exterior en profundidad 0 + esfera/caja interior en profundidad 1, verificando tanto el caso en que la cavidad interior ya tiene normales hacia adentro —0 inversiones— como el caso en que ambas vienen con normales hacia afuera —la interior se invierte automáticamente a cavidad, `invertedComponentCount === 1`—).
+       2. Dos componentes cerradas separadas espacialmente (ambas en profundidad 0, una con normales hacia afuera y otra con normales invertidas hacia adentro), comprobando que solo se invierte la segunda y que el buffer `position` resultante coincide exactamente antes y después.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/validator.test.ts`.
+
+4. **Paso 4 — Commit del issue O3 (`perf(validator): read Float32Array directly in nesting ray cast and component loops`)**
+   - **Objetivo (`C6-3`, `C6-4`):** acelerar `normalizeAndValidateGeometry` en `web/src/core/meshRepair.ts` eliminando las llamadas a `weldedPos.getX/getY/getZ` dentro del ray casting de anidamiento y los bucles de componentes.
+   - **Cambios en `web/src/core/meshRepair.ts`:**
+     - Precalcular una sola vez `const posArray = weldedPos.array as Float32Array;` antes del bucle de componentes conexas.
+     - En el bucle de anidamiento (`meshRepair.ts`, antes `validator.ts:394-434`), mantener el descarte `O(1)` por AABB (`ox < other.minX || ...`) y la dirección exacta del rayo (`rdx, rdy, rdz`), y leer las coordenadas de cada triángulo directamente desde `posArray` mediante `const b0 = indices[f * 3] * 3`, `const b1 = indices[f * 3 + 1] * 3`, `const b2 = indices[f * 3 + 2] * 3` (`x0 = posArray[b0]`, etc.), sin invocar `getX`, `getY` ni `getZ`.
+     - Aplicar igualmente la lectura directa sobre `posArray` en el bucle de centroide/AABB, volumen firmado (`signedVol6`), `sampleVertex` y volcado a `outPositions`, dejando **0 ocurrencias** de `getX(`, `getY(` o `getZ(` en `web/src/core/meshRepair.ts` (`C6-4`).
+   - **Medición en `web/scripts/bench-slice.ts` y `docs/perf-log.md` (`C6-3`):**
+     - Añadir en `web/scripts/bench-slice.ts` un benchmark sintético con **200 componentes cerradas pequeñas** (incluyendo pares anidados y componentes separadas) que mida la mediana de `normalizeAndValidateGeometry` antes y después de `O3`, y registrar la tabla comparativa en `docs/perf-log.md`.
+   - **Verificación final del chunk:** ejecutar G1-G9 y comprobar `C6-1` a `C6-5` (con `G5` vacío).
 
 ---
 
