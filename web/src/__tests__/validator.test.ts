@@ -255,4 +255,52 @@ l 1 2
     expect(mesh.metadata.faceCount).toBeGreaterThan(0);
     expect(mesh.geometry.getAttribute('position').count).toBeGreaterThan(0);
   });
+
+  describe('loadMeshFromBuffer position buffer checksum & metadata characterization (O1 / C2-1)', () => {
+    it('fixture position buffer checksum and metadata match characterization baselines', () => {
+      const fixtures = [
+        'test_l_block.stl',
+        'test_l_block.obj',
+        'test_l_block.3mf',
+        'test_torus.stl',
+      ];
+
+      for (const f of fixtures) {
+        const buf = toArrayBuffer(fs.readFileSync(path.join(FIXTURES_DIR, f)));
+        const { geometry, metadata } = loadMeshFromBuffer(buf, f);
+        const pos = geometry.getAttribute('position').array as Float32Array;
+
+        let sampleSum = 0;
+        for (let i = 0; i < pos.length; i++) {
+          sampleSum = (sampleSum + pos[i] * (i + 1)) % 1000000007;
+        }
+
+        if (f === 'test_l_block.stl' || f === 'test_l_block.obj' || f === 'test_l_block.3mf') {
+          expect(pos.length).toBe(180);
+          expect(sampleSum).toBe(99290);
+          expect(metadata.vertexCount).toBe(12);
+          expect(metadata.faceCount).toBe(20);
+          expect(metadata.isWatertight).toBe(true);
+          expect(metadata.openEdgeCount).toBe(0);
+          expect(metadata.nonManifoldEdgeCount).toBe(0);
+          expect(metadata.invertedComponentCount).toBe(0);
+          expect(metadata.openComponentCount).toBe(0);
+          expect(metadata.unitScaleApplied).toBe(1);
+          expect(metadata.extents).toEqual([30, 15, 30]);
+        } else if (f === 'test_torus.stl') {
+          expect(pos.length).toBe(9216);
+          expect(sampleSum).toBeCloseTo(-90940720.30664062, 5);
+          expect(metadata.vertexCount).toBe(512);
+          expect(metadata.faceCount).toBe(1024);
+          expect(metadata.isWatertight).toBe(true);
+          expect(metadata.openEdgeCount).toBe(0);
+          expect(metadata.nonManifoldEdgeCount).toBe(0);
+          expect(metadata.invertedComponentCount).toBe(0);
+          expect(metadata.openComponentCount).toBe(0);
+          expect(metadata.unitScaleApplied).toBe(1);
+          expect(metadata.extents).toEqual([56, 56, 16]);
+        }
+      }
+    });
+  });
 });
