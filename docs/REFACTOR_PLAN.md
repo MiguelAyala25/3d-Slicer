@@ -150,7 +150,7 @@ Por qué este orden:
 | C6 | ✅ PASSED | `85d3a8d` | `f8d103e` | ✅ Aprobado |
 | C7 | ✅ PASSED | `5fa807f` | `1417242` | ✅ Aprobado |
 | C8 | ✅ PASSED | `8da6005` | `647023b` | ✅ Aprobado |
-| C9 | ⬜ Pendiente | | | |
+| C9 | ✅ PASSED | `733520f` | `978834e` | Pendiente de revisión |
 | C10 | ⬜ Pendiente | | | |
 | C11 | ⬜ Pendiente | | | |
 
