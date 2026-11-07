@@ -152,6 +152,8 @@ let pendingWorkerJob: {
   resolve: () => void;
 } | null = null;
 
+export const AUTO_SLICE_DEBOUNCE_MS = 350;
+
 function clearAutoSliceTimer(): void {
   if (autoSliceTimer) {
     clearTimeout(autoSliceTimer);
@@ -159,7 +161,7 @@ function clearAutoSliceTimer(): void {
   }
 }
 
-function scheduleAutoSlice(action: () => void, delayMs = 350): void {
+function scheduleAutoSlice(action: () => void, delayMs = AUTO_SLICE_DEBOUNCE_MS): void {
   clearAutoSliceTimer();
   if (
     typeof window === 'undefined' ||
@@ -334,7 +336,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         get().build.techniqueId === 'waffle' &&
         (key === 'thickness' || key === 'kerf')
       ) {
-        scheduleAutoSlice(() => void get().runSlice(), 350);
+        scheduleAutoSlice(() => void get().runSlice());
       }
 
       // Auto-slice inteligente si el cambio afecta al corte
@@ -352,7 +354,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         } else {
           // Parámetros continuos (placas, grosor, separación): debounce de 350ms
           // para no recalcular cortes intermedios innecesarios al usar las flechitas o escribir
-          scheduleAutoSlice(() => void get().runSlice(), 350);
+          scheduleAutoSlice(() => void get().runSlice());
         }
       }
     },
@@ -833,7 +835,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         get().build.techniqueId === 'stacked' &&
         (get().build.jointId === 'none' || get().build.jointId === 'discs')
       ) {
-        scheduleAutoSlice(() => void get().runSlice(), 350);
+        scheduleAutoSlice(() => void get().runSlice());
       }
     },
 
@@ -1281,7 +1283,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           clearAutoSliceTimer();
           void get().runSlice();
         } else {
-          scheduleAutoSlice(() => void get().runSlice(), 350);
+          scheduleAutoSlice(() => void get().runSlice());
         }
       }
     },
@@ -1315,7 +1317,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       }
 
       if (state.meshGeometry && get().build.techniqueId === 'waffle') {
-        scheduleAutoSlice(() => void get().runSlice(), 350);
+        scheduleAutoSlice(() => void get().runSlice());
       }
     },
 
