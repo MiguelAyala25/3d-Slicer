@@ -141,8 +141,8 @@ Por qué este orden:
 
 | Chunk | Estado | `<START>` | `<END>` | Aprobado por el usuario |
 |---|---|---|---|---|
-| C0 | ✅ PASSED (en revisión) | `8be7825` | `HEAD` | ⏳ En revisión |
-| C1 | ⬜ Pendiente | | | |
+| C0 | ✅ PASSED | `8be7825` | `38d21e9` | ✅ Aprobado |
+| C1 | ✅ PASSED (en revisión) | `38d21e9` | `ac52371` | ⏳ En revisión |
 | C2 | ⬜ Pendiente | | | |
 | C3 | ⬜ Pendiente | | | |
 | C4 | ⬜ Pendiente | | | |
@@ -345,7 +345,45 @@ Además de G1-G9:
 - **C1-1 (M3):** `Get-ChildItem src -Recurse -Include *.ts,*.tsx | Select-String -Pattern "\.py:|\.py\b|Traducción 1:1"` → **0 coincidencias**. El commit de M3 solo cambia comentarios: `git diff <commit>^ <commit> -U0` no muestra ninguna línea `+`/`-` que no sea comentario (revisión manual incluida en el informe). `formatPythonFloat` **no** se renombró.
 - **C1-2 (D3):** existe un test nuevo en `slicer.test.ts` (escalas ×1e-3 y ×1e3 del fixture) que **pasa**, con `openChainsDiscarded === 0` y el mismo nº de polígonos que la escala base. Si no pasara, el chunk **no** está PASSED: se reporta como issue nuevo (no se arregla aquí).
 - **C1-3:** `slicer.ts:37` (o su línea actual) tiene el comentario del supuesto float32.
-- **C1-4:** nº de tests = 132 + los añadidos por D3 (≥ 1).
+- **C1-4:** nº de tests = 131 + los añadidos por D3 (≥ 1) (base de 131 tras L6 en C0).
+
+#### Plan de ejecución — C1
+
+Hash de inicio (`<START>`): `38d21e9` (`git status` limpio verificado).
+Se ejecutarán **3 commits separados** (1 por issue), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G8`) al cerrar el chunk:
+
+1. **Issue M3 — Commit 1: `docs(core): replace obsolete python references in comments with intent descriptions`**
+   - **Archivos y líneas verificadas con `Select-String`** (33 ocurrencias en 12 archivos, **solo comentarios**, 0 líneas de código):
+     - `web/src/components/viewport/SlicedPlatesView.tsx:56` (`viewer.py:390` → explicar rampa HSV estable por índice físico `i / total`).
+     - `web/src/core/joints/discs/discGeometry.ts:13` (`viewer.py:680` → explicar tolerancia de borde por defecto de 1.0 mm).
+     - `web/src/core/joints/discs/discLayout.ts:14, 125` (`layout.py:434-648`, `layout.py:553-633` → describir acomodo de discos en bandejas por hueco y partición multi-fila cuando excede el ancho útil).
+     - `web/src/core/joints/discs/DiscManager.ts:227` (`main.py:201-212` → explicar el re-escalado previo a `purgeInvalidDiscs`).
+     - `web/src/core/dxfExporter.ts:29, 108` (`exporter.py:341-358`, `exporter.py:322-338` → describir generación de arcos punteados y círculos de alineación en `GRABADO`).
+     - `web/src/core/layout.ts:80, 178, 221, 305` (`layout.py:190-263`, `110-144`, `392-412`, `183-187` → describir posición de etiqueta `P{i}`, cálculo de dimensiones/ocupación y generación de etiquetas de sobrante `SOBRANTE`, y validación de área útil).
+     - `web/src/core/params.ts:4, 20` (`params.py:9-59`, `ui.py:94-205`, `params.py:9-33` → describir límites, pasos y valores por defecto en mm).
+     - `web/src/core/polygonStitcher.ts:44` (`slicer.py:296` → describir umbral de área mínima en mm² para descartar astillas degeneradas).
+     - `web/src/core/project.ts:14, 58, 613` (`project.py:29-39`, `14-46`, `88-115` → describir esquema JSON v1.0, serialización compatible con `web/golden/l_block_project.json` y verificación de compatibilidad geométrica). No se renombra `formatPythonFloat`.
+     - `web/src/core/slicer.ts:57, 91` (`slicer.py:134-156`, `159` → describir rotación que alinea el eje elegido con `+Z` y centrado del AABB en el origen).
+     - `web/src/store/useSculptureStore.ts:263` (`ui.py:265-272` → describir sincronización automática `gap = thickness` mientras el usuario no haya editado `gap` manualmente en unión por discos).
+     - `web/src/types/sculpture.ts:4-15, 44` (`params.py`, `ui.py`, `layout.py:173` → conservar en los comentarios el valor por defecto y el rango `[min..max]` en mm sin citar archivos `.py`).
+   - **Verificación:** `Select-String -Pattern "\.py:|\.py\b|Traducción 1:1"` devuelve 0 coincidencias; `git diff` muestra únicamente líneas de comentario; `npx tsc --noEmit` y `npx vitest run`.
+
+2. **Issue L5 — Commit 2: `refactor(core): remove unused exported symbols`**
+   - **Observación técnica verificada con `Select-String` y `tsconfig.json`:**
+     - `pointToSegmentDistance` (`web/src/core/geometry2d.ts:34-43`) **tampoco tiene usos internos** dentro de `geometry2d.ts` (`closestPointOnRing` invoca `closestPointOnSegment` directamente). Como `web/tsconfig.json` tiene `"noUnusedLocals": true`, si solo se quitara `export`, `npx tsc --noEmit` fallaría con `TS6133: 'pointToSegmentDistance' is declared but its value is never read`. Por tanto, se eliminará la función `pointToSegmentDistance` completa (o dime si prefieres conservarla usada desde algún sitio).
+     - En `web/src/core/build/registry.ts:71`, al eliminar `isAvailable`, el tipo importado `RegistryEntry` (`registry.ts:7`) queda sin uso local; se quitará también de la lista de `import type` en `registry.ts` para no romper `"noUnusedLocals": true` ni añadir warnings de ESLint (`RegistryEntry` sigue exportado en `core/build/types.ts`).
+   - **Archivos a modificar:**
+     - `web/src/core/build/registry.ts`: eliminar `isAvailable` y el import sin uso `RegistryEntry`.
+     - `web/src/core/waffle/constants.ts`: eliminar `WAFFLE_PARAM_BOUNDS`.
+     - `web/src/core/project.ts`: eliminar `FORMAT_VERSION_V1`, `FORMAT_VERSION_V2` y `SerializedProjectFile` (junto con su JSDoc).
+     - `web/src/core/geometry2d.ts`: eliminar `pointToSegmentDistance`.
+   - **Verificación:** `npx tsc --noEmit`, `npx vitest run` y `npm run lint` (0 errores, y sin aumento de warnings).
+
+3. **Issue D3 — Commit 3: `test(slicer): document float32 precision assumption and test extreme mesh scales`**
+   - **Archivos a modificar:**
+     - `web/src/core/slicer.ts:37`: documentar sobre `readonly coords: Float32Array` por qué `Float32Array` (~7 dígitos decimales significativos, error relativo ~`1e-7`) es suficiente una vez centrada la malla en su AABB y antes de aplicar `scaleFactor` en `Float64` (`number` de JS) durante `extractSegmentsAtZ`.
+     - `web/src/__tests__/slicer.test.ts`: añadir un bloque `describe('Float32 precision across extreme mesh scales (D3)', ...)` que cargue el fixture `test_l_block.obj`, escale sus posiciones por `1e-3` y `1e3`, ejecute `sliceMesh` y verifique para ambos casos que `result.warnings` tenga 0 descartes (`openChainsDiscarded === 0` en todos los pisos) y que el conteo de polígonos por placa coincida exactamente con la escala base (`×1`).
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/slicer.test.ts` (132 tests en total en toda la suite).
 
 ---
 
