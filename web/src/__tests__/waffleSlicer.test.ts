@@ -350,23 +350,6 @@ describe('Waffle Slicer Integration (Phase 9.1)', () => {
     });
   });
 
-  describe('Non-blocking Benchmark', () => {
-    it('slices a dense mesh without blocking or throwing', () => {
-      // Esfera densa de 100k triángulos (aprox 250x200 segmentos)
-      // Usamos una esfera de 32x24 en test unitario para rapidez, y verificamos tiempo
-      const t0 = performance.now();
-      const denseSphere = createSpherePositions(30, 40, 30);
-      const result = sliceWaffleMesh(denseSphere, baseCoreParams, {
-        ...defaultWaffleParams,
-        pitch: 8.0,
-      });
-      const durationMs = performance.now() - t0;
-
-      expect(result.crossings.length).toBeGreaterThan(0);
-      console.log(`[Benchmark Waffle 3D Slicing] Completed in ${durationMs.toFixed(2)} ms (${result.crossings.length} crossings)`);
-    });
-  });
-
   describe('Slice Distribution & Notch Lead-in', () => {
     it('slices with distributionMethod = count respecting independent count1 and count2', () => {
       const cubeMesh = createBoxPositions(60, 60, 60);

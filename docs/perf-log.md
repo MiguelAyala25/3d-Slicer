@@ -49,27 +49,7 @@ Script: `web/scripts/bench-slice.ts` ejecutado mediante `npx vite-node scripts/b
 
 ## 3. Optimizaciones y Tooling (C0)
 
-### 3.4 Issue L3: Triage de dependencias y actualización segura
-- **npm audit --omit=dev inicial**: 4 vulnerabilidades reportadas:
-  1. `fflate` (0.8.2): bucle infinito en archives malformados ZIP64 (moderada).
-  2. `clipper2-js` (1.2.4): depende de `@angular/core` y `@angular/common` v18/19 por empaquetado upstream (advisories de Angular XSS/HTTP token leak).
-- **Acciones tomadas**:
-  - `fflate` actualizado a `0.8.3` (versión exacta en `package.json`).
-  - Vulnerabilidad de `fflate` resuelta: `npm audit --omit=dev` ya no la reporta.
-  - Los 3 avisos restantes en producción provienen exclusivamente de las subdependencias internas `@angular/*` del paquete upstream `clipper2-js@1.2.4`. Como la aplicación corre en el cliente / Web Worker y solo invoca funciones matemáticas de polígonos de Clipper sin usar Angular router ni HTTP client, estas vulnerabilidades no son explotables en runtime.
-  - No se ejecutó `npm audit fix --force` ni se elevó TypeScript a 7.x.
-- **Resultado del gate**: `tsc --noEmit`, `vitest` (132/132) y `npm run build` en verde.
-
-- Se confirmó con búsqueda exhaustiva que `clsx` y `tailwind-merge` tenían 0 usos.
-- Eliminadas `clsx` y `tailwind-merge` de `package.json` y `package-lock.json` (`npm ls clsx tailwind-merge` -> `(empty)`).
-- `dxf-parser` (usado únicamente en tests de exportación y `write-baseline.ts`) movido de `dependencies` a `devDependencies`.
-- Verificado con `tsc`, `vitest` (132/132) y `npm run build` en verde.
-
-- **Herramientas**: `eslint@9.21.0`, `typescript-eslint@8.26.0`, `eslint-plugin-react-hooks@5.2.0`, `globals@16.0.0`.
-- **Configuración**: `web/eslint.config.js` con `@typescript-eslint/no-explicit-any: 'warn'`.
-- **Script**: `"lint": "eslint src"`.
-- **Línea base**: **0 errores, 36 warnings** (código de salida 0). No se ejecutó `--fix` para preservar la regla de no mezclar limpiezas con cambios de comportamiento.
-
+### 3.1 Issue O6: Vitest con entorno `node` por defecto
 - **Configuración**: `vite.config.ts` actualizado a `test.environment = 'node'`.
 - Archivos anotados con `// @vitest-environment jsdom`:
   1. `src/__tests__/validator.test.ts` (3MF loader usa `DOMParser`)
@@ -81,4 +61,32 @@ Script: `web/scripts/bench-slice.ts` ejecutado mediante `npx vite-node scripts/b
 - **Tests**: **14/14 archivos, 132/132 tests pasados** (0 fallos).
 - **Duración antes**: **31.48 s** (con jsdom ocupando 64% del tiempo, ~127.49 s acumulados).
 - **Duración después**: **19.97 s** (~36.5 % de reducción de tiempo de suite).
+
+### 3.2 Issue L6: Eliminar pseudo-benchmark en `waffleSlicer.test.ts`
+- Eliminado el bloque `describe('Non-blocking Benchmark', ...)` en `web/src/__tests__/waffleSlicer.test.ts`.
+- El conteo base de tests unitarios pasa de 132 a **131 tests en 14 archivos**, sin `console.log('[Benchmark Waffle 3D Slicing]')` en `stdout`.
+- Duración de `waffleSlicer.test.ts`: bajó de ~1,409–2,334 ms a **808 ms**; suite total en **11.36 s**.
+
+### 3.3 Issue L1: ESLint en modo warn (DEC-10 = A)
+- **Herramientas**: `eslint@9.21.0`, `typescript-eslint@8.26.0`, `eslint-plugin-react-hooks@5.2.0`, `globals@16.0.0`.
+- **Configuración**: `web/eslint.config.js` con `@typescript-eslint/no-explicit-any: 'warn'`.
+- **Script**: `"lint": "eslint src"`.
+- **Línea base**: **0 errores, 36 warnings** (código de salida 0). No se ejecutó `--fix` para preservar la regla de no mezclar limpiezas con cambios de comportamiento.
+
+### 3.4 Issue L2: Dependencias sin uso
+- Se confirmó con búsqueda exhaustiva que `clsx` y `tailwind-merge` tenían 0 usos.
+- Eliminadas `clsx` y `tailwind-merge` de `package.json` y `package-lock.json` (`npm ls clsx tailwind-merge` -> `(empty)`).
+- `dxf-parser` (usado únicamente en tests de exportación y `write-baseline.ts`) movido de `dependencies` a `devDependencies`.
+- Verificado con `tsc`, `vitest` y `npm run build` en verde.
+
+### 3.5 Issue L3: Triage de dependencias y actualización segura
+- **npm audit --omit=dev inicial**: 4 vulnerabilidades reportadas:
+  1. `fflate` (0.8.2): bucle infinito en archives malformados ZIP64 (moderada).
+  2. `clipper2-js` (1.2.4): depende de `@angular/core` y `@angular/common` v18/19 por empaquetado upstream (advisories de Angular XSS/HTTP token leak).
+- **Acciones tomadas**:
+  - `fflate` actualizado a `0.8.3` (versión exacta en `package.json`).
+  - Vulnerabilidad de `fflate` resuelta: `npm audit --omit=dev` ya no la reporta.
+  - Los 3 avisos restantes en producción provienen exclusivamente de las subdependencias internas `@angular/*` del paquete upstream `clipper2-js@1.2.4`. Como la aplicación corre en el cliente / Web Worker y solo invoca funciones matemáticas de polígonos de Clipper sin usar Angular router ni HTTP client, estas vulnerabilidades no son explotables en runtime.
+  - No se ejecutó `npm audit fix --force` ni se elevó TypeScript a 7.x.
+- **Resultado del gate**: `tsc --noEmit`, `vitest` (131/131) y `npm run build` en verde.
 

@@ -73,15 +73,15 @@ Orden = riesgo ascendente, respetando dependencias.
 
 | Orden | Chunk | Issues | Esfuerzo | Riesgo | Depende de |
 |---|---|---|---|---|---|
-| 1 | **C0** Línea base y tooling | B0 (bench), O6, L1, L2, L3 | M | Bajo | — |
-| 2 | **C1** Comentarios y red de seguridad documental | M3, D3 | S | Muy bajo | C0 |
+| 1 | **C0** Línea base y tooling | B0 (bench), O6, L6, L1, L2, L3 | M | Bajo | — |
+| 2 | **C1** Comentarios, exports muertos y precisión float32 | M3, L5, D3 | S | Muy bajo | C0 |
 | 3 | **C2** Copias de memoria | O1 | M | Bajo-medio | C0 (bench) |
 | 4 | **C3** Stitcher (hash, parche, fusión) | M2, L4, O4 | M | Bajo-medio | C0, C1 |
 | 5 | **C4** Hot path del seccionado | O2 | M | Medio | C0, C3 |
 | 6 | **C5** Coalescing de SLICE en el worker | O5 | S | Bajo-medio | C2 |
 | 7 | **C6** Validator: separar y acelerar | M4, O3 | M | Medio | C2 |
 | 8 | **C7** División del store | M1 | L | Medio-alto | C2, C5 |
-| 9 | **C8** Parseo de proyecto (con `zod`) | M5 | M | Medio | C1 |
+| 9 | **C8** Parseo y serialización de proyecto (`zod` + `JSON.stringify`) | M5, M7 | M | Medio | C1 |
 | 10 | **C9** Robustez de salida (cambio de comportamiento) | D2, D6 | M | Medio | C3 |
 | 11 | **C10** Kerf (solo documentación, DEC-1 = A) | D1 | S | Muy bajo | — |
 | 12 | **C11** Layout y etiquetas | D4, D5 | M | Medio | C10 |
@@ -124,7 +124,7 @@ Por qué este orden:
 | # | Criterio | Comando exacto | Resultado esperado |
 |---|---|---|---|
 | G1 | Tipos | `npx tsc --noEmit` | Código de salida 0, sin errores |
-| G2 | Tests unitarios | `npx vitest run` | Código de salida 0; **0 fallos, 0 omitidos nuevos**; nº de tests ≥ 132 + los añadidos por el chunk (línea base: 14 archivos, 132 tests) |
+| G2 | Tests unitarios | `npx vitest run` | Código de salida 0; **0 fallos, 0 omitidos nuevos**; nº de tests ≥ 131 + los añadidos por el chunk (línea base inicial: 14 archivos, 132 tests; pasa a 131 tras L6 en C0) |
 | G3 | Build | `npm run build` | Código de salida 0 |
 | G4 | E2E | `npx playwright test` | Código de salida 0. La línea base de e2e se registra en C0; si los e2e fallan **antes** de cualquier cambio, ningún chunk puede darse por PASSED hasta que me lo reportes y yo decida |
 | G5 | Goldens intactos | `git diff --stat <START>..HEAD -- web/golden web/src/__tests__/__baseline__` | Salida **vacía**. Si no está vacía: **STOP**, aviso y espero aprobación (regla 4) |
@@ -141,7 +141,7 @@ Por qué este orden:
 
 | Chunk | Estado | `<START>` | `<END>` | Aprobado por el usuario |
 |---|---|---|---|---|
-| C0 | ⬜ Pendiente (no iniciado; solo se confirmó que los e2e no se habían ejecutado) | | | |
+| C0 | ✅ PASSED (en revisión) | `8be7825` | `HEAD` | ⏳ En revisión |
 | C1 | ⬜ Pendiente | | | |
 | C2 | ⬜ Pendiente | | | |
 | C3 | ⬜ Pendiente | | | |
@@ -230,6 +230,17 @@ flowchart TD
 - **Riesgo/rollback:** tests que dependían de globals del DOM sin darse cuenta; se arreglan con la directiva por archivo. Revertir el commit si hay dudas.
 - **Esfuerzo:** S · **Hecho:** 132/132 pasan y la duración baja de forma medible.
 
+#### L6 — Eliminar pseudo-benchmark en `waffleSlicer.test.ts`
+- **Chunk:** C0 · **Severidad:** Baja
+- **Problema:** `web/src/__tests__/waffleSlicer.test.ts:154-169` (`describe('Non-blocking Benchmark')` → `it('slices a dense mesh without blocking or throwing')`) genera una esfera densa en cada corrida de Vitest (~300-480 ms), imprime `console.log('[Benchmark Waffle 3D Slicing]...')` y solo comprueba `expect(result.crossings.length).toBeGreaterThan(0)` (ya cubierto por los otros 16 tests del archivo). Con B0 (`scripts/bench-slice.ts`) este test es redundante y ensucia la salida de tests.
+- **Solución:**
+  1. Eliminar el bloque `describe('Non-blocking Benchmark', ...)` en `web/src/__tests__/waffleSlicer.test.ts:153-170`.
+  2. El conteo base de tests unitarios pasa de 132 a **131** en 14 archivos.
+- **Tests:** los 16 tests restantes de `waffleSlicer.test.ts` siguen pasando sin salida en `stdout`.
+- **Verificar:** `npx vitest run src/__tests__/waffleSlicer.test.ts` (16 passed, 0 console.log).
+- **Riesgo/rollback:** nulo; `git revert`.
+- **Esfuerzo:** S · **Hecho:** test eliminado, 131 tests en verde y sin `console.log` de benchmark en Vitest.
+
 #### L1 — ESLint
 - **Chunk:** C0 · **Severidad:** Media
 - **Problema:** `web/package.json` no tiene script de lint ni ESLint/Prettier; los `as any` (`polygonStitcher.ts:17-25`, `project.ts:366,436,464,565`) pasan sin aviso.
@@ -275,7 +286,7 @@ flowchart TD
 Además de G1-G9:
 - **C0-1 (e2e baseline):** `npx playwright test` se ejecutó **antes de cualquier cambio** y su resultado (pasa/falla, nº de tests, duración) está en `docs/perf-log.md`. Nota: `playwright.config.ts` usa `channel: 'msedge'` y `webServer` con `npm run build && npm run preview`; si Edge o el puerto 4173 no están disponibles, reportarlo (no cambiar la config sin avisarme).
 - **C0-2 (B0):** `npx vite-node scripts/bench-slice.ts` termina con código 0 dos veces seguidas, y la mediana de cada métrica varía < 10 % entre ambas. `docs/perf-log.md` contiene la tabla baseline (dragón, `Hand.OBJ`, malla sintética ~1M triángulos): tiempo de carga+validación, caché por eje, `sliceMeshFromCache` con 50 y 200 placas, waffle, heap pico.
-- **C0-3 (O6):** `npx vitest run` → **14 archivos, 132 tests, 0 fallos** (mismos números que la línea base) y la duración total es **menor** que la línea base de 21-31 s (antes/después anotados). Cada archivo que usa `jsdom` lo declara con `// @vitest-environment jsdom`; `vite.config.ts` tiene `environment: 'node'`.
+- **C0-3 (O6 + L6):** `npx vitest run` → **14 archivos, 131 tests, 0 fallos** (132 tras O6 y 131 tras L6 al quitar el pseudo-benchmark de `waffleSlicer.test.ts`), sin `console.log('[Benchmark Waffle 3D Slicing]')` en `stdout`, y la duración total es **menor** que la línea base de 21-31 s (antes/después anotados). Cada archivo que usa `jsdom` lo declara con `// @vitest-environment jsdom`; `vite.config.ts` tiene `environment: 'node'`.
 - **C0-4 (L1):** `npm run lint` existe y termina con código 0 (los *warnings* son aceptables, los *errors* no); el nº de warnings queda anotado en `docs/perf-log.md`. No se reformateó ni autocorrigió código.
 - **C0-5 (L2):** `Get-ChildItem src,scripts,e2e,index.html,*.config.* -Recurse | Select-String "clsx|tailwind-merge"` devuelve 0 coincidencias; `clsx` y `tailwind-merge` no están en `package.json` ni en `package-lock.json` (`npm ls clsx tailwind-merge` → vacío). Se informa el destino de `dxf-parser` (movido a devDependencies o justificado).
 - **C0-6 (L3):** el resumen de `npm audit --omit=dev` está en `docs/perf-log.md` con cada hallazgo clasificado (producción / desarrollo); ningún hallazgo *high/critical* de producción queda sin resolver o sin justificación escrita. No se subió TypeScript a 7.x ni se usó `--force`.
@@ -283,7 +294,7 @@ Además de G1-G9:
 
 ---
 
-### C1 — Comentarios obsoletos y documentación del corte
+### C1 — Comentarios obsoletos, exports muertos y documentación del corte
 
 #### M3 — Referencias a código Python eliminado
 - **Chunk:** C1 · **Severidad:** Media
@@ -291,12 +302,29 @@ Además de G1-G9:
 - **Solución:**
   1. `Select-String -Pattern "\.py:|\.py\b|Traducción 1:1" -Path src -Recurse` para listar todas las ocurrencias.
   2. Reescribir cada comentario para explicar la **intención** (p. ej. "rotación que alinea el eje elegido con +Z", "área mínima de polígono en mm² para descartar astillas").
-  3. **No renombrar `formatPythonFloat`**: forma parte del formato de salida y puede afectar goldens de proyecto; renombrarla es un cambio aparte (anotarlo como deuda).
+  3. **No renombrar `formatPythonFloat` aquí** (se aborda en M7, C8).
   4. Respetar los demás comentarios y docstrings que no estén relacionados.
 - **Tests:** ninguno nuevo (solo comentarios). Comprobar con `git diff` que no cambió ninguna línea de código.
 - **Verificar:** Gate estándar; `git diff --stat` muestra solo líneas de comentario.
 - **Riesgo/rollback:** nulo.
 - **Esfuerzo:** S · **Hecho:** cero referencias a `*.py:` en `src/`; diff solo de comentarios.
+
+#### L5 — Eliminar exports muertos en `core/`
+- **Chunk:** C1 · **Severidad:** Baja
+- **Problema:** existen símbolos exportados con 0 usos en todo el repositorio (ni en producción ni en tests):
+  - `isAvailable` en `web/src/core/build/registry.ts:71`
+  - `WAFFLE_PARAM_BOUNDS` en `web/src/core/waffle/constants.ts:32`
+  - `FORMAT_VERSION_V1`, `FORMAT_VERSION_V2` y `SerializedProjectFile` en `web/src/core/project.ts:10-29`
+  - `pointToSegmentDistance` en `web/src/core/geometry2d.ts:34` (solo se usa internamente dentro de `geometry2d.ts`, no necesita `export`).
+- **Solución:**
+  1. Confirmar con `Select-String` en `src/`, `scripts/` y `e2e/` que ninguno de esos símbolos se importa fuera de su archivo.
+  2. Eliminar `isAvailable`, `WAFFLE_PARAM_BOUNDS`, `FORMAT_VERSION_V1`, `FORMAT_VERSION_V2` y `SerializedProjectFile`.
+  3. Quitar la palabra clave `export` de `pointToSegmentDistance` en `geometry2d.ts:34` (manteniendo la función interna).
+  4. Dejar intactos `getTechnique` (`registry.ts:63`) y `computeWaffleGrid` (`grid.ts:65`) porque sí los ejercitan `joints.test.ts` y `waffle2d.test.ts`.
+- **Tests:** la suite existente (`npx tsc --noEmit` y `npx vitest run`) verifica que nada se rompe.
+- **Verificar:** Gate estándar.
+- **Riesgo/rollback:** nulo; `git revert`.
+- **Esfuerzo:** S · **Hecho:** símbolos muertos eliminados, `pointToSegmentDistance` privado al módulo y `tsc` + `vitest` en verde.
 
 #### D3 — Documentar y proteger la precisión float32 del seccionado
 - **Chunk:** C1 · **Severidad:** Baja
