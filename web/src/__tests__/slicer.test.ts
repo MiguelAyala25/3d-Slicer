@@ -494,4 +494,287 @@ describe('slicer & polygon stitcher', () => {
       expect(totalArea).toBeCloseTo(1250 * 100, -2);
     });
   });
+
+  describe('extractSegmentsAtZ oracle bit-for-bit & boundary characterization (C4-1, C4-2)', () => {
+    function referenceExtractSegmentsAtZ(
+      cache: AxisSliceCache,
+      zUnit: number,
+      scaleFactor: number
+    ): DirectedSegment2D[] {
+      const zStart = cache.boundsMin[2];
+      const bucketIdx = Math.max(
+        0,
+        Math.min(
+          128 - 1,
+          Math.floor(((zUnit - zStart) / cache.origHeight) * 128)
+        )
+      );
+      const candidates = cache.buckets[bucketIdx];
+      const segments: DirectedSegment2D[] = [];
+
+      for (let i = 0; i < candidates.length; i++) {
+        const t = candidates[i];
+        if (cache.triMaxZ[t] < zUnit || cache.triMinZ[t] >= zUnit) {
+          continue;
+        }
+
+        const base = t * 9;
+        const vx = [cache.coords[base], cache.coords[base + 3], cache.coords[base + 6]];
+        const vy = [
+          cache.coords[base + 1],
+          cache.coords[base + 4],
+          cache.coords[base + 7],
+        ];
+        const vz = [
+          cache.coords[base + 2],
+          cache.coords[base + 5],
+          cache.coords[base + 8],
+        ];
+        const above = [vz[0] >= zUnit, vz[1] >= zUnit, vz[2] >= zUnit];
+
+        const ptsX: number[] = [];
+        const ptsY: number[] = [];
+
+        for (let e = 0; e < 3; e++) {
+          const a = e;
+          const b = (e + 1) % 3;
+          if (above[a] === above[b]) continue;
+
+          let iMin = a;
+          let iMax = b;
+          if (
+            vz[a] > vz[b] ||
+            (vz[a] === vz[b] &&
+              (vx[a] > vx[b] || (vx[a] === vx[b] && vy[a] > vy[b])))
+          ) {
+            iMin = b;
+            iMax = a;
+          }
+
+          const zA = vz[iMin];
+          const zB = vz[iMax];
+          const dz = zB - zA;
+          const alpha = dz === 0 ? 0 : (zUnit - zA) / dz;
+          const ix = (vx[iMin] + alpha * (vx[iMax] - vx[iMin])) * scaleFactor;
+          const iy = (vy[iMin] + alpha * (vy[iMax] - vy[iMin])) * scaleFactor;
+          ptsX.push(ix);
+          ptsY.push(iy);
+        }
+
+        if (ptsX.length !== 2) continue;
+
+        let x0 = ptsX[0], y0 = ptsY[0];
+        let x1 = ptsX[1], y1 = ptsY[1];
+        const dx = x1 - x0;
+        const dy = y1 - y0;
+        if (dx * dx + dy * dy <= 1e-16) continue;
+
+        const nx = cache.normalsXY[t * 2];
+        const ny = cache.normalsXY[t * 2 + 1];
+        if (dx * ny - dy * nx > 0) {
+          const tx = x0, ty = y0;
+          x0 = x1; y0 = y1;
+          x1 = tx; y1 = ty;
+        }
+
+        segments.push({ x0, y0, x1, y1 });
+      }
+
+      return segments;
+    }
+
+    it('matches reference oracle bit-for-bit across axes and heights on L-block fixture', () => {
+      const objBuf = toArrayBuffer(fs.readFileSync(path.join(FIXTURES_DIR, 'test_l_block.obj')));
+      const mesh = loadMeshFromBuffer(objBuf, 'test_l_block.obj');
+      const positions = mesh.geometry.getAttribute('position').array as Float32Array;
+
+      for (const axis of ['x', 'y', 'z'] as const) {
+        const cache = new AxisSliceCache(positions, axis);
+        const zMin = cache.boundsMin[2];
+        const zMax = cache.boundsMax[2];
+        const span = zMax - zMin;
+
+        // Sample 9 heights across the model
+        for (let step = 1; step <= 9; step++) {
+          const zUnit = zMin + (span * step) / 10;
+          const scaleFactor = 1.75;
+          const actual = cache.extractSegmentsAtZ(zUnit, scaleFactor);
+          const expected = referenceExtractSegmentsAtZ(cache, zUnit, scaleFactor);
+
+          expect(actual.length).toBe(expected.length);
+          expect(actual).toEqual(expected);
+        }
+      }
+    });
+
+    it('matches reference oracle bit-for-bit on torus STL and dense synthetic sphere', () => {
+      const stlBuf = toArrayBuffer(fs.readFileSync(path.join(FIXTURES_DIR, 'test_torus.stl')));
+      const mesh = loadMeshFromBuffer(stlBuf, 'test_torus.stl');
+      const torusPos = mesh.geometry.getAttribute('position').array as Float32Array;
+      const torusCache = new AxisSliceCache(torusPos, 'z');
+
+      for (const fraction of [0.15, 0.35, 0.5, 0.65, 0.85]) {
+        const zUnit = torusCache.boundsMin[2] + fraction * torusCache.origHeight;
+        const actual = torusCache.extractSegmentsAtZ(zUnit, 2.5);
+        const expected = referenceExtractSegmentsAtZ(torusCache, zUnit, 2.5);
+        expect(actual).toEqual(expected);
+      }
+
+      // Dense synthetic sphere (lat/lon grid, 20,000+ triangles)
+      const latBands = 100;
+      const lonBands = 100;
+      const sphereTris: number[] = [];
+      const R = 30;
+
+      for (let lat = 0; lat < latBands; lat++) {
+        const theta1 = (lat * Math.PI) / latBands;
+        const theta2 = ((lat + 1) * Math.PI) / latBands;
+
+        for (let lon = 0; lon < lonBands; lon++) {
+          const phi1 = (lon * 2 * Math.PI) / lonBands;
+          const phi2 = ((lon + 1) * 2 * Math.PI) / lonBands;
+
+          const v0 = [R * Math.sin(theta1) * Math.cos(phi1), R * Math.sin(theta1) * Math.sin(phi1), R * Math.cos(theta1)];
+          const v1 = [R * Math.sin(theta2) * Math.cos(phi1), R * Math.sin(theta2) * Math.sin(phi1), R * Math.cos(theta2)];
+          const v2 = [R * Math.sin(theta2) * Math.cos(phi2), R * Math.sin(theta2) * Math.sin(phi2), R * Math.cos(theta2)];
+          const v3 = [R * Math.sin(theta1) * Math.cos(phi2), R * Math.sin(theta1) * Math.sin(phi2), R * Math.cos(theta1)];
+
+          sphereTris.push(...v0, ...v1, ...v2);
+          sphereTris.push(...v0, ...v2, ...v3);
+        }
+      }
+
+      const spherePos = new Float32Array(sphereTris);
+      const sphereCache = new AxisSliceCache(spherePos, 'z');
+      expect(sphereCache.triCount).toBe(20000);
+
+      for (const fraction of [0.2, 0.4, 0.5, 0.6, 0.8]) {
+        const zUnit = sphereCache.boundsMin[2] + fraction * sphereCache.origHeight;
+        const actual = sphereCache.extractSegmentsAtZ(zUnit, 1.0);
+        const expected = referenceExtractSegmentsAtZ(sphereCache, zUnit, 1.0);
+        expect(actual.length).toBeGreaterThan(0);
+        expect(actual).toEqual(expected);
+      }
+    });
+
+    it('handles strictly coplanar horizontal faces at cut plane without generating NaN or duplicates', () => {
+      // Cylinder / prism with flat horizontal top at z = 10, bottom at z = -10, and middle plateau at z = 0
+      const p = [
+        // Bottom ring (z = -10)
+        [-10, -10, -10], [10, -10, -10], [10, 10, -10], [-10, 10, -10],
+        // Middle flat plateau (z = 0)
+        [-10, -10, 0], [10, -10, 0], [10, 10, 0], [-10, 10, 0],
+        // Smaller inner island on plateau extending up to z = 10
+        [-5, -5, 0], [5, -5, 0], [5, 5, 0], [-5, 5, 0],
+        [-5, -5, 10], [5, -5, 10], [5, 5, 10], [-5, 5, 10],
+      ];
+
+      const tris = [
+        // Bottom walls (-10 to 0)
+        [0, 1, 5], [0, 5, 4],
+        [1, 2, 6], [1, 6, 5],
+        [2, 3, 7], [2, 7, 6],
+        [3, 0, 4], [3, 4, 7],
+        // Coplanar flat face at z = 0 with hole for inner island
+        // Triangles strictly coplanar at z = 0:
+        [4, 5, 9], [4, 9, 8],
+        [5, 6, 10], [5, 10, 9],
+        [6, 7, 11], [6, 11, 10],
+        [7, 4, 8], [7, 8, 11],
+        // Top island walls (0 to 10)
+        [8, 9, 13], [8, 13, 12],
+        [9, 10, 14], [9, 14, 13],
+        [10, 11, 15], [10, 15, 14],
+        [11, 8, 12], [11, 12, 15],
+        // Top cap at z = 10 (coplanar)
+        [12, 13, 14], [12, 14, 15],
+        // Bottom cap at z = -10
+        [0, 2, 1], [0, 3, 2],
+      ];
+
+      const raw = new Float32Array(tris.length * 9);
+      for (let t = 0; t < tris.length; t++) {
+        for (let k = 0; k < 3; k++) {
+          const vi = tris[t][k];
+          raw[t * 9 + k * 3] = p[vi][0];
+          raw[t * 9 + k * 3 + 1] = p[vi][1];
+          raw[t * 9 + k * 3 + 2] = p[vi][2];
+        }
+      }
+
+      const cache = new AxisSliceCache(raw, 'z');
+
+      // Cut exactly at plateau z = 0 (transformed into cache local coords)
+      // Since model is centered: minZ = -10, maxZ = 10, cz = 0. So zUnit = 0 is exactly the plateau.
+      const segs = cache.extractSegmentsAtZ(0.0, 1.0);
+      const expected = referenceExtractSegmentsAtZ(cache, 0.0, 1.0);
+      expect(segs).toEqual(expected);
+
+      // Verify no NaN or infinite values
+      for (const s of segs) {
+        expect(Number.isFinite(s.x0)).toBe(true);
+        expect(Number.isFinite(s.y0)).toBe(true);
+        expect(Number.isFinite(s.x1)).toBe(true);
+        expect(Number.isFinite(s.y1)).toBe(true);
+      }
+
+      const stitched = stitchAndUnionSegments(segs);
+      expect(stitched.openChainsDiscarded).toBe(0);
+      expect(stitched.polygons.length).toBeGreaterThan(0);
+    });
+
+    it('handles cut plane passing exactly through isolated peak, bottom, and saddle vertices', () => {
+      // Octahedron centered at (0, 0, 0): vertices at (+/-10, 0, 0), (0, +/-10, 0), (0, 0, +/-10)
+      const v = [
+        [10, 0, 0],   // 0
+        [-10, 0, 0],  // 1
+        [0, 10, 0],   // 2
+        [0, -10, 0],  // 3
+        [0, 0, 10],   // 4 (top apex)
+        [0, 0, -10],  // 5 (bottom apex)
+      ];
+
+      const tris = [
+        // Top pyramid
+        [4, 0, 2],
+        [4, 2, 1],
+        [4, 1, 3],
+        [4, 3, 0],
+        // Bottom pyramid
+        [5, 2, 0],
+        [5, 1, 2],
+        [5, 3, 1],
+        [5, 0, 3],
+      ];
+
+      const raw = new Float32Array(tris.length * 9);
+      for (let t = 0; t < tris.length; t++) {
+        for (let k = 0; k < 3; k++) {
+          const vi = tris[t][k];
+          raw[t * 9 + k * 3] = v[vi][0];
+          raw[t * 9 + k * 3 + 1] = v[vi][1];
+          raw[t * 9 + k * 3 + 2] = v[vi][2];
+        }
+      }
+
+      const cache = new AxisSliceCache(raw, 'z');
+
+      // 1. Cut exactly at z = 0 (passes through vertices 0, 1, 2, 3)
+      const segsMid = cache.extractSegmentsAtZ(0.0, 1.0);
+      const expMid = referenceExtractSegmentsAtZ(cache, 0.0, 1.0);
+      expect(segsMid).toEqual(expMid);
+      const midStitched = stitchAndUnionSegments(segsMid);
+      expect(midStitched.polygons.length).toBe(1);
+      expect(midStitched.openChainsDiscarded).toBe(0);
+
+      // 2. Cut at apex z = 10 (top vertex 4). Should produce 0 segments (above rule z >= zUnit means triMinZ >= 10, skipped)
+      const segsApex = cache.extractSegmentsAtZ(10.0, 1.0);
+      expect(segsApex.length).toBe(0);
+
+      // 3. Cut at bottom apex z = -10 (bottom vertex 5).
+      const segsBottom = cache.extractSegmentsAtZ(-10.0, 1.0);
+      const expBottom = referenceExtractSegmentsAtZ(cache, -10.0, 1.0);
+      expect(segsBottom).toEqual(expBottom);
+    });
+  });
 });

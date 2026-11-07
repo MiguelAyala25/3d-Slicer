@@ -144,7 +144,7 @@ Por qué este orden:
 | C0 | ✅ PASSED | `8be7825` | `38d21e9` | ✅ Aprobado |
 | C1 | ✅ PASSED | `38d21e9` | `66bb171` | ✅ Aprobado |
 | C2 | ✅ PASSED | `66bb171` | `41a7139` | ✅ Aprobado |
-| C3 | ✅ PASSED | `41a7139` | `e9aed4e` | ⏳ En revisión |
+| C3 | ✅ PASSED | `41a7139` | `f071fce` | ✅ Aprobado |
 | C4 | ⬜ Pendiente | | | |
 | C5 | ⬜ Pendiente | | | |
 | C6 | ⬜ Pendiente | | | |
@@ -587,6 +587,43 @@ Además de G1-G9:
 - **C4-3 (medición, O2):** `docs/perf-log.md` tiene antes/después de `sliceMeshFromCache` con 200 placas (dragón y malla ~1M) y heap pico. **Objetivo orientativo: ≥ 20 % menos de tiempo.** Si no se alcanza, se reporta el número real y decido si el cambio se conserva.
 - **C4-4:** `NUM_Z_BUCKETS` constante fija ya no se usa en `extractSegmentsAtZ`/constructor (buckets adaptativos), dos commits separados (`perf: remove per-triangle allocations` y `perf: adaptive z-buckets`).
 - **C4-5:** G5 vacío. **Cualquier cambio de golden aquí es un error del refactor**: STOP.
+
+#### Plan de ejecución — C4
+
+Hash de inicio (`<START>`): `f071fce` (`git status` limpio verificado).
+Se ejecutarán **3 commits separados** (1 de caracterización previa según regla 8 + `C4-1`/`C4-2`, 1 para eliminar asignaciones por triángulo y 1 para los Z-buckets adaptativos según `C4-4`), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C4-1..C4-5`) al cerrar el chunk:
+
+1. **Paso 1 — Commit de caracterización previo (`test(slicer): add oracle bit-for-bit and coplanar/vertex boundary tests for extractSegmentsAtZ`)**
+   - **Objetivo (`C4-1` + `C4-2` + regla 8):** fijar antes de tocar producción un oráculo de referencia (`referenceExtractSegmentsAtZ`, copia exacta de la implementación actual con 128 buckets y arrays por triángulo) y ampliar la cobertura de casos borde.
+   - **Archivos a modificar:**
+     - `web/src/__tests__/slicer.test.ts`:
+       - Añadir la función oráculo `referenceExtractSegmentsAtZ(cache: AxisSliceCache, zUnit: number, scaleFactor: number): DirectedSegment2D[]` con la lógica original de `slicer.ts:165-254`.
+       - Verificar identidad bit a bit (`expect(actual).toEqual(expected)`) entre `cache.extractSegmentsAtZ(zUnit, scaleFactor)` y `referenceExtractSegmentsAtZ(cache, zUnit, scaleFactor)` en los 3 ejes (`x`, `y`, `z`) y múltiples alturas `zUnit` para los fixtures (`test_l_block.obj`, `test_l_block.stl`, `test_torus.stl`) y para una malla densa sintética (> 20 000 triángulos).
+       - Añadir tests explícitos de bordes (`C4-2`):
+         1. Caras estrictamente coplanares con el plano de corte (`z0 = z1 = z2 = zUnit`, tanto tapa superior/inferior como escalón intermedio) verificando que `extractSegmentsAtZ` las ignora limpiamente sin duplicar aristas ni producir `NaN`.
+         2. Plano de corte pasando exactamente por un vértice aislado (`z0 = zUnit` con `z1, z2 < zUnit`, con `z1, z2 > zUnit`, y con `z1 < zUnit < z2`), comprobando que `extractSegmentsAtZ` coincide bit a bit con el oráculo y que el polígono cosido es cerrado y válido.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/slicer.test.ts`.
+
+2. **Paso 2 — Commit 1 de O2 (`perf(slicer): remove per-triangle allocations in extractSegmentsAtZ`)**
+   - **Objetivo (`C4-1`, `C4-4`):** eliminar las ~6 asignaciones de arrays pequeños por triángulo candidato (`vx`, `vy`, `vz`, `above`, `ptsX`, `ptsY`) dentro del bucle caliente de `AxisSliceCache.extractSegmentsAtZ` (`web/src/core/slicer.ts:186-235`).
+   - **Cambios en `web/src/core/slicer.ts` (`:165-254`):**
+     - Leer `coords = this.coords` en escalares locales por triángulo: `vx0, vy0, vz0`, `vx1, vy1, vz1`, `vx2, vy2, vz2` y booleanos `a0 = vz0 >= zUnit`, `a1 = vz1 >= zUnit`, `a2 = vz2 >= zUnit`.
+     - Reemplazar `ptsX: number[] = []` y `ptsY: number[] = []` por acumuladores escalares (`x0 = 0, y0 = 0, x1 = 0, y1 = 0, ptCount = 0`).
+     - Evaluar las 3 aristas `(0,1)`, `(1,2)` y `(2,0)` en el mismo orden exacto (`e = 0, 1, 2`), manteniendo **idéntico** el predicado de orden canónico `(pMin, pMax)` por `(z, x, y)` y la fórmula IEEE-754 `(minX + alpha * (maxX - minX)) * scaleFactor` para que el resultado en punto flotante sea bit a bit igual al oráculo.
+     - Mantener la interfaz `DirectedSegment2D[]` sin cambios.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run` (incluyendo el test de identidad bit a bit contra `referenceExtractSegmentsAtZ`).
+
+3. **Paso 3 — Commit 2 de O2 (`perf(slicer): adaptive z-buckets in AxisSliceCache`)**
+   - **Objetivo (`C4-1`, `C4-3`, `C4-4`, `C4-5`):** reemplazar la constante fija `NUM_Z_BUCKETS = 128` (`web/src/core/slicer.ts:13`) por un número de buckets adaptativo `numBuckets = clamp(Math.round(Math.sqrt(triCount)), 128, 4096)`.
+   - **Cambios en `web/src/core/slicer.ts`:**
+     - Sustituir `NUM_Z_BUCKETS = 128` por `MIN_Z_BUCKETS = 128`, `MAX_Z_BUCKETS = 4096` y la función exportada `computeNumZBuckets(triCount: number): number`.
+     - Añadir `readonly numBuckets: number` en `AxisSliceCache` (permitiendo un parámetro opcional `numBucketsOverride?: number` en `constructor(rawPositions: Float32Array, axis: Axis, numBucketsOverride?: number)` para poder instanciar cachés con `128` buckets frente a `N` adaptativos en el test de `C4-1`).
+     - Usar la misma expresión `const invSpan = this.numBuckets / this.origHeight` tanto al poblar `bucketLists` en el constructor (`:124-156`) como al calcular `bucketIdx` en `extractSegmentsAtZ` (`:166-174`), garantizando por monotonía IEEE-754 que `b0 <= bucketIdx <= b1` para todo triángulo que cruce `zUnit` y preservando el orden ascendente de índice de triángulo `t` dentro de cada bucket.
+   - **Ampliación del test en `web/src/__tests__/slicer.test.ts` (`C4-1`):**
+     - Comprobar con `toEqual` que `new AxisSliceCache(pos, axis, 128).extractSegmentsAtZ(zUnit, scaleFactor)` y `new AxisSliceCache(pos, axis).extractSegmentsAtZ(zUnit, scaleFactor)` (con `numBuckets > 128` en malla densa) producen listas de segmentos **idénticas bit a bit** y que ambos coinciden con `referenceExtractSegmentsAtZ`.
+   - **Medición y registro en `docs/perf-log.md` (`C4-3`):**
+     - Ejecutar `npx vite-node scripts/bench-slice.ts` y registrar en `docs/perf-log.md` la tabla comparativa antes/después de `sliceMeshFromCache` (50 y 200 placas) y heap pico en `dragon-meshed.obj` (500k triángulos, `numBuckets = 707`) y en `Sphere ~998k` (~1M triángulos, `numBuckets = 999`).
+   - **Verificación final del chunk:** ejecutar G1-G9 y comprobar C4-1 a C4-5 (con G5 vacío).
 
 ---
 
