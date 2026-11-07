@@ -147,7 +147,7 @@ Por qué este orden:
 | C3 | ✅ PASSED | `41a7139` | `f071fce` | ✅ Aprobado |
 | C4 | ✅ PASSED | `f071fce` | `3dfbb58` | ✅ Aprobado |
 | C5 | ✅ PASSED | `3dfbb58` | `ac91cc2` | ✅ Aprobado |
-| C6 | ✅ PASSED | `85d3a8d` | `f8d103e` | ⏳ En revisión |
+| C6 | ✅ PASSED | `85d3a8d` | `f8d103e` | ✅ Aprobado |
 | C7 | ⬜ Pendiente | | | |
 | C8 | ⬜ Pendiente | | | |
 | C9 | ⬜ Pendiente | | | |
@@ -826,6 +826,59 @@ Además de G1-G9:
 - **C7-4 (caracterización):** los tests del store (escritos antes del refactor, en `jsdom`) pasan antes y después sin cambiar aserciones: un cambio de parámetros dispara **un único** `runSlice` (timers falsos), `setTechnique` pide confirmación cuando hay discos, etc.
 - **C7-5 (comportamiento):** el número de invocaciones de `runSlice` por interacción es **≤** al previo (medido en los tests de caracterización).
 - **C7-6:** e2e completo pasa (obligatorio en este chunk); G5 vacío. El paso "un solo punto de re-seccionado" solo se considera hecho si la caracterización prueba comportamiento idéntico; si se omitió, se declara en el informe (no impide PASSED).
+
+#### Plan de ejecución — C7
+
+Hash de inicio (`<START>`): `56677ae` (`git status` limpio verificado).
+Actualmente `web/src/store/useSculptureStore.ts` tiene **1472 líneas** (`waffleSlice.ts` solo declara tipos y estado inicial, dejando sus 208 líneas de acciones dentro de `useSculptureStore.ts`).
+Se ejecutarán **5 commits separados** (1 de caracterización previa según regla 8 + `C7-4`/`C7-5`, y 4 pasos incrementales de refactor puro para `M1`), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C7-1..C7-6`) al cerrar el chunk:
+
+1. **Paso 1 — Commit de caracterización previo (`test(store): add jsdom characterization tests for debounce, runSlice counts and store slices`)**
+   - **Objetivo (`C7-4`, `C7-5` + regla 8):** fijar antes de tocar producción el comportamiento observable del store en `jsdom` (creando `web/src/__tests__/storeCharacterization.test.ts` con `// @vitest-environment jsdom` en la primera línea):
+     1. **Debounce de 350 ms en cambios continuos (`C7-4`, `C7-5`):** con `vi.useFakeTimers()` y `vi.stubEnv('VITEST', '')` + `vi.stubEnv('NODE_ENV', 'development')` (para activar la rama con `setTimeout` de `scheduleAutoSlice` sin modificar aún el código de producción), tras cargar el fixture `test_l_block.obj`, realizar una ráfaga de 5 llamadas seguidas a `setParam('plates', 6..10)` y comprobar que `runSlice` se invoca **0 veces** antes de vencer los 350 ms y **exactamente 1 vez** al avanzar `vi.advanceTimersByTime(350)`. Verificar igualmente que `setPlatesFromDimension`, `setWaffleParam('pitch', ...)` y `setWaffleDimensionTarget` disparan **un único** `runSlice` tras 350 ms ante ráfagas de cambios.
+     2. **Ejecución inmediata sin debounce en cambios discretos (`C7-5`):** verificar que `setParam('axis', 'x')` (en `stacked`), `setWaffleParam('upAxis', 'y')` y `optimizeWaffleGridForTargetSections` (en `waffle`) cancelan cualquier timer pendiente y ejecutan **exactamente 1** `runSlice` de inmediato (0 ms).
+     3. **Confirmación de técnica y unión con discos (`C7-4`):** verificar que `setTechnique('waffle')` y `setJoint('none')` cuando `discs.length > 0` devuelven `{ needsConfirmation: true, discCount }` sin mutar `build` ni invocar `runSlice` (**0 invocaciones**), y con `{ confirmed: true }` limpian discos, actualizan `build` e invocan `runSlice` **exactamente 1 vez**.
+     4. **Vista, pisos, cámara y modales (`viewSlice`):** caracterizar `setViewMode`, `toggleWireframe`, `setShowAllFloors`, `setActiveFloor` (clamp y limpieza de `selectedDiscId`), `stepFloor` (salto sobre pisos vacíos con `getNextNonEmptyFloor`), `setCameraPreset` (incremento de `cameraPresetTrigger`), `openSheetPreviewModal` / `closeSheetPreviewModal` (tanto en `stacked` con y sin discos como en `waffle`) y `openCalibrationSheetPreview` / `closeCalibrationSheetPreview`.
+     5. **Proyecto y autosave (`projectSlice`):** caracterizar `exportProjectJsonString`, `importProjectFromParsed` (devuelve `{ needsConfirmation: true }` con **0 invocaciones** a `runSlice` cuando los parámetros son incompatibles y `forceAdapt === false`; aplica y ejecuta **1** `runSlice` cuando `forceAdapt === true`), `checkAutosaveOnStartup`, `restoreAutosaveSession` y `discardAutosaveSession`.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/storeCharacterization.test.ts` (pasa sobre el código actual sin tocar producción).
+
+2. **Paso 2 — Commit 1 de M1 (`refactor(store): extract AUTO_SLICE_DEBOUNCE_MS constant for 350ms debounce`)**
+   - **Objetivo (`C7-3`):** definir `export const AUTO_SLICE_DEBOUNCE_MS = 350;` una sola vez y eliminar los 5 literales `350` repetidos en `useSculptureStore.ts:162, 337, 355, 836, 1284, 1318`.
+   - **Verificación:** `Get-ChildItem web/src/store -Recurse -File | Select-String -Pattern "\b350\b"` devuelve **exactamente 1 coincidencia** (`C7-3`); `npx tsc --noEmit` y `npx vitest run`.
+
+3. **Paso 3 — Commit 2 de M1 (`refactor(store): extract worker client, job queue and auto-slice scheduler to workerClient.ts`)**
+   - **Objetivo (`C7-2`):** extraer el ciclo de vida del Web Worker, la cola de trabajos en vuelo (`isWorkerExecuting`, `pendingWorkerJob`, `currentMeshId`, `latestJobId`) y el programador `scheduleAutoSlice` / `clearAutoSliceTimer` a `web/src/store/workerClient.ts`.
+   - **Archivos a crear/modificar:**
+     - **Nuevo:** `web/src/store/workerClient.ts`:
+       - Exporta `AUTO_SLICE_DEBOUNCE_MS = 350`, `clearAutoSliceTimer()` y `scheduleAutoSlice(action, delayMs = AUTO_SLICE_DEBOUNCE_MS)`.
+       - Encapsula `workerInstance`, `currentMeshId`, `latestJobId`, `isWorkerExecuting`, `pendingWorkerJob` y `getOrCreateWorker()`.
+       - Expone una API limpia para el store:
+         - `loadMeshWithWorkerOrFallback(buffer, fileName, upOrientation): Promise<{ geometry: THREE.BufferGeometry; metadata: MeshMetadata }>`
+         - `runSliceJob(opts: { isWaffle: boolean; geometry: THREE.BufferGeometry; paramsSnapshot: SculptureParams; waffleParamsSnapshot: WaffleParams; onSliceSuccess: (res: SliceResult, durationMs: number) => void; onWaffleSuccess: (res: WaffleSliceResult, durationMs: number) => void; onSkipped: () => void; onError: (msg: string) => void }): Promise<void>`
+     - **Modificar:** `web/src/store/useSculptureStore.ts`:
+       - Reemplazar la gestión manual de `workerInstance`, `onMessage`/`onError`, `pendingWorkerJob` y el fallback síncrono en `loadMeshArrayBuffer` (`:376-434`) y `runSlice` (`:527-765`) por llamadas a `workerClient.ts`.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run`.
+
+4. **Paso 4 — Commit 3 de M1 (`refactor(store): extract project import/export and autosave actions to projectSlice.ts`)**
+   - **Objetivo (`C7-2`):** extraer la lógica de proyecto y autosave a `web/src/store/projectSlice.ts` siguiendo el patrón de `StateCreator<SculptureStore, [], [], ProjectSlice>` ya usado en `discsSlice.ts`.
+   - **Archivos a crear/modificar:**
+     - **Nuevo:** `web/src/store/projectSlice.ts`:
+       - Define y exporta `PendingAutosaveSession`, `ProjectState` (`pendingAutosave`), `ProjectActions` (`checkAutosaveOnStartup`, `restoreAutosaveSession`, `discardAutosaveSession`, `exportProjectJsonString`, `importProjectFromParsed`), `ProjectSlice`, el helper compartido `persistAutosaveIfLoaded(state)` (que centraliza la condición `if (state.meshGeometry && state.meshFileName) saveProjectToLocalStorage(...)`) y `createProjectSlice`.
+     - **Modificar:** `web/src/store/useSculptureStore.ts`:
+       - Componer `...createProjectSlice(set, get, api)`, reexportar `PendingAutosaveSession` para mantener compatibilidad de imports externos y usar `persistAutosaveIfLoaded(get())`.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run`.
+
+5. **Paso 5 — Commit 4 de M1 (`refactor(store): extract viewSlice.ts and move waffle actions into waffleSlice.ts`)**
+   - **Objetivo (`C7-1`, `C7-2`, `C7-5`, `C7-6`):**
+     - **Nuevo:** `web/src/store/viewSlice.ts`:
+       - Define y exporta `CameraPreset`, `ViewMode`, `getNextNonEmptyFloor`, `ViewState` (`viewMode`, `wireframe`, `showAllFloors`, `activeFloor`, `cameraPreset`, `cameraPresetTrigger`, `sheetLayouts`, `isPreviewModalOpen`), `ViewActions` (`setViewMode`, `toggleWireframe`, `setShowAllFloors`, `setActiveFloor`, `stepFloor`, `setCameraPreset`, `openSheetPreviewModal`, `closeSheetPreviewModal`), `ViewSlice` y `createViewSlice: StateCreator<SculptureStore, [], [], ViewSlice>`.
+     - **Modificar:** `web/src/store/waffleSlice.ts`:
+       - Mover las implementaciones de `WaffleActions` (`setWaffleParam`, `setWaffleDimensionTarget`, `setWaffleFamilyFilter`, `selectWafflePiece`, `stepWafflePiece`, `openCalibrationSheetPreview`, `closeCalibrationSheetPreview`, `optimizeWaffleGridForTargetSections`) desde `useSculptureStore.ts:1228-1435` hacia `createWaffleSlice: StateCreator<SculptureStore, [], [], WaffleSlice>` en `waffleSlice.ts` (manteniendo exportado `INITIAL_WAFFLE_STATE`).
+     - **Modificar:** `web/src/store/useSculptureStore.ts`:
+       - Componer `createDiscsSlice`, `createWaffleSlice`, `createProjectSlice` y `createViewSlice`; reexportar `CameraPreset` y `ViewMode`.
+       - **Sobre el paso 6 ("un solo punto de re-seccionado", `C7-6`):** se centraliza la decisión de auto-corte en un helper explícito `triggerAutoSlice(get, mode: 'immediate' | 'debounced')` invocado por las acciones del store, y **se omite deliberadamente** reemplazarlo por un `store.subscribe(...)` global porque varios tests existentes (`sizing.test.ts`, `zeroGap.test.ts`, `joints.test.ts`) y flujos internos (`loadMeshArrayBuffer(..., false)` en `restoreAutosaveSession` e `importProjectFromParsed` con `await runSlice()`) mutan el estado con `useSculptureStore.setState(...)` esperando que no se dispare un corte asíncrono no solicitado. Esto garantiza que el número de invocaciones a `runSlice` por interacción sea exactamente igual al previo (`C7-5`).
+       - `web/src/store/useSculptureStore.ts` queda en **~420-460 líneas (< 500 líneas, cumpliendo `C7-1`)**.
+   - **Verificación final del chunk:** ejecutar G1-G9 (`npx tsc --noEmit`, `npx vitest run`, `npm run build`, `npx playwright test`, `git diff` de goldens vacío) y comprobar todos los criterios `C7-1` a `C7-6`.
 
 ---
 
