@@ -145,7 +145,7 @@ Por qué este orden:
 | C1 | ✅ PASSED | `38d21e9` | `66bb171` | ✅ Aprobado |
 | C2 | ✅ PASSED | `66bb171` | `41a7139` | ✅ Aprobado |
 | C3 | ✅ PASSED | `41a7139` | `f071fce` | ✅ Aprobado |
-| C4 | ✅ PASSED | `f071fce` | `e689bf0` | ⏳ En revisión |
+| C4 | ✅ PASSED | `f071fce` | `3dfbb58` | ✅ Aprobado |
 | C5 | ⬜ Pendiente | | | |
 | C6 | ⬜ Pendiente | | | |
 | C7 | ⬜ Pendiente | | | |
@@ -651,6 +651,48 @@ Además de G1-G9:
 - **C5-3:** la medición posterior muestra mejora del tiempo hasta el último resultado (antes/después en `perf-log.md`).
 - **C5-4:** e2e pasa y **no hay spinner colgado**: tras una ráfaga de cambios de parámetros, `isSlicing` vuelve a `false` (cubierto por test o e2e).
 - **C5-5:** G5 vacío.
+
+#### Plan de ejecución — C5
+
+Hash de inicio (`<START>`): `3dfbb58` (`git status` limpio verificado).
+Según el paso 1 de `O5` y `C5-1`, **primero se medirá la ráfaga de 10 mensajes `SLICE` seguidos** y solo si el problema es medible se ejecutará el cambio:
+
+1. **Paso 1 — Diagnóstico del protocolo actual (`slicer.worker.ts` + `useSculptureStore.ts`) y medición previa (`C5-1`)**
+   - **Verificación en `useSculptureStore.ts:604-732` y `slicer.worker.ts:10-155`:**
+     - Actualmente `slicer.worker.ts` ejecuta cada mensaje (`LOAD_MESH`, `SET_MESH`, `SLICE`, `SLICE_WAFFLE`) **de forma síncrona dentro de `self.onmessage`** (`:62-154`). Si llegan `N` mensajes `SLICE` o `SLICE_WAFFLE` a la cola del worker antes de que drenen, el worker calcula los `N` cortes completos uno tras otro aunque los primeros `N - 1` ya estén obsoletos.
+     - En `useSculptureStore.ts:615-683`, cada llamada a `executeJob(targetJobId, ...)` registra un listener que espera un mensaje con `msg.jobId === targetJobId` para:
+       1. Resolver la `Promise` de `runSlice()`.
+       2. Despachar `pendingWorkerJob` si existe, o poner `isWorkerExecuting = false`.
+     - Por lo tanto, si el worker descarta un `SLICE`/`SLICE_WAFFLE` encolado sin responder nada por ese `jobId`, cualquier consumidor que espere respuesta por `jobId` (o un test/llamador directo del worker) quedaría con la promesa pendiente o con `isWorkerExecuting = true`. En cambio, responder con `{ type: 'SLICE_SKIPPED', jobId, meshId }` por cada job reemplazado permite que `useSculptureStore.ts` limpie el listener, resuelva la promesa del job obsoleto y nunca deje `isSlicing: true` ni `isWorkerExecuting: true` colgados (`C5-4`).
+   - **Medición previa (`C5-1`):**
+     - Añadir en `web/scripts/bench-slice.ts` una prueba reproducible que envíe **10 mensajes `SLICE` consecutivos** (p. ej. `plates = 41..50` sobre `dragon-meshed.obj` y `Hand.OBJ`) a la cola del worker y mida el tiempo total hasta recibir el resultado del 10.º mensaje (`jobId = 10`) y cuántos cortes reales se ejecutaron:
+       - **Sin coalescing en el worker (actual):** los 10 mensajes encolados ejecutan 10 veces `sliceMeshFromCache` (~10x el coste de un corte).
+       - **Con coalescing en el worker (`O5`):** los primeros 9 mensajes se coalescen (`SLICE_SKIPPED`) y solo se ejecuta el 10.º corte (~1x el coste de un corte, ~90 % menos tiempo).
+     - Registrar la medición "Antes" en `docs/perf-log.md`. (Si por algún motivo no fuera medible, se aplica la regla de `C5-1` y se cierra sin cambios; si se confirma la diferencia de ~10x -> 1x, se procede al Paso 2).
+
+2. **Paso 2 — Commit único para `O5`: `perf(worker): coalesce queued SLICE and SLICE_WAFFLE messages`**
+   - **Archivos a modificar:**
+     - `web/src/types/sculpture.ts`:
+       - Añadir `{ type: 'SLICE_SKIPPED'; jobId: number; meshId: number }` a la unión `WorkerResponse`.
+     - `web/src/worker/slicer.worker.ts`:
+       - Extraer un controlador de cola testeable (`createSlicerWorkerHost(postMessageFn)` usado por `self.onmessage`) que mantenga:
+         - `pendingSliceMsg: Extract<WorkerRequest, { type: 'SLICE' | 'SLICE_WAFFLE' }> | null = null`
+         - `flushScheduled = false`
+       - Cuando llega `SLICE` o `SLICE_WAFFLE`:
+         - Si ya existe `pendingSliceMsg`, emitir inmediatamente `{ type: 'SLICE_SKIPPED', jobId: pendingSliceMsg.jobId, meshId: pendingSliceMsg.meshId }` por el job desplazado y reemplazar `pendingSliceMsg = msg`.
+         - Si no hay flush programado (`!flushScheduled`), programar `setTimeout(flushPendingSlice, 0)` para que todos los mensajes `SLICE`/`SLICE_WAFFLE` encolados en el mismo turno del event loop se coalescan en uno solo (el último).
+       - Cuando llega `LOAD_MESH` o `SET_MESH`:
+         - **Nunca se descartan y mantienen su orden estricto (`C5-2`):** si había un `pendingSliceMsg` previo en cola antes de `LOAD_MESH`/`SET_MESH`, drenarlo o evaluarlo en orden antes de actualizar `currentMeshId` (o procesarlo en secuencia) para que `LOAD_MESH`/`SET_MESH` conserven el orden de llegada y un `SLICE` con `meshId` obsoleto siga produciendo `SLICE_ERROR` cuando `meshId !== currentMeshId`.
+     - `web/src/store/useSculptureStore.ts`:
+       - En `onMessage` dentro de `runSlice` (`:615-655`), manejar `msg.type === 'SLICE_SKIPPED'`: si `targetJobId === latestJobId` (caso defensivo), poner `isSlicing: false`; en todos los casos llamar a `onJobDone()` y avanzar `pendingWorkerJob` / `isWorkerExecuting = false` para garantizar que jamás quede el spinner colgado (`C5-4`).
+   - **Tests nuevos (`C5-2` y `C5-4`):**
+     - En `web/src/__tests__/slicer.test.ts` (o `web/src/__tests__/workerQueue.test.ts`):
+       1. **Cola de 5 `SLICE` seguidos:** enviar 5 mensajes `SLICE` (`jobId = 1..5`) en ráfaga; verificar que los `jobId` 1..4 reciben `SLICE_SKIPPED`, que `sliceMeshFromCache` se ejecuta **exactamente 1 vez** (para `jobId = 5`) y que `jobId = 5` devuelve `SLICE_SUCCESS`.
+       2. **Orden de `LOAD_MESH` y `SET_MESH`:** enviar `LOAD_MESH` / `SET_MESH` intercalados con `SLICE`; comprobar que `LOAD_MESH` y `SET_MESH` nunca se descartan, se procesan en orden, y que un `SLICE` con `meshId` obsoleto sigue devolviendo `SLICE_ERROR`.
+       3. **Sin spinner colgado (`isSlicing === false`):** simular una ráfaga de cambios de parámetros/cortes sobre el store y verificar que al terminar la ráfaga `useSculptureStore.getState().isSlicing` vuelve a `false` y el resultado corresponde al último parámetro enviado.
+   - **Medición posterior (`C5-3`) y cierre (`G1`-`G9` + `C5-1..C5-5`):**
+     - Ejecutar el benchmark de ráfaga de 10 mensajes `SLICE` antes/después y anotar la tabla en `docs/perf-log.md`.
+     - Ejecutar `npx tsc --noEmit`, `npx vitest run`, `npm run build`, `npx playwright test` y verificar `G5` vacío.
 
 ---
 

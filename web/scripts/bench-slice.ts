@@ -204,6 +204,46 @@ async function main() {
   );
   results.push(resSynth);
 
+  // 4. Medición de ráfaga (Burst de 10 mensajes SLICE) - C5 / O5
+  console.log('\n[4/4] Midiendo Ráfaga de 10 cortes SLICE consecutivos (Hand.OBJ & dragon-meshed.obj)...');
+  if (fs.existsSync(handPath)) {
+    const handBuf = fs.readFileSync(handPath);
+    const mesh = loadMeshFromBuffer(toArrayBuffer(handBuf), 'Hand.OBJ');
+    const pos = mesh.geometry.getAttribute('position').array as Float32Array;
+    const cache = new AxisSliceCache(pos, 'z');
+
+    const t0 = performance.now();
+    for (let i = 1; i <= 10; i++) {
+      sliceMeshFromCache(cache, { ...DEFAULT_PARAMS, axis: 'z', plates: 40 + i });
+    }
+    const elapsed10 = performance.now() - t0;
+
+    const t1 = performance.now();
+    sliceMeshFromCache(cache, { ...DEFAULT_PARAMS, axis: 'z', plates: 50 });
+    const elapsed1 = performance.now() - t1;
+
+    console.log(`- Hand.OBJ: 10 cortes secuenciales = ${elapsed10.toFixed(2)} ms | 1 corte coalesced = ${elapsed1.toFixed(2)} ms (Ahorro: ${(100 * (1 - elapsed1 / elapsed10)).toFixed(1)}%)`);
+  }
+
+  if (fs.existsSync(dragonPath)) {
+    const dragonBuf = fs.readFileSync(dragonPath);
+    const mesh = loadMeshFromBuffer(toArrayBuffer(dragonBuf), 'dragon-meshed.obj');
+    const pos = mesh.geometry.getAttribute('position').array as Float32Array;
+    const cache = new AxisSliceCache(pos, 'z');
+
+    const t0 = performance.now();
+    for (let i = 1; i <= 10; i++) {
+      sliceMeshFromCache(cache, { ...DEFAULT_PARAMS, axis: 'z', plates: 40 + i });
+    }
+    const elapsed10 = performance.now() - t0;
+
+    const t1 = performance.now();
+    sliceMeshFromCache(cache, { ...DEFAULT_PARAMS, axis: 'z', plates: 50 });
+    const elapsed1 = performance.now() - t1;
+
+    console.log(`- dragon-meshed.obj: 10 cortes secuenciales = ${elapsed10.toFixed(2)} ms | 1 corte coalesced = ${elapsed1.toFixed(2)} ms (Ahorro: ${(100 * (1 - elapsed1 / elapsed10)).toFixed(1)}%)`);
+  }
+
   console.log('\n=== RESULTADOS BENCHMARK B0 (Mediana de 5 ejecuciones) ===');
   console.table(results);
 

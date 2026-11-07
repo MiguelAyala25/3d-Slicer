@@ -164,5 +164,29 @@ Mediana de 5 ejecuciones (con 1 calentamiento previo) midiendo `sliceMeshFromCac
 - **C4-4**: La constante fija `NUM_Z_BUCKETS = 128` fue reemplazada por `MIN_Z_BUCKETS = 128`, `MAX_Z_BUCKETS = 4096` y `computeNumZBuckets(triCount)` adaptativo. Se ejecutaron dos commits de optimización separados (`perf: remove per-triangle allocations` y `perf: adaptive z-buckets`).
 - **C4-5**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
 
+---
+
+## 7. Coalescing de SLICE en el Worker (C5 / Issue O5)
+
+### 7.1 Mediciones de Ráfaga Antes vs Después (B0 / scripts/bench-slice.ts)
+
+Medición de una ráfaga continua de 10 mensajes `SLICE` consecutivos (enviados uno tras otro en la cola de mensajes):
+
+| Modelo | Triángulos | 10 Cortes Secuenciales (Sin Coalescing) | 1 Corte Coalesced (Con O5) | Ahorro de Tiempo de Cómputo |
+|---|---|---|---|---|
+| **Hand.OBJ** | 470 | **38.45 ms** | **4.84 ms** | **-87.4 %** |
+| **dragon-meshed.obj** | 500,000 | **2203.54 ms** | **239.96 ms** | **-89.1 %** |
+
+*Nota sobre O5*:
+- Con `SlicerWorkerHost`, cuando entran múltiples mensajes `SLICE` o `SLICE_WAFFLE` en el mismo ciclo de microtarea/timer de `onmessage`, se emite un aviso `SLICE_SKIPPED { jobId, meshId }` para los jobs intermedios obsoletos y únicamente se calcula el último seccionado solicitado.
+- En el cliente (`useSculptureStore.ts`), cada job descartado se resuelve sin quedar con `isSlicing: true` ni bloquear promesas en ejecución.
+
+### 7.2 Verificación de Criterios C5
+- **C5-1 (medición previa obligatoria)**: Se midió la ráfaga de 10 mensajes continuos antes del cambio (demostrando un tiempo acumulado de >2.2 s en el dragón que bloqueaba el worker innecesariamente).
+- **C5-2 (test de cola)**: Se añadió `web/src/__tests__/workerQueue.test.ts`. Prueba que 5 mensajes seguidos coalescen en 4 `SLICE_SKIPPED` y 1 `SLICE_SUCCESS`; que `LOAD_MESH` y `SET_MESH` nunca se descartan y conservan su orden; y que un `meshId` obsoleto o erróneo produce `SLICE_ERROR`.
+- **C5-3 (medición posterior)**: Reducción de tiempo de cómputo en ráfagas de ~87% a 89% registrada en la tabla 7.1.
+- **C5-4 (sin spinner colgado)**: Test específico en `workerQueue.test.ts` valida que tras una ráfaga `isSlicing` regresa a `false` de manera determinista y el resultado corresponde al último job solicitado. Los tests E2E pasan 8/12 idénticos a la línea base sin spinner colgado.
+- **C5-5**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
+
 
 

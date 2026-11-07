@@ -626,6 +626,10 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
                 if (targetJobId === latestJobId) {
                   applyWaffleSliceOutcome(msg.result, msg.durationMs);
                 }
+              } else if (msg.type === 'SLICE_SKIPPED') {
+                if (targetJobId === latestJobId) {
+                  set({ isSlicing: false });
+                }
               } else if (msg.type === 'SLICE_ERROR') {
                 if (targetJobId === latestJobId) {
                   set({

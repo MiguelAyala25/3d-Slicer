@@ -214,6 +214,11 @@ export type WorkerResponse =
       durationMs: number;
     }
   | {
+      type: 'SLICE_SKIPPED';
+      jobId: number;
+      meshId: number;
+    }
+  | {
       type: 'SLICE_ERROR';
       jobId: number;
       meshId: number;
