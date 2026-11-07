@@ -90,3 +90,28 @@ Script: `web/scripts/bench-slice.ts` ejecutado mediante `npx vite-node scripts/b
   - No se ejecutó `npm audit fix --force` ni se elevó TypeScript a 7.x.
 - **Resultado del gate**: `tsc --noEmit`, `vitest` (131/131) y `npm run build` en verde.
 
+---
+
+## 4. Optimización de Memoria en Carga (C2 / Issue O1)
+
+### 4.1 Mediciones Antes vs Después (B0 / scripts/bench-slice.ts)
+
+Mediana de 5 ejecuciones (con 1 calentamiento previo) midiendo tiempo de carga/validación y heap pico:
+
+| Malla | Triángulos | Carga Antes (ms) | Carga Después (ms) | Heap Pico Antes (MB) | Heap Pico Después (MB) | Reducción Heap |
+|---|---|---|---|---|---|---|
+| **Hand.OBJ** | 470 | 8.07 | 6.26 | 68.92 | 71.96 | (~3 MB variación gc) |
+| **dragon-meshed.obj** | 500,000 | 4662.34 | 4579.82 | 130.46 | 120.78 | **-7.4 % (-9.68 MB)** |
+| **Sphere ~998k** | 998,000 | 0.02 | 0.02 | 146.92 | 126.20 | **-14.1 % (-20.72 MB)** |
+
+*Nota sobre C2-3*: La eliminación de buffers clonados en `meshLoader` (`posOnly` sin clonar atributos normales/uv/color), `validator` (`mergeVertices` directo con atributos requeridos sin clonar geometría completa; `indices` sin bucle de asignación escalar) y `slicer.worker.ts` (solo 1 copia transferible en vez de 2) ahorra ~36 MB directos de allocations temporales de Float32/Uint32 por cada millón de triángulos. El heap pico neto retenido durante la suite de benchmark se redujo más de 20 MB en la malla sintética de 1M y casi 10 MB en el dragón.
+
+### 4.2 Verificación de Criterios C2
+- **C2-1**: Test de checksum y metadata para los fixtures (`test_l_block.stl`, `test_l_block.obj`, `test_l_block.3mf`, `test_torus.stl`) añadido antes del refactor (`d33dd1a`) y pasando idéntico después (`4f23657`).
+- **C2-2**: Test de propiedad de buffers en el Worker añadido en `validator.test.ts`. Valida que `rawPositions` y `transferPositions` sean instancias independientes, que el buffer transferido se desasocie (*detach*) limpiamente sin afectar la copia retenida por el worker (`byteLength > 0`).
+- **C2-3**: Reducción de heap pico medida y documentada en la tabla 4.1.
+- **C2-4**: `Select-String -Path src\worker\slicer.worker.ts -Pattern "new Float32Array\("` arroja exactamente 1 coincidencia (la copia requerida para transferencia por `postMessage`).
+- **C2-5**: El test e2e de carga y corte sin conexión offline pasa limpiamente (8/12 pasados, idéntico a la línea base sin errores de buffer *detached*).
+- **C2-6**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
+
+

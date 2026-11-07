@@ -142,8 +142,8 @@ Por qué este orden:
 | Chunk | Estado | `<START>` | `<END>` | Aprobado por el usuario |
 |---|---|---|---|---|
 | C0 | ✅ PASSED | `8be7825` | `38d21e9` | ✅ Aprobado |
-| C1 | ✅ PASSED (en revisión) | `38d21e9` | `ac52371` | ⏳ En revisión |
-| C2 | ⬜ Pendiente | | | |
+| C1 | ✅ PASSED | `38d21e9` | `66bb171` | ✅ Aprobado |
+| C2 | ✅ PASSED (en revisión) | `66bb171` | `4f23657` | ⏳ En revisión |
 | C3 | ⬜ Pendiente | | | |
 | C4 | ⬜ Pendiente | | | |
 | C5 | ⬜ Pendiente | | | |
@@ -419,6 +419,43 @@ Además de G1-G9:
 - **C2-4:** `Select-String -Path src\worker\slicer.worker.ts -Pattern "new Float32Array\("` muestra **a lo sumo una** copia (la necesaria para transferir).
 - **C2-5:** el e2e que carga un modelo y corta pasa (sin errores de buffer *detached* en consola).
 - **C2-6:** G5 vacío (goldens intactos).
+
+#### Plan de ejecución — C2
+
+Hash de inicio (`<START>`): `66bb171` (`git status` limpio verificado).
+Se ejecutarán **2 commits separados** (1 de caracterización previa según regla 8 + C2-1, y 1 de optimización para el issue `O1`), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C2-1..C2-6`) al cerrar el chunk:
+
+1. **Paso 1 — Commit de caracterización previo (`test(loader): add characterization tests for fixture positions checksums and metadata`)**
+   - **Objetivo (C2-1):** fijar antes de tocar producción el contenido bit a bit (`SHA-256` del `Float32Array` de `position` y su longitud) y el objeto `metadata` completo que devuelve `loadMeshFromBuffer` para los fixtures (`test_l_block.stl`, `test_l_block.obj`, `test_l_block.ply`, `test_l_block.3mf` y `test_torus.stl`).
+   - **Archivos a modificar:**
+     - `web/src/__tests__/validator.test.ts`: añadir un bloque `describe('loadMeshFromBuffer position buffer checksum & metadata characterization (O1 / C2-1)', ...)` que calcule el hash SHA-256 sobre los bytes exactos de `geometry.getAttribute('position').array` y verifique `toEqual` sobre `metadata` para cada fixture.
+   - **Medición "Antes" de carga para C2-3:** ejecutar `bench-slice.ts` midiendo específicamente el pico de heap durante `loadMeshFromBuffer` / `normalizeAndValidateGeometry` (con `--expose-gc` para medir el delta/pico real de carga sin arrastre de corridas previas) en `dragon-meshed.obj` (500k triángulos) y en la malla sintética de ~1M de triángulos (`Sphere ~998k` pasando por `normalizeAndValidateGeometry`).
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/validator.test.ts` (133 tests en verde).
+
+2. **Paso 2 — Commit del issue O1 (`perf(loader): eliminate redundant position and index buffer copies`)**
+   - **Cambios por archivo (verificados con las líneas actuales):**
+     - `web/src/core/meshLoader.ts:56-66` (`extractMergedGeometryFromObject3D`):
+       - En vez de `mesh.geometry.clone()` (que clona `normal`, `uv` y `color` además de `position`), construir `posOnly = new THREE.BufferGeometry()` copiando **únicamente** el atributo `position` (`mesh.geometry.getAttribute('position').clone()`) y, si existe, el índice (`if (mesh.geometry.index) posOnly.setIndex(mesh.geometry.index)`).
+       - Aplicar `applyMatrix4(mesh.matrixWorld)` y `scale(unitScale, ...)` directamente sobre `posOnly` (evita transformar vectores normales que luego se descartan).
+       - Si `posOnly.index` existe, hacer `posOnly.toNonIndexed()` (que ya devuelve una `BufferGeometry` nueva solo con `position`); si no es indexada, usar `posOnly` directamente sin instanciar otra `BufferGeometry`.
+     - `web/src/core/validator.ts:204-210` y `:229-232` (`normalizeAndValidateGeometry`):
+       - En `:204-207`, reemplazar `rawGeometry.clone()` + `deleteAttribute(...)` por una `BufferGeometry` liviana que referencie únicamente `posAttr` (y `rawGeometry.index` si existiera), ya que `mergeVertices(cleanForWeld, weldTolerance)` solo lee esos atributos y no los muta.
+       - En `:229-232`, reemplazar la copia manual `for (let i = 0; i < indexAttr.count; i++) indices[i] = indexAttr.getX(i)` usando `indexAttr.array instanceof Uint32Array ? indexAttr.array : Uint32Array.from(indexAttr.array)` (`indexedGeom` es temporal de esta función y sus índices pueden permutarse in-place al normalizar el winding en `:442-446`).
+     - `web/src/worker/slicer.worker.ts:20-40`:
+       - Extraer la lógica de creación del payload de `LOAD_MESH` (o el estado del worker) en una función exportable/testeable para cubrir `C2-2` sin duplicar buffers.
+       - Reemplazar las dos copias (`positions = new Float32Array(posAttr.array)` en `:21` y `transferPositions = new Float32Array(positions)` en `:29`) por:
+         - `rawPositions = posAttr.array as Float32Array` (propiedad exclusiva del worker; `normalizeAndValidateGeometry` ya creó un `outPositions` nuevo).
+         - `const transferPositions = new Float32Array(rawPositions)` (**única** copia `new Float32Array(` en `slicer.worker.ts`, cumpliendo `C2-4`), cuyo `.buffer` se transfiere al hilo principal en `postMessage(resp, [transferPositions.buffer])`.
+       - Documentar explícitamente en comentario la propiedad de cada buffer (`rawPositions` permanece en el worker; `transferPositions` se transfiere al hilo principal; `SET_MESH` recibe su propio buffer clonado/transferido).
+     - `web/src/store/useSculptureStore.ts:742,749` (fallback síncrono de tests):
+       - Pasar `posAttr.array as Float32Array` directamente a `sliceWaffleMesh` y `sliceMesh` sin envolverlo en `new Float32Array(...)` (verificado en `slicer.ts:86-99`: `AxisSliceCache` construye su propio `rotated = new Float32Array(positions.length)` y nunca muta el `positions` de entrada).
+   - **Test nuevo de propiedad de buffers (C2-2):**
+     - En `web/src/__tests__/validator.test.ts` (o test dedicado del worker), verificar que al procesar `LOAD_MESH`:
+       1. El buffer transferido al hilo principal (`transferPositions.buffer`) y el que conserva el worker (`rawPositions.buffer`) tienen referencias distintas (`!==`).
+       2. Ninguno queda *detached* antes de `postMessage` y, incluso simulando la transferencia/detach del buffer enviado al hilo principal (o tras recibirlo), ambos tienen `byteLength > 0` y el mismo contenido.
+   - **Actualización de benchmark y registro en `docs/perf-log.md` (C2-3):**
+     - Ajustar `web/scripts/bench-slice.ts` para que también mida la carga + validación de la malla sintética de ~1M de triángulos y reporte el heap pico de carga (antes y después de `O1`), registrando la tabla comparativa en `docs/perf-log.md`.
+   - **Verificación final del chunk:** ejecutar G1-G9 y verificar C2-1 a C2-6.
 
 ---
 
