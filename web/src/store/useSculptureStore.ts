@@ -1,7 +1,6 @@
 import { create } from 'zustand';
-import * as THREE from 'three';
-import { DEFAULT_PARAMS } from '../core/params';
-import { loadMeshFromBuffer } from '../core/meshLoader';
+import type * as THREE from 'three';
+import { DEFAULT_PARAMS, PARAM_BOUNDS } from '../core/params';
 import { generateSheetLayouts, generateWaffleSheetLayouts } from '../core/layout';
 import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
 import {
@@ -13,7 +12,6 @@ import {
 import { getJoint } from '../core/build/registry';
 import { validateBuildParams } from '../core/build/validateBuild';
 import { ValidationError } from '../core/validator';
-import { PARAM_BOUNDS } from '../core/params';
 import {
   computeAdaptiveWafflePitch,
   computeInitialWaffleScale,
@@ -31,7 +29,13 @@ import {
   type WaffleActions,
   type WaffleState,
 } from './waffleSlice';
-import { sliceWaffleMesh } from '../core/waffle/waffleSlicer';
+import {
+  AUTO_SLICE_DEBOUNCE_MS,
+  clearAutoSliceTimer,
+  loadMeshWithWorkerOrFallback,
+  runSliceJob,
+  scheduleAutoSlice,
+} from './workerClient';
 import { generateSlotCalibrationSheet } from '../core/waffle/calibrationSheet';
 import type { WaffleParams, WaffleSliceResult, WaffleSection } from '../core/waffle/types';
 import {
@@ -48,16 +52,15 @@ import {
   type AutosaveSessionSnapshot,
   type StoredMeshRecord,
 } from '../core/autosave';
-import { sliceMesh } from '../core/slicer';
 import type {
   Axis,
   MeshMetadata,
   SculptureParams,
   SheetLayout,
   SliceResult,
-  WorkerRequest,
-  WorkerResponse,
 } from '../types/sculpture';
+
+export { AUTO_SLICE_DEBOUNCE_MS };
 
 export type CameraPreset = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 export type ViewMode = 'original' | 'plates';
@@ -136,68 +139,6 @@ export interface SculptureActions {
 }
 
 export type SculptureStore = SculptureState & SculptureActions & DiscsSlice & WaffleState & WaffleActions;
-
-let workerInstance: Worker | null = null;
-let currentMeshId = 0;
-let latestJobId = 0;
-
-let autoSliceTimer: ReturnType<typeof setTimeout> | null = null;
-let isWorkerExecuting = false;
-let pendingWorkerJob: {
-  jobId: number;
-  meshId: number;
-  isWaffle: boolean;
-  paramsSnapshot: SculptureParams;
-  waffleParamsSnapshot: WaffleParams;
-  resolve: () => void;
-} | null = null;
-
-export const AUTO_SLICE_DEBOUNCE_MS = 350;
-
-function clearAutoSliceTimer(): void {
-  if (autoSliceTimer) {
-    clearTimeout(autoSliceTimer);
-    autoSliceTimer = null;
-  }
-}
-
-function scheduleAutoSlice(action: () => void, delayMs = AUTO_SLICE_DEBOUNCE_MS): void {
-  clearAutoSliceTimer();
-  if (
-    typeof window === 'undefined' ||
-    delayMs <= 0 ||
-    (typeof process !== 'undefined' &&
-      (process.env?.NODE_ENV === 'test' || process.env?.VITEST === 'true'))
-  ) {
-    action();
-    return;
-  }
-  autoSliceTimer = setTimeout(() => {
-    autoSliceTimer = null;
-    action();
-  }, delayMs);
-}
-
-function getOrCreateWorker(): Worker | null {
-  if (typeof window === 'undefined' || typeof Worker === 'undefined') {
-    return null;
-  }
-  if (!workerInstance) {
-    try {
-      workerInstance = new Worker(
-        new URL('../worker/slicer.worker.ts', import.meta.url),
-        { type: 'module' }
-      );
-    } catch {
-      workerInstance = null;
-    }
-  }
-  return workerInstance;
-}
-
-if (typeof window !== 'undefined') {
-  getOrCreateWorker();
-}
 
 function getNextNonEmptyFloor(
   plates: SliceResult['plates'],
@@ -375,65 +316,15 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       });
 
       try {
-        currentMeshId += 1;
-        const meshId = currentMeshId;
-        const worker = getOrCreateWorker();
-
         // Detectar si el modelo necesita orientación Y-up a Z-up
         const ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));
         const upOrientation = ext === '.obj' ? 'y-up' : undefined;
 
-        let geometry: THREE.BufferGeometry;
-        let metadata: MeshMetadata;
-
-        if (worker) {
-          // Procesar en Web Worker para no congelar la animación del spinner ni el navegador
-          latestJobId += 1;
-          const jobId = latestJobId;
-          const outcome = await new Promise<{ positions: Float32Array; metadata: MeshMetadata }>(
-            (resolve, reject) => {
-              const onMsg = (evt: MessageEvent<WorkerResponse>) => {
-                const msg = evt.data;
-                if (msg.jobId !== jobId) return;
-                worker.removeEventListener('message', onMsg);
-                worker.removeEventListener('error', onErr);
-                if (msg.type === 'LOAD_MESH_SUCCESS') {
-                  resolve({ positions: msg.positions, metadata: msg.metadata });
-                } else if (msg.type === 'LOAD_MESH_ERROR') {
-                  reject(new Error(msg.error));
-                }
-              };
-              const onErr = (e: ErrorEvent) => {
-                worker.removeEventListener('message', onMsg);
-                worker.removeEventListener('error', onErr);
-                reject(new Error(e.message || 'Error en el worker de carga'));
-              };
-              worker.addEventListener('message', onMsg);
-              worker.addEventListener('error', onErr);
-
-              const req: WorkerRequest = {
-                type: 'LOAD_MESH',
-                jobId,
-                meshId,
-                buffer,
-                fileName,
-                upOrientation,
-              };
-              worker.postMessage(req);
-            }
-          );
-
-          metadata = outcome.metadata;
-          geometry = new THREE.BufferGeometry();
-          geometry.setAttribute('position', new THREE.BufferAttribute(outcome.positions, 3));
-          geometry.computeVertexNormals();
-          geometry.computeBoundingBox();
-        } else {
-          // Fallback síncrono para tests en Vitest / Node
-          const loaded = loadMeshFromBuffer(buffer, fileName, { upOrientation });
-          geometry = loaded.geometry;
-          metadata = loaded.metadata;
-        }
+        const { geometry, metadata } = await loadMeshWithWorkerOrFallback(
+          buffer,
+          fileName,
+          upOrientation
+        );
 
         get().resetDiscs();
 
@@ -526,10 +417,6 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         return;
       }
 
-      latestJobId += 1;
-      const jobId = latestJobId;
-      const meshId = currentMeshId;
-
       set({
         isSlicing: true,
         errorMessage: null,
@@ -601,170 +488,28 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }
       };
 
-      const worker = getOrCreateWorker();
-      if (worker) {
-        await new Promise<void>((resolve) => {
-          const executeJob = (
-            targetJobId: number,
-            targetMeshId: number,
-            isWaffleJob: boolean,
-            targetParams: SculptureParams,
-            targetWaffleParams: WaffleParams,
-            onJobDone: () => void
-          ) => {
-            isWorkerExecuting = true;
-
-            const onMessage = (evt: MessageEvent<WorkerResponse>) => {
-              const msg = evt.data;
-              if (msg.jobId !== targetJobId) return;
-              worker.removeEventListener('message', onMessage);
-              worker.removeEventListener('error', onError);
-
-              if (msg.type === 'SLICE_SUCCESS') {
-                if (targetJobId === latestJobId) {
-                  applySliceOutcome(msg.result, msg.durationMs);
-                }
-              } else if (msg.type === 'SLICE_WAFFLE_SUCCESS') {
-                if (targetJobId === latestJobId) {
-                  applyWaffleSliceOutcome(msg.result, msg.durationMs);
-                }
-              } else if (msg.type === 'SLICE_SKIPPED') {
-                if (targetJobId === latestJobId) {
-                  set({ isSlicing: false });
-                }
-              } else if (msg.type === 'SLICE_ERROR') {
-                if (targetJobId === latestJobId) {
-                  set({
-                    isSlicing: false,
-                    errorMessage: msg.error,
-                    statusMessage: 'Error durante el corte',
-                  });
-                }
-              }
-
-              onJobDone();
-
-              if (pendingWorkerJob) {
-                const next = pendingWorkerJob;
-                pendingWorkerJob = null;
-                executeJob(
-                  next.jobId,
-                  next.meshId,
-                  next.isWaffle,
-                  next.paramsSnapshot,
-                  next.waffleParamsSnapshot,
-                  next.resolve
-                );
-              } else {
-                isWorkerExecuting = false;
-              }
-            };
-
-            const onError = (err: ErrorEvent) => {
-              worker.removeEventListener('message', onMessage);
-              worker.removeEventListener('error', onError);
-              if (targetJobId === latestJobId) {
-                set({
-                  isSlicing: false,
-                  errorMessage: err.message || 'Error en el worker de corte',
-                  statusMessage: 'Error durante el corte',
-                });
-              }
-              onJobDone();
-
-              if (pendingWorkerJob) {
-                const next = pendingWorkerJob;
-                pendingWorkerJob = null;
-                executeJob(
-                  next.jobId,
-                  next.meshId,
-                  next.isWaffle,
-                  next.paramsSnapshot,
-                  next.waffleParamsSnapshot,
-                  next.resolve
-                );
-              } else {
-                isWorkerExecuting = false;
-              }
-            };
-
-            worker.addEventListener('message', onMessage);
-            worker.addEventListener('error', onError);
-
-            if (isWaffleJob) {
-              const req: WorkerRequest = {
-                type: 'SLICE_WAFFLE',
-                jobId: targetJobId,
-                meshId: targetMeshId,
-                coreParams: targetParams,
-                waffleParams: targetWaffleParams,
-              };
-              worker.postMessage(req);
-            } else {
-              const req: WorkerRequest = {
-                type: 'SLICE',
-                jobId: targetJobId,
-                meshId: targetMeshId,
-                params: targetParams,
-              };
-              worker.postMessage(req);
-            }
-          };
-
-          if (isWorkerExecuting) {
-            // El worker ya está procesando un corte:
-            // Si había un trabajo anterior en cola que no ha empezado, resolverlo
-            if (pendingWorkerJob) {
-              pendingWorkerJob.resolve();
-            }
-            pendingWorkerJob = {
-              jobId,
-              meshId,
-              isWaffle,
-              paramsSnapshot,
-              waffleParamsSnapshot,
-              resolve,
-            };
-          } else {
-            executeJob(
-              jobId,
-              meshId,
-              isWaffle,
-              paramsSnapshot,
-              waffleParamsSnapshot,
-              resolve
-            );
-          }
-        });
-      } else {
-        // Fallback síncrono (entorno de pruebas Vitest / jsdom)
-        try {
-          const t0 = performance.now();
-          const posAttr = state.meshGeometry.getAttribute(
-            'position'
-          ) as THREE.BufferAttribute;
-          const posArray = posAttr.array as Float32Array;
-          if (isWaffle) {
-            const result = sliceWaffleMesh(
-              posArray,
-              paramsSnapshot,
-              waffleParamsSnapshot
-            );
-            applyWaffleSliceOutcome(result, performance.now() - t0);
-          } else {
-            const result = sliceMesh(
-              posArray,
-              paramsSnapshot
-            );
-            applySliceOutcome(result, performance.now() - t0);
-          }
-        } catch (err) {
-          set({
-            isSlicing: false,
-            errorMessage: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      await runSliceJob({
+        isWaffle,
+        geometry: state.meshGeometry,
+        paramsSnapshot,
+        waffleParamsSnapshot,
+        callbacks: {
+          onSliceSuccess: applySliceOutcome,
+          onWaffleSuccess: applyWaffleSliceOutcome,
+          onSkipped: () => set({ isSlicing: false }),
+          onWorkerError: (errorMsg) =>
+            set({
+              isSlicing: false,
+              errorMessage: errorMsg,
+              statusMessage: 'Error durante el corte',
+            }),
+          onSyncError: (errorMsg) =>
+            set({
+              isSlicing: false,
+              errorMessage: errorMsg,
+            }),
+        },
+      });
     },
 
     setViewMode: (mode) => set({ viewMode: mode }),
