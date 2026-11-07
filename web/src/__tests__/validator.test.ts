@@ -151,6 +151,118 @@ describe('validator & params', () => {
     expect(() => validateFileExtension('model.stl', 200 * 1024 * 1024)).toThrow(ValidationError);
   });
 
+  describe('validateParams & validateFileExtension exact message characterization (M4 / C6-2)', () => {
+    it('accepts valid parameter boundary extremes (min and max)', () => {
+      // plates min / max
+      expect(() => validateParams({ ...DEFAULT_PARAMS, plates: 2 })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, plates: 200 })).not.toThrow();
+
+      // thickness min / max
+      expect(() => validateParams({ ...DEFAULT_PARAMS, thickness: 0.1 })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, thickness: 100.0 })).not.toThrow();
+
+      // gap min (0 in core) / max (1000.0)
+      expect(() => validateParams({ ...DEFAULT_PARAMS, gap: 0 })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, gap: 1000.0 })).not.toThrow();
+
+      // axis 'x', 'y', 'z'
+      expect(() => validateParams({ ...DEFAULT_PARAMS, axis: 'x' })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, axis: 'y' })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, axis: 'z' })).not.toThrow();
+
+      // sheetW & sheetH min / max
+      expect(() => validateParams({ ...DEFAULT_PARAMS, sheetW: 10.0, sheetH: 10.0, sheetMargin: 0.0 })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, sheetW: 5000.0, sheetH: 5000.0 })).not.toThrow();
+
+      // sheetMargin min / max
+      expect(() => validateParams({ ...DEFAULT_PARAMS, sheetMargin: 0.0 })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, sheetW: 1000.0, sheetH: 1000.0, sheetMargin: 200.0 })).not.toThrow();
+
+      // partGap min / max
+      expect(() => validateParams({ ...DEFAULT_PARAMS, partGap: 0.0 })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, partGap: 100.0 })).not.toThrow();
+
+      // kerf min / max
+      expect(() => validateParams({ ...DEFAULT_PARAMS, kerf: 0.0 })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, kerf: 5.0 })).not.toThrow();
+
+      // scrapTagEnabled boolean true / false
+      expect(() => validateParams({ ...DEFAULT_PARAMS, scrapTagEnabled: true })).not.toThrow();
+      expect(() => validateParams({ ...DEFAULT_PARAMS, scrapTagEnabled: false })).not.toThrow();
+    });
+
+    it('throws exact ValidationError messages for each invalid field', () => {
+      // plates
+      expect(() => validateParams({ ...DEFAULT_PARAMS, plates: 2.5 }))
+        .toThrowError('El número de placas debe ser un entero entre 2 y 200 (recibido: 2.5).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, plates: 1 }))
+        .toThrowError('El número de placas debe ser un entero entre 2 y 200 (recibido: 1).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, plates: 201 }))
+        .toThrowError('El número de placas debe ser un entero entre 2 y 200 (recibido: 201).');
+
+      // thickness
+      expect(() => validateParams({ ...DEFAULT_PARAMS, thickness: 0.05 }))
+        .toThrowError('El grosor debe estar entre 0.1 y 100 mm (recibido: 0.05).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, thickness: 100.5 }))
+        .toThrowError('El grosor debe estar entre 0.1 y 100 mm (recibido: 100.5).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, thickness: NaN }))
+        .toThrowError('El grosor debe estar entre 0.1 y 100 mm (recibido: NaN).');
+
+      // gap
+      expect(() => validateParams({ ...DEFAULT_PARAMS, gap: -0.1 }))
+        .toThrowError('La separación debe ser mayor o igual a 0 mm y menor o igual a 1000 mm (recibido: -0.1).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, gap: 1000.1 }))
+        .toThrowError('La separación debe ser mayor o igual a 0 mm y menor o igual a 1000 mm (recibido: 1000.1).');
+
+      // axis
+      expect(() => validateParams({ ...DEFAULT_PARAMS, axis: 'w' as any }))
+        .toThrowError("El eje de corte debe ser 'x', 'y' o 'z' (recibido: 'w').");
+
+      // sheetW & sheetH
+      expect(() => validateParams({ ...DEFAULT_PARAMS, sheetW: 9.9 }))
+        .toThrowError('Las dimensiones de la hoja deben estar entre 10 y 5000 mm (recibido: 9.9 x 400).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, sheetH: 5000.1 }))
+        .toThrowError('Las dimensiones de la hoja deben estar entre 10 y 5000 mm (recibido: 600 x 5000.1).');
+
+      // sheetMargin
+      expect(() => validateParams({ ...DEFAULT_PARAMS, sheetMargin: -0.1 }))
+        .toThrowError('El margen de la hoja debe estar entre 0 y 200 mm (recibido: -0.1).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, sheetMargin: 200.1 }))
+        .toThrowError('El margen de la hoja debe estar entre 0 y 200 mm (recibido: 200.1).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, sheetW: 100, sheetH: 100, sheetMargin: 50 }))
+        .toThrowError('El margen (50 mm) es demasiado grande para la hoja de 100 x 100 mm.');
+
+      // partGap
+      expect(() => validateParams({ ...DEFAULT_PARAMS, partGap: -0.1 }))
+        .toThrowError('La separación entre piezas debe estar entre 0 y 100 mm (recibido: -0.1).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, partGap: 100.1 }))
+        .toThrowError('La separación entre piezas debe estar entre 0 y 100 mm (recibido: 100.1).');
+
+      // kerf
+      expect(() => validateParams({ ...DEFAULT_PARAMS, kerf: -0.01 }))
+        .toThrowError('El kerf debe estar entre 0 y 5 mm (recibido: -0.01).');
+      expect(() => validateParams({ ...DEFAULT_PARAMS, kerf: 5.01 }))
+        .toThrowError('El kerf debe estar entre 0 y 5 mm (recibido: 5.01).');
+
+      // scrapTagEnabled
+      expect(() => validateParams({ ...DEFAULT_PARAMS, scrapTagEnabled: 'yes' as any }))
+        .toThrowError('scrapTagEnabled debe ser un valor booleano.');
+    });
+
+    it('throws exact ValidationError messages for validateFileExtension', () => {
+      expect(() => validateFileExtension('   ', 100))
+        .toThrowError('La ruta del archivo está vacía.');
+      expect(() => validateFileExtension('model.dxf', 100))
+        .toThrowError("Formato de archivo no soportado: '.dxf'. Formatos válidos: .3mf, .obj, .ply, .stl");
+      expect(() => validateFileExtension('modelNoExt', 100))
+        .toThrowError("Formato de archivo no soportado: '(sin extensión)'. Formatos válidos: .3mf, .obj, .ply, .stl");
+      expect(() => validateFileExtension('model.stl', 0))
+        .toThrowError("El archivo 'model.stl' está vacío (0 bytes).");
+      expect(() => validateFileExtension('model.stl', 151 * 1024 * 1024))
+        .toThrowError("El archivo 'model.stl' excede el tamaño máximo permitido de 150 MB.");
+    });
+  });
+
   it('welds relative vertices and detects watertightness on test_l_block.stl and test_torus.stl', () => {
     const lBlockBuf = toArrayBuffer(fs.readFileSync(path.join(FIXTURES_DIR, 'test_l_block.stl')));
     const lBlock = loadMeshFromBuffer(lBlockBuf, 'test_l_block.stl');
