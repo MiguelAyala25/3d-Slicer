@@ -8,6 +8,9 @@ import {
   sliceMesh,
   computeCutPositions,
   AxisSliceCache,
+  computeNumZBuckets,
+  MIN_Z_BUCKETS,
+  MAX_Z_BUCKETS,
 } from '../core/slicer';
 import {
   stitchAndUnionSegments,
@@ -505,8 +508,8 @@ describe('slicer & polygon stitcher', () => {
       const bucketIdx = Math.max(
         0,
         Math.min(
-          128 - 1,
-          Math.floor(((zUnit - zStart) / cache.origHeight) * 128)
+          cache.numBuckets - 1,
+          Math.floor(((zUnit - zStart) / cache.origHeight) * cache.numBuckets)
         )
       );
       const candidates = cache.buckets[bucketIdx];
@@ -775,6 +778,58 @@ describe('slicer & polygon stitcher', () => {
       const segsBottom = cache.extractSegmentsAtZ(-10.0, 1.0);
       const expBottom = referenceExtractSegmentsAtZ(cache, -10.0, 1.0);
       expect(segsBottom).toEqual(expBottom);
+    });
+
+    it('computes clamped adaptive bucket count correctly (C4-4)', () => {
+      expect(computeNumZBuckets(4)).toBe(MIN_Z_BUCKETS);
+      expect(computeNumZBuckets(400)).toBe(MIN_Z_BUCKETS);
+      expect(computeNumZBuckets(16384)).toBe(128);
+      expect(computeNumZBuckets(100_000)).toBe(316);
+      expect(computeNumZBuckets(500_000)).toBe(707);
+      expect(computeNumZBuckets(998_000)).toBe(999);
+      expect(computeNumZBuckets(20_000_000)).toBe(MAX_Z_BUCKETS);
+    });
+
+    it('produces bit-for-bit identical segments between 128 buckets and adaptive buckets (C4-1)', () => {
+      // Test on 20k triangles sphere
+      const latBands = 100;
+      const lonBands = 100;
+      const sphereTris: number[] = [];
+      const R = 30;
+
+      for (let lat = 0; lat < latBands; lat++) {
+        const theta1 = (lat * Math.PI) / latBands;
+        const theta2 = ((lat + 1) * Math.PI) / latBands;
+
+        for (let lon = 0; lon < lonBands; lon++) {
+          const phi1 = (lon * 2 * Math.PI) / lonBands;
+          const phi2 = ((lon + 1) * 2 * Math.PI) / lonBands;
+
+          const v0 = [R * Math.sin(theta1) * Math.cos(phi1), R * Math.sin(theta1) * Math.sin(phi1), R * Math.cos(theta1)];
+          const v1 = [R * Math.sin(theta2) * Math.cos(phi1), R * Math.sin(theta2) * Math.sin(phi1), R * Math.cos(theta2)];
+          const v2 = [R * Math.sin(theta2) * Math.cos(phi2), R * Math.sin(theta2) * Math.sin(phi2), R * Math.cos(theta2)];
+          const v3 = [R * Math.sin(theta1) * Math.cos(phi2), R * Math.sin(theta1) * Math.sin(phi2), R * Math.cos(theta1)];
+
+          sphereTris.push(...v0, ...v1, ...v2);
+          sphereTris.push(...v0, ...v2, ...v3);
+        }
+      }
+
+      const spherePos = new Float32Array(sphereTris);
+      const cache128 = new AxisSliceCache(spherePos, 'z', 128);
+      const cacheAdaptive = new AxisSliceCache(spherePos, 'z'); // sqrt(20000) = 141 buckets
+
+      expect(cache128.numBuckets).toBe(128);
+      expect(cacheAdaptive.numBuckets).toBe(141);
+
+      for (let step = 1; step <= 9; step++) {
+        const zUnit = cache128.boundsMin[2] + (cache128.origHeight * step) / 10;
+        const segs128 = cache128.extractSegmentsAtZ(zUnit, 1.0);
+        const segsAdaptive = cacheAdaptive.extractSegmentsAtZ(zUnit, 1.0);
+
+        expect(segsAdaptive.length).toBe(segs128.length);
+        expect(segsAdaptive).toEqual(segs128);
+      }
     });
   });
 });

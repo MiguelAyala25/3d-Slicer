@@ -10,7 +10,19 @@ import type {
   SliceWarning,
 } from '../types/sculpture';
 
-const NUM_Z_BUCKETS = 128;
+export const MIN_Z_BUCKETS = 128;
+export const MAX_Z_BUCKETS = 4096;
+
+/**
+ * Calcula el número adaptativo de Z-buckets según el recuento de triángulos:
+ * clamp(round(sqrt(triCount)), 128, 4096).
+ */
+export function computeNumZBuckets(triCount: number): number {
+  return Math.max(
+    MIN_Z_BUCKETS,
+    Math.min(MAX_Z_BUCKETS, Math.round(Math.sqrt(triCount)))
+  );
+}
 
 export function computeCutPositions(
   plates: number,
@@ -46,17 +58,19 @@ export class AxisSliceCache {
   readonly normalsXY: Float32Array; // 2 floats por triángulo (nx, ny) de (v1-v0)x(v2-v0)
   readonly triMinZ: Float32Array;
   readonly triMaxZ: Float32Array;
+  readonly numBuckets: number;
   readonly buckets: Int32Array[];
   readonly boundsMin: [number, number, number];
   readonly boundsMax: [number, number, number];
   readonly origHeight: number;
 
-  constructor(rawPositions: Float32Array, axis: Axis) {
+  constructor(rawPositions: Float32Array, axis: Axis, numBucketsOverride?: number) {
     this.axis = axis;
     this.triCount = Math.floor(rawPositions.length / 9);
     if (this.triCount < 4) {
       throw new ValidationError('La malla tiene menos de 4 triángulos.');
     }
+    this.numBuckets = numBucketsOverride ?? computeNumZBuckets(this.triCount);
 
     const rotated = new Float32Array(this.triCount * 9);
     let minX = Infinity, minY = Infinity, minZ = Infinity;
@@ -121,9 +135,9 @@ export class AxisSliceCache {
     this.triMinZ = new Float32Array(this.triCount);
     this.triMaxZ = new Float32Array(this.triCount);
 
-    const bucketLists: number[][] = Array.from({ length: NUM_Z_BUCKETS }, () => []);
+    const bucketLists: number[][] = Array.from({ length: this.numBuckets }, () => []);
     const zStart = this.boundsMin[2];
-    const invSpan = NUM_Z_BUCKETS / this.origHeight;
+    const invSpan = this.numBuckets / this.origHeight;
 
     for (let t = 0; t < this.triCount; t++) {
       const base = t * 9;
@@ -144,11 +158,11 @@ export class AxisSliceCache {
 
       const b0 = Math.max(
         0,
-        Math.min(NUM_Z_BUCKETS - 1, Math.floor((tMin - zStart) * invSpan))
+        Math.min(this.numBuckets - 1, Math.floor((tMin - zStart) * invSpan))
       );
       const b1 = Math.max(
         0,
-        Math.min(NUM_Z_BUCKETS - 1, Math.floor((tMax - zStart) * invSpan))
+        Math.min(this.numBuckets - 1, Math.floor((tMax - zStart) * invSpan))
       );
       for (let b = b0; b <= b1; b++) {
         bucketLists[b].push(t);
@@ -167,8 +181,8 @@ export class AxisSliceCache {
     const bucketIdx = Math.max(
         0,
         Math.min(
-          NUM_Z_BUCKETS - 1,
-          Math.floor(((zUnit - zStart) / this.origHeight) * NUM_Z_BUCKETS)
+          this.numBuckets - 1,
+          Math.floor(((zUnit - zStart) / this.origHeight) * this.numBuckets)
         )
       );
     const candidates = this.buckets[bucketIdx];
