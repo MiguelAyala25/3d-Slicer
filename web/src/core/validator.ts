@@ -201,10 +201,12 @@ export function normalizeAndValidateGeometry(
   }
 
   // Soldado con tolerancia relativa a la diagonal (1e-6 * diag)
-  const cleanForWeld = rawGeometry.clone();
-  cleanForWeld.deleteAttribute('normal');
-  cleanForWeld.deleteAttribute('uv');
-  cleanForWeld.deleteAttribute('color');
+  // Construir geometría liviana solo con position para evitar clonar atributos innecesarios (normal, uv, color)
+  const cleanForWeld = new THREE.BufferGeometry();
+  cleanForWeld.setAttribute('position', posAttr);
+  if (rawGeometry.index) {
+    cleanForWeld.setIndex(rawGeometry.index);
+  }
   const weldTolerance = Math.max(1e-9, diag * 1e-6);
   const indexedGeom = mergeVertices(cleanForWeld, weldTolerance);
 
@@ -226,10 +228,10 @@ export function normalizeAndValidateGeometry(
     );
   }
 
-  const indices = new Uint32Array(indexAttr.count);
-  for (let i = 0; i < indexAttr.count; i++) {
-    indices[i] = indexAttr.getX(i);
-  }
+  const indices =
+    indexAttr.array instanceof Uint32Array
+      ? indexAttr.array
+      : new Uint32Array(indexAttr.array);
 
   const vertexCount = weldedPos.count;
   // Mapa de aristas sin dirección: key = minV * vertexCount + maxV

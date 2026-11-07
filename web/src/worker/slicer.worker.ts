@@ -18,14 +18,16 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
         upOrientation,
       });
       const posAttr = geometry.getAttribute('position');
-      const positions = new Float32Array(posAttr.array);
+      // normalizeAndValidateGeometry ya devuelve un Float32Array dedicado; lo conservamos
+      // directamente como rawPositions en el worker sin clonar
+      const positions = posAttr.array as Float32Array;
 
       currentMeshId = meshId;
       rawPositions = positions;
       axisCaches = {};
       const durationMs = performance.now() - t0;
 
-      // Crear una copia transferible para el hilo principal, manteniendo rawPositions intacto en el Worker
+      // Crear una única copia transferible para el hilo principal; el worker conserva rawPositions
       const transferPositions = new Float32Array(positions);
 
       const resp: WorkerResponse = {

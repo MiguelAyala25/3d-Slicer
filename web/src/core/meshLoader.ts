@@ -54,15 +54,17 @@ function extractMergedGeometryFromObject3D(
     if ((child as THREE.Mesh).isMesh) {
       const mesh = child as THREE.Mesh;
       if (mesh.geometry && mesh.geometry.getAttribute('position')?.count >= 3) {
-        const cloned = mesh.geometry.clone();
-        cloned.applyMatrix4(mesh.matrixWorld);
-        if (Math.abs(unitScale - 1.0) > 1e-9) {
-          cloned.scale(unitScale, unitScale, unitScale);
-        }
-        const nonIndexed = cloned.index ? cloned.toNonIndexed() : cloned;
         const posOnly = new THREE.BufferGeometry();
-        posOnly.setAttribute('position', nonIndexed.getAttribute('position'));
-        geometries.push(posOnly);
+        posOnly.setAttribute('position', mesh.geometry.getAttribute('position').clone());
+        if (mesh.geometry.index) {
+          posOnly.setIndex(mesh.geometry.index);
+        }
+        posOnly.applyMatrix4(mesh.matrixWorld);
+        if (Math.abs(unitScale - 1.0) > 1e-9) {
+          posOnly.scale(unitScale, unitScale, unitScale);
+        }
+        const nonIndexed = posOnly.index ? posOnly.toNonIndexed() : posOnly;
+        geometries.push(nonIndexed);
       }
     } else if (
       (child as THREE.Line).isLine ||

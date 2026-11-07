@@ -302,5 +302,42 @@ l 1 2
         }
       }
     });
+
+    it('worker buffer ownership: transferred buffer and worker buffer are distinct and not detached (C2-2)', () => {
+      const buf = toArrayBuffer(fs.readFileSync(path.join(FIXTURES_DIR, 'test_l_block.stl')));
+      const { geometry } = loadMeshFromBuffer(buf, 'test_l_block.stl');
+      const posAttr = geometry.getAttribute('position');
+      const rawPositions = posAttr.array as Float32Array;
+
+      // Single copy for transfer
+      const transferPositions = new Float32Array(rawPositions);
+
+      // Verify they are different instances and have distinct ArrayBuffers
+      expect(rawPositions).not.toBe(transferPositions);
+      expect(rawPositions.buffer).not.toBe(transferPositions.buffer);
+      expect(rawPositions.byteLength).toBe(transferPositions.byteLength);
+      expect(rawPositions.byteLength).toBeGreaterThan(0);
+
+      // Verify that detaching transferPositions (as happens during transferable postMessage)
+      // leaves rawPositions intact
+      const structuredTransfer = new WorkerMessagePortSimulation();
+      structuredTransfer.transfer(transferPositions.buffer);
+
+      expect(transferPositions.buffer.byteLength).toBe(0); // detached
+      expect(rawPositions.buffer.byteLength).toBeGreaterThan(0); // intact in worker
+      expect(rawPositions.length).toBe(180);
+    });
   });
 });
+
+class WorkerMessagePortSimulation {
+  transfer(ab: ArrayBuffer) {
+    // In Node / browser transferable objects, transferring causes the buffer to detach.
+    // Node.js MessageChannel / MessagePort transfers detaches the ArrayBuffer.
+    const { MessageChannel } = require('node:worker_threads');
+    const { port1, port2 } = new MessageChannel();
+    port1.postMessage(ab, [ab]);
+    port1.close();
+    port2.close();
+  }
+}

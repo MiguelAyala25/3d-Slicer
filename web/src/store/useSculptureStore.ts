@@ -737,16 +737,17 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           const posAttr = state.meshGeometry.getAttribute(
             'position'
           ) as THREE.BufferAttribute;
+          const posArray = posAttr.array as Float32Array;
           if (isWaffle) {
             const result = sliceWaffleMesh(
-              new Float32Array(posAttr.array),
+              posArray,
               paramsSnapshot,
               waffleParamsSnapshot
             );
             applyWaffleSliceOutcome(result, performance.now() - t0);
           } else {
             const result = sliceMesh(
-              new Float32Array(posAttr.array),
+              posArray,
               paramsSnapshot
             );
             applySliceOutcome(result, performance.now() - t0);
