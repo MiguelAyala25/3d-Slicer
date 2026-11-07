@@ -679,4 +679,374 @@ describe('project serialization & autosave', () => {
 
     await clearAutosaveStorage();
   });
+
+  describe('comprehensive project characterization corpus (C8-3)', () => {
+    it('handles root non-object and malformed JSON values', () => {
+      expect(() => parseProjectJson('not json')).toThrow(
+        'El archivo de proyecto no contiene un JSON válido.'
+      );
+      expect(() => parseProjectJson('null')).toThrow(
+        'El formato del archivo de proyecto es inválido.'
+      );
+      expect(() => parseProjectJson('123')).toThrow(
+        'El formato del archivo de proyecto es inválido.'
+      );
+      expect(() => parseProjectJson('[]')).toThrow(
+        'El formato del archivo de proyecto es inválido.'
+      );
+      expect(() => parseProjectJson('"string"')).toThrow(
+        'El formato del archivo de proyecto es inválido.'
+      );
+    });
+
+    it('handles 1.0 required keys and uppercase axis correctly', () => {
+      const base1 = {
+        version: '1.0',
+        plates: 5,
+        thickness: 3.0,
+        gap: 2.0,
+        axis: 'Z',
+        discs: [],
+      };
+      const parsed = parseProjectJson(JSON.stringify(base1));
+      expect(parsed.version).toBe('1.0');
+      expect(parsed.params.axis).toBe('z');
+      expect(parsed.discs).toEqual([]);
+
+      const reqKeys = ['plates', 'thickness', 'gap', 'axis', 'discs'] as const;
+      for (const k of reqKeys) {
+        const copy: Record<string, unknown> = { ...base1 };
+        delete copy[k];
+        expect(() => parseProjectJson(JSON.stringify(copy))).toThrow(
+          `Falta el campo obligatorio '${k}' en el archivo JSON.`
+        );
+      }
+    });
+
+    it('validates discs list and disc properties exhaustively', () => {
+      const makeV1WithDiscs = (discs: unknown) =>
+        JSON.stringify({
+          version: '1.0',
+          plates: 5,
+          thickness: 3.0,
+          gap: 2.0,
+          axis: 'z',
+          discs,
+        });
+
+      expect(() => parseProjectJson(makeV1WithDiscs('not array'))).toThrow(
+        "El archivo de proyecto no contiene una lista 'discs' válida."
+      );
+      expect(() => parseProjectJson(makeV1WithDiscs([null]))).toThrow(
+        'El disco en la posición 0 es inválido.'
+      );
+      expect(() => parseProjectJson(makeV1WithDiscs([{ id: 0, hueco: 0, x: 0, y: 0, diameter: 5 }]))).toThrow(
+        "El disco #0 tiene un 'id' inválido (0)."
+      );
+      expect(() =>
+        parseProjectJson(
+          makeV1WithDiscs([
+            { id: 1, hueco: 0, x: 0, y: 0, diameter: 5 },
+            { id: 1, hueco: 1, x: 0, y: 0, diameter: 5 },
+          ])
+        )
+      ).toThrow('El archivo contiene IDs de disco duplicados (id=1).');
+      expect(() =>
+        parseProjectJson(makeV1WithDiscs([{ id: 1, hueco: 0, x: 'NaN', y: 0, diameter: 5 }]))
+      ).toThrow('El disco id=1 tiene coordenadas (x, y) no numéricas.');
+      expect(() =>
+        parseProjectJson(makeV1WithDiscs([{ id: 1, hueco: 0, x: 0, y: 0, diameter: 0.05 }]))
+      ).toThrow(/tiene un diámetro inválido/);
+      expect(() =>
+        parseProjectJson(makeV1WithDiscs([{ id: 1, hueco: -1, x: 0, y: 0, diameter: 5 }]))
+      ).toThrow(/tiene un hueco fuera de rango/);
+      expect(() =>
+        parseProjectJson(makeV1WithDiscs([{ id: 1, hueco: 4, x: 0, y: 0, diameter: 5 }]))
+      ).toThrow(/tiene un hueco fuera de rango/);
+    });
+
+    it('validates 2.0 material fields exhaustively', () => {
+      const validV2 = {
+        version: '2.0',
+        material: {
+          thickness: 3.0,
+          sheetW: 600.0,
+          sheetH: 400.0,
+          sheetMargin: 10.0,
+          partGap: 5.0,
+          kerf: 0.15,
+          scrapTagEnabled: true,
+        },
+        technique: {
+          id: 'stacked',
+          params: { plates: 10, axis: 'z' },
+        },
+        joint: {
+          id: 'none',
+          params: {},
+        },
+      };
+
+      expect(() =>
+        parseProjectJson(JSON.stringify({ ...validV2, material: 'not object' }))
+      ).toThrow("El campo 'material' debe ser un objeto.");
+
+      const matKeys = [
+        'thickness',
+        'sheetW',
+        'sheetH',
+        'sheetMargin',
+        'partGap',
+        'kerf',
+        'scrapTagEnabled',
+      ] as const;
+
+      for (const mk of matKeys) {
+        const matCopy: Record<string, unknown> = { ...validV2.material };
+        delete matCopy[mk];
+        expect(() =>
+          parseProjectJson(JSON.stringify({ ...validV2, material: matCopy }))
+        ).toThrow(`Falta el campo obligatorio 'material.${mk}' en el archivo JSON.`);
+      }
+
+      for (const nk of matKeys.slice(0, 6)) {
+        const matCopy: Record<string, unknown> = { ...validV2.material, [nk]: 'string' };
+        expect(() =>
+          parseProjectJson(JSON.stringify({ ...validV2, material: matCopy }))
+        ).toThrow(`El campo 'material.${nk}' debe ser numérico.`);
+      }
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...validV2,
+            material: { ...validV2.material, scrapTagEnabled: 'yes' },
+          })
+        )
+      ).toThrow("El campo 'material.scrapTagEnabled' debe ser booleano.");
+    });
+
+    it('validates 2.0 technique and stacked technique params', () => {
+      const validV2 = {
+        version: '2.0',
+        material: {
+          thickness: 3.0,
+          sheetW: 600.0,
+          sheetH: 400.0,
+          sheetMargin: 10.0,
+          partGap: 5.0,
+          kerf: 0.15,
+          scrapTagEnabled: true,
+        },
+        technique: {
+          id: 'stacked',
+          params: { plates: 10, axis: 'z' },
+        },
+        joint: {
+          id: 'none',
+          params: {},
+        },
+      };
+
+      expect(() =>
+        parseProjectJson(JSON.stringify({ ...validV2, technique: 'not obj' }))
+      ).toThrow("El campo 'technique' debe ser un objeto.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({ ...validV2, technique: { params: { plates: 10, axis: 'z' } } })
+        )
+      ).toThrow("Falta el campo obligatorio 'technique.id' en el archivo JSON.");
+
+      expect(() =>
+        parseProjectJson(JSON.stringify({ ...validV2, technique: { id: 'stacked' } }))
+      ).toThrow("Falta el campo obligatorio 'technique.params' en el archivo JSON.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...validV2,
+            technique: { id: 'stacked', params: { plates: 10, axis: 'z' }, extra: 1 },
+          })
+        )
+      ).toThrow("Campo no reconocido 'extra' en 'technique'.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...validV2,
+            technique: { id: 'stacked', params: { axis: 'z' } },
+          })
+        )
+      ).toThrow("Falta el campo obligatorio 'technique.params.plates' en el archivo JSON.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...validV2,
+            technique: { id: 'stacked', params: { plates: 10 } },
+          })
+        )
+      ).toThrow("Falta el campo obligatorio 'technique.params.axis' en el archivo JSON.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...validV2,
+            technique: { id: 'stacked', params: { plates: 10, axis: 'z', unknown: 1 } },
+          })
+        )
+      ).toThrow("Campo no reconocido 'unknown' en 'technique.params'.");
+    });
+
+    it('validates 2.0 waffle optional params and roundtrips with all optional fields', () => {
+      const fullWaffle = {
+        version: '2.0',
+        material: {
+          thickness: 3.0,
+          sheetW: 600.0,
+          sheetH: 400.0,
+          sheetMargin: 10.0,
+          partGap: 5.0,
+          kerf: 0.15,
+          scrapTagEnabled: true,
+        },
+        technique: {
+          id: 'waffle',
+          params: {
+            upAxis: 'y',
+            pitch: 15.0,
+            slotClearance: 0.2,
+            gridOffset: 1.5,
+            slotLabelsEnabled: false,
+            targetScale: 1.2,
+            distributionMethod: 'fixed-count',
+            count1: 8,
+            count2: 6,
+            distance1: 20.0,
+            distance2: 25.0,
+            notchFactor: 0.5,
+            notchAngle: 45.0,
+          },
+        },
+        joint: {
+          id: 'slots',
+          params: {},
+        },
+      };
+
+      const parsed = parseProjectJson(JSON.stringify(fullWaffle));
+      expect(parsed.version).toBe('2.0');
+      expect(parsed.build).toEqual({ techniqueId: 'waffle', jointId: 'slots' });
+      expect(parsed.waffleParams?.distributionMethod).toBe('fixed-count');
+      expect(parsed.waffleParams?.count1).toBe(8);
+      expect(parsed.waffleParams?.count2).toBe(6);
+      expect(parsed.waffleParams?.distance1).toBe(20.0);
+      expect(parsed.waffleParams?.distance2).toBe(25.0);
+      expect(parsed.waffleParams?.notchFactor).toBe(0.5);
+      expect(parsed.waffleParams?.notchAngle).toBe(45.0);
+
+      const serialized = serializeProject(
+        parsed.params,
+        parsed.build,
+        parsed.discs,
+        parsed.waffleParams
+      );
+      const parsedAgain = parseProjectJson(serialized);
+      expect(parsedAgain.waffleParams).toEqual(parsed.waffleParams);
+    });
+
+    it('validates 2.0 joint fields, extra keys, and disc parameters exhaustively', () => {
+      const baseV2 = {
+        version: '2.0',
+        material: {
+          thickness: 3.0,
+          sheetW: 600.0,
+          sheetH: 400.0,
+          sheetMargin: 10.0,
+          partGap: 5.0,
+          kerf: 0.15,
+          scrapTagEnabled: true,
+        },
+        technique: {
+          id: 'stacked',
+          params: { plates: 10, axis: 'z' },
+        },
+      };
+
+      expect(() =>
+        parseProjectJson(JSON.stringify({ ...baseV2, joint: 'not object' }))
+      ).toThrow("El campo 'joint' debe ser un objeto.");
+
+      expect(() =>
+        parseProjectJson(JSON.stringify({ ...baseV2, joint: { params: {} } }))
+      ).toThrow("Falta el campo obligatorio 'joint.id' en el archivo JSON.");
+
+      expect(() =>
+        parseProjectJson(JSON.stringify({ ...baseV2, joint: { id: 'none' } }))
+      ).toThrow("Falta el campo obligatorio 'joint.params' en el archivo JSON.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...baseV2,
+            joint: { id: 'discs', params: { gap: 2, discDiameter: 6, engraveClearance: 0.3 } },
+          })
+        )
+      ).toThrow("Falta el campo obligatorio 'joint.discs' en el archivo JSON.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...baseV2,
+            joint: {
+              id: 'discs',
+              params: { gap: 2, discDiameter: 6, engraveClearance: 0.3 },
+              discs: [],
+              extraJointKey: 1,
+            },
+          })
+        )
+      ).toThrow("Campo no reconocido 'extraJointKey' en 'joint'.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...baseV2,
+            joint: {
+              id: 'discs',
+              params: { gap: 2, discDiameter: 6 },
+              discs: [],
+            },
+          })
+        )
+      ).toThrow("Falta el campo obligatorio 'joint.params.engraveClearance' en el archivo JSON.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...baseV2,
+            joint: {
+              id: 'discs',
+              params: { gap: 2, discDiameter: 6, engraveClearance: 0.3, extraP: 1 },
+              discs: [],
+            },
+          })
+        )
+      ).toThrow("Campo no reconocido 'extraP' en 'joint.params'.");
+
+      expect(() =>
+        parseProjectJson(
+          JSON.stringify({
+            ...baseV2,
+            joint: {
+              id: 'discs',
+              params: { gap: 'dos', discDiameter: 6, engraveClearance: 0.3 },
+              discs: [],
+            },
+          })
+        )
+      ).toThrow("El campo 'joint.params.gap' debe ser numérico.");
+    });
+  });
 });
