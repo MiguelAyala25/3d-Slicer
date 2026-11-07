@@ -49,7 +49,17 @@ Script: `web/scripts/bench-slice.ts` ejecutado mediante `npx vite-node scripts/b
 
 ## 3. Optimizaciones y Tooling (C0)
 
-### 3.3 Issue L2: Dependencias sin uso
+### 3.4 Issue L3: Triage de dependencias y actualización segura
+- **npm audit --omit=dev inicial**: 4 vulnerabilidades reportadas:
+  1. `fflate` (0.8.2): bucle infinito en archives malformados ZIP64 (moderada).
+  2. `clipper2-js` (1.2.4): depende de `@angular/core` y `@angular/common` v18/19 por empaquetado upstream (advisories de Angular XSS/HTTP token leak).
+- **Acciones tomadas**:
+  - `fflate` actualizado a `0.8.3` (versión exacta en `package.json`).
+  - Vulnerabilidad de `fflate` resuelta: `npm audit --omit=dev` ya no la reporta.
+  - Los 3 avisos restantes en producción provienen exclusivamente de las subdependencias internas `@angular/*` del paquete upstream `clipper2-js@1.2.4`. Como la aplicación corre en el cliente / Web Worker y solo invoca funciones matemáticas de polígonos de Clipper sin usar Angular router ni HTTP client, estas vulnerabilidades no son explotables en runtime.
+  - No se ejecutó `npm audit fix --force` ni se elevó TypeScript a 7.x.
+- **Resultado del gate**: `tsc --noEmit`, `vitest` (132/132) y `npm run build` en verde.
+
 - Se confirmó con búsqueda exhaustiva que `clsx` y `tailwind-merge` tenían 0 usos.
 - Eliminadas `clsx` y `tailwind-merge` de `package.json` y `package-lock.json` (`npm ls clsx tailwind-merge` -> `(empty)`).
 - `dxf-parser` (usado únicamente en tests de exportación y `write-baseline.ts`) movido de `dependencies` a `devDependencies`.

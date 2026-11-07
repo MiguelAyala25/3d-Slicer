@@ -20,7 +20,7 @@
     "@react-three/fiber": "9.8.2",
     "@tarikjabiri/dxf": "2.9.0",
     "clipper2-js": "1.2.4",
-    "fflate": "0.8.2",
+    "fflate": "0.8.3",
     "jszip": "3.10.2",
     "lucide-react": "1.59.0",
     "react": "19.3.1",
