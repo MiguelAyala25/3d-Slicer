@@ -14,6 +14,10 @@ import {
 } from '../core/slicer';
 import {
   stitchAndUnionSegments,
+  computeRepairGapMm,
+  MIN_REPAIR_GAP_MM,
+  MAX_REPAIR_GAP_LIMIT_MM,
+  MAX_REPAIR_GAP_MM,
   cellKey,
   CELL_OFFSET,
   CELL_STRIDE,
@@ -885,6 +889,57 @@ describe('slicer & polygon stitcher', () => {
           `Piso ${w.floorIndex}: ${w.openChainsDiscarded} cadena(s) abierta(s) descartada(s), ${w.openChainsRepaired} micro-brecha(s) cerrada(s).`
         );
       }
+    });
+  });
+
+  describe('Scale-adaptive repair gap (DEC-3 / C9-2)', () => {
+    it('computes clamped repair tolerance relative to model diagonal (computeRepairGapMm)', () => {
+      expect(MAX_REPAIR_GAP_MM).toBe(0.05);
+      expect(MIN_REPAIR_GAP_MM).toBe(0.005);
+      expect(MAX_REPAIR_GAP_LIMIT_MM).toBe(0.1);
+
+      // Clamped at MIN_REPAIR_GAP_MM (0.005 mm) for small diagonals
+      expect(computeRepairGapMm(0)).toBe(MIN_REPAIR_GAP_MM);
+      expect(computeRepairGapMm(10)).toBe(MIN_REPAIR_GAP_MM); // 10 * 1e-4 = 0.001 < 0.005
+      expect(computeRepairGapMm(50)).toBe(MIN_REPAIR_GAP_MM); // 50 * 1e-4 = 0.005
+
+      // Linear scaling between 50 mm and 1000 mm
+      expect(computeRepairGapMm(250)).toBeCloseTo(0.025, 6);
+      expect(computeRepairGapMm(500)).toBeCloseTo(0.05, 6); // default MAX_REPAIR_GAP_MM
+      expect(computeRepairGapMm(750)).toBeCloseTo(0.075, 6);
+
+      // Clamped at MAX_REPAIR_GAP_LIMIT_MM (0.1 mm) for large diagonals
+      expect(computeRepairGapMm(1000)).toBe(MAX_REPAIR_GAP_LIMIT_MM);
+      expect(computeRepairGapMm(5000)).toBe(MAX_REPAIR_GAP_LIMIT_MM);
+    });
+
+    it('stitchAndUnionSegments respects custom maxRepairGapMm and preserves default 0.05 mm', () => {
+      // A square loop with a 0.03 mm gap:
+      // Loop: (0,0) -> (10,0) -> (10,10) -> (0,10) -> (0, 0.03), leaving gap of 0.03 mm to head at (0,0)
+      const segments: DirectedSegment2D[] = [
+        { x0: 0, y0: 0, x1: 10, y1: 0 },
+        { x0: 10, y0: 0, x1: 10, y1: 10 },
+        { x0: 10, y0: 10, x1: 0, y1: 10 },
+        { x0: 0, y0: 10, x1: 0, y1: 0.03 },
+      ];
+
+      // Default (0.05 mm): 0.03 mm <= 0.05 mm -> repaired
+      const defRes = stitchAndUnionSegments(segments);
+      expect(defRes.openChainsRepaired).toBe(1);
+      expect(defRes.openChainsDiscarded).toBe(0);
+      expect(defRes.polygons.length).toBe(1);
+
+      // Small tolerance (e.g. 0.005 mm from small diagonal): 0.03 mm > 0.005 mm -> discarded
+      const smallRes = stitchAndUnionSegments(segments, 0.005);
+      expect(smallRes.openChainsDiscarded).toBe(1);
+      expect(smallRes.openChainsRepaired).toBe(0);
+      expect(smallRes.polygons.length).toBe(0);
+
+      // Large tolerance (e.g. 0.1 mm from large diagonal): 0.03 mm <= 0.1 mm -> repaired
+      const largeRes = stitchAndUnionSegments(segments, 0.1);
+      expect(largeRes.openChainsRepaired).toBe(1);
+      expect(largeRes.openChainsDiscarded).toBe(0);
+      expect(largeRes.polygons.length).toBe(1);
     });
   });
 });

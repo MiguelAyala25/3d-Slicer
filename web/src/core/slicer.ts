@@ -1,5 +1,9 @@
 import { validateParams, ValidationError } from './validator';
-import { stitchAndUnionSegments, type DirectedSegment2D } from './polygonStitcher';
+import {
+  stitchAndUnionSegments,
+  computeRepairGapMm,
+  type DirectedSegment2D,
+} from './polygonStitcher';
 import { assembledHeight } from './sizing';
 import type {
   Axis,
@@ -331,6 +335,17 @@ export function sliceMeshFromCache(
   );
 
   const scaleFactor = totalHeight / cache.origHeight;
+  const scaledBounds: [Point2D, Point2D] = [
+    [cache.boundsMin[0] * scaleFactor, cache.boundsMin[1] * scaleFactor],
+    [cache.boundsMax[0] * scaleFactor, cache.boundsMax[1] * scaleFactor],
+  ];
+  const scaledDiag = Math.hypot(
+    scaledBounds[1][0] - scaledBounds[0][0],
+    scaledBounds[1][1] - scaledBounds[0][1],
+    totalHeight
+  );
+  const repairGapMm = computeRepairGapMm(scaledDiag);
+
   const plates: PlateContour[] = new Array(params.plates);
   const warnings: SliceWarning[] = [];
 
@@ -338,7 +353,7 @@ export function sliceMeshFromCache(
     const zCut = zPositions[i];
     const zUnit = zCut / scaleFactor;
     const segments = cache.extractSegmentsAtZ(zUnit, scaleFactor);
-    const stitched = stitchAndUnionSegments(segments);
+    const stitched = stitchAndUnionSegments(segments, repairGapMm);
     plates[i] = stitched.polygons;
 
     if (stitched.openChainsDiscarded > 0 || stitched.openChainsRepaired > 0) {
@@ -350,11 +365,6 @@ export function sliceMeshFromCache(
       });
     }
   }
-
-  const scaledBounds: [Point2D, Point2D] = [
-    [cache.boundsMin[0] * scaleFactor, cache.boundsMin[1] * scaleFactor],
-    [cache.boundsMax[0] * scaleFactor, cache.boundsMax[1] * scaleFactor],
-  ];
 
   return {
     plates,

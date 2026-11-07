@@ -29,9 +29,23 @@ export interface StitchFloorResult {
 }
 
 export const SNAP_TOLERANCE = 1e-3;       // 0.001 mm
-export const MAX_REPAIR_GAP_MM = 0.05;    // 0.05 mm máxima micro-brecha reparable
+export const MIN_REPAIR_GAP_MM = 0.005;    // 0.005 mm (5x SNAP_TOLERANCE, límite inferior absoluto)
+export const MAX_REPAIR_GAP_LIMIT_MM = 0.1; // 0.1 mm (límite superior absoluto, por debajo del kerf típico)
+export const REPAIR_GAP_DIAG_FACTOR = 1e-4; // Factor relativo a la diagonal 3D escalada (~1e-4 * diag)
+export const MAX_REPAIR_GAP_MM = 0.05;    // 0.05 mm máxima micro-brecha reparable por defecto (~500 mm diag)
 export const CLIPPER_SCALE = 100_000;     // Precisión 1e-5 mm en enteros de Clipper64
 export const MIN_POLYGON_AREA_MM2 = 1e-3; // Área mínima en mm² para descartar astillas numéricas y contornos colapsados
+
+/**
+ * Calcula la tolerancia de micro-brecha reparable relativa a la escala real del modelo:
+ * clamp(diag * 1e-4, MIN_REPAIR_GAP_MM = 0.005, MAX_REPAIR_GAP_LIMIT_MM = 0.1) mm.
+ */
+export function computeRepairGapMm(scaledDiagonalMm: number): number {
+  return Math.max(
+    MIN_REPAIR_GAP_MM,
+    Math.min(MAX_REPAIR_GAP_LIMIT_MM, scaledDiagonalMm * REPAIR_GAP_DIAG_FACTOR)
+  );
+}
 
 interface VertexNode {
   x: number;
@@ -100,12 +114,13 @@ export function polyTreeToPolygonsWithHoles(polyTree: PolyTree64): PolygonWithHo
 
 /**
  * Une segmentos dirigidos en lazos cerrados en tiempo O(n) usando hash espacial 2D,
- * fusiona cadenas abiertas cuyos extremos (tail -> head) disten <= MAX_REPAIR_GAP_MM
+ * fusiona cadenas abiertas cuyos extremos (tail -> head) disten <= maxRepairGapMm
  * independientemente del segmento de arranque, y ejecuta Clipper64.executePolyTree
  * con ClipType.Union y FillRule.NonZero.
  */
 export function stitchAndUnionSegments(
-  segments: DirectedSegment2D[]
+  segments: DirectedSegment2D[],
+  maxRepairGapMm: number = MAX_REPAIR_GAP_MM
 ): StitchFloorResult {
   if (segments.length === 0) {
     return { polygons: [], openChainsDiscarded: 0, openChainsRepaired: 0 };
@@ -250,8 +265,8 @@ export function stitchAndUnionSegments(
   if (openChains.length > 0) {
     const active = new Uint8Array(openChains.length);
     active.fill(1);
-    const invRepairCell = 1.0 / MAX_REPAIR_GAP_MM;
-    const maxGapSq = MAX_REPAIR_GAP_MM * MAX_REPAIR_GAP_MM;
+    const invRepairCell = 1.0 / maxRepairGapMm;
+    const maxGapSq = maxRepairGapMm * maxRepairGapMm;
 
     // Inicializar headGrid una sola vez con los índices ordenados de todas las cadenas abiertas
     const headGrid = new Map<number, number[]>();
@@ -356,7 +371,7 @@ export function stitchAndUnionSegments(
       const lastV = vertices[chain[chain.length - 1]];
       const gapDist = Math.hypot(lastV.x - firstV.x, lastV.y - firstV.y);
 
-      if (chain.length >= 3 && gapDist <= MAX_REPAIR_GAP_MM) {
+      if (chain.length >= 3 && gapDist <= maxRepairGapMm) {
         if (gapDist > SNAP_TOLERANCE) {
           openChainsRepaired++;
         }
