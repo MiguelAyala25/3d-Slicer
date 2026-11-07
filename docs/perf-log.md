@@ -49,7 +49,12 @@ Script: `web/scripts/bench-slice.ts` ejecutado mediante `npx vite-node scripts/b
 
 ## 3. Optimizaciones y Tooling (C0)
 
-### 3.1 Issue O6: Vitest con entorno `node` por defecto
+### 3.2 Issue L1: ESLint en modo warn (DEC-10 = A)
+- **Herramientas**: `eslint@9.21.0`, `typescript-eslint@8.26.0`, `eslint-plugin-react-hooks@5.2.0`, `globals@16.0.0`.
+- **Configuración**: `web/eslint.config.js` con `@typescript-eslint/no-explicit-any: 'warn'`.
+- **Script**: `"lint": "eslint src"`.
+- **Línea base**: **0 errores, 36 warnings** (código de salida 0). No se ejecutó `--fix` para preservar la regla de no mezclar limpiezas con cambios de comportamiento.
+
 - **Configuración**: `vite.config.ts` actualizado a `test.environment = 'node'`.
 - Archivos anotados con `// @vitest-environment jsdom`:
   1. `src/__tests__/validator.test.ts` (3MF loader usa `DOMParser`)
