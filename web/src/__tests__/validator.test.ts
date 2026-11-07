@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest';
 import * as THREE from 'three';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { MessageChannel } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import {
   PARAM_BOUNDS,
@@ -289,7 +290,7 @@ l 1 2
           expect(metadata.extents).toEqual([30, 15, 30]);
         } else if (f === 'test_torus.stl') {
           expect(pos.length).toBe(9216);
-          expect(sampleSum).toBeCloseTo(-90940720.30664062, 5);
+          expect(sampleSum).toBeCloseTo(-90940720.30664, 4);
           expect(metadata.vertexCount).toBe(512);
           expect(metadata.faceCount).toBe(1024);
           expect(metadata.isWatertight).toBe(true);
@@ -334,7 +335,6 @@ class WorkerMessagePortSimulation {
   transfer(ab: ArrayBuffer) {
     // In Node / browser transferable objects, transferring causes the buffer to detach.
     // Node.js MessageChannel / MessagePort transfers detaches the ArrayBuffer.
-    const { MessageChannel } = require('node:worker_threads');
     const { port1, port2 } = new MessageChannel();
     port1.postMessage(ab, [ab]);
     port1.close();

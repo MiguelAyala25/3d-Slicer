@@ -6,24 +6,14 @@ import {
   Point64,
   Path64,
   Paths64,
-  Rect64,
   type PolyPathBase,
 } from 'clipper2-js';
 import { signedArea2D } from './geometry2d';
 import type { Point2D, PolygonWithHoles } from '../types/sculpture';
+import { applyClipperPatch } from './vendor/clipperPatch';
 
-// clipper2-js@1.2.4 port issue workaround: OutRec instances created by newOutRec()
-// lack initial bounds and path, causing executePolyTree's checkBounds to throw and fail silently.
-const origNewOutRec = (Clipper64.prototype as any).newOutRec;
-if (origNewOutRec && !(Clipper64.prototype as any).__patchedOutRec) {
-  (Clipper64.prototype as any).newOutRec = function () {
-    const r = origNewOutRec.call(this);
-    if (!r.bounds) r.bounds = new Rect64(false);
-    if (!r.path) r.path = new Path64();
-    return r;
-  };
-  (Clipper64.prototype as any).__patchedOutRec = true;
-}
+// Apply workaround for clipper2-js@1.2.4 OutRec initialization issue
+applyClipperPatch();
 
 export interface DirectedSegment2D {
   x0: number;
