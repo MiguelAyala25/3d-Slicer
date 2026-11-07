@@ -528,4 +528,86 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     await expect(dialog).toContainText('120 × 80 mm');
     await expect(dialog).toContainText('Peine A');
   });
+
+  test('13. Discarded open chains export confirmation block and unblock flow (DEC-2 / D2 / C9-1)', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await loadMeshAndSlice(page, { technique: 'stacked', joint: 'none' });
+
+    // Initial healthy model: modal has no discarded chains warning banner
+    await page.click('button:has-text("Vista previa y exportar")');
+    await expect(page.locator('[role="dialog"]')).toBeVisible();
+    await expect(
+      page.locator('[data-testid="discarded-chains-export-warning"]')
+    ).not.toBeVisible();
+    await expect(
+      page.locator('button:has-text("Exportar esta hoja (.dxf)")')
+    ).toBeEnabled();
+
+    // Close preview modal
+    await page.click('button[aria-label="Cerrar previsualización"]');
+
+    // Simulate open chains discarded on floor 1 in sliceResult
+    await page.evaluate(() => {
+      const store = (window as any).__SCULPTURE_STORE__;
+      if (store) {
+        const res = store.getState().sliceResult;
+        if (res) {
+          store.setState({
+            sliceResult: {
+              ...res,
+              warnings: [
+                ...res.warnings,
+                { floorIndex: 1, openChainsDiscarded: 2, openChainsRepaired: 0, message: 'warning' },
+              ],
+            },
+          });
+        }
+      }
+    });
+
+    // ResultSection displays notice
+    await expect(page.locator('[data-testid="discarded-chains-notice"]')).toBeVisible();
+    await expect(page.locator('[data-testid="discarded-chains-notice"]')).toContainText(
+      '2 cadena(s) abierta(s) descartada(s)'
+    );
+
+    // Open "Vista previa y exportar"
+    await page.click('button:has-text("Vista previa y exportar")');
+    await expect(page.locator('[role="dialog"]')).toBeVisible();
+
+    // Banner is visible indicating Piso 1
+    const warningBanner = page.locator('[data-testid="discarded-chains-export-warning"]');
+    await expect(warningBanner).toBeVisible();
+    await expect(warningBanner).toContainText('Piso 1');
+    await expect(warningBanner).toContainText('2 cadena(s) abierta(s)');
+
+    // Export buttons are disabled
+    const dxfBtn = page.locator('button:has-text("Exportar esta hoja (.dxf)")');
+    const svgBtn = page.locator('button:has-text("Exportar esta hoja (.svg)")');
+    const zipBtn = page.locator('button:has-text("Exportar todas (.zip DXF + SVG)")');
+    await expect(dxfBtn).toBeDisabled();
+    await expect(svgBtn).toBeDisabled();
+    await expect(zipBtn).toBeDisabled();
+
+    // Click "Exportar de todos modos"
+    const exportAnywayBtn = page.locator('[data-testid="btn-export-anyway"]');
+    await expect(exportAnywayBtn).toBeVisible();
+    await exportAnywayBtn.click();
+
+    // Export buttons are now enabled
+    await expect(dxfBtn).toBeEnabled();
+    await expect(svgBtn).toBeEnabled();
+    await expect(zipBtn).toBeEnabled();
+
+    // Download DXF succeeds
+    const downloadPromise = page.waitForEvent('download');
+    await dxfBtn.click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toContain('.dxf');
+
+    // Close preview modal
+    await page.click('button[aria-label="Cerrar previsualización"]');
+  });
 });

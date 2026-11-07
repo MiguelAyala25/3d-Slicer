@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
 import { generateSheetLayouts, generateWaffleSheetLayouts } from '../core/layout';
+import { getDiscardedChainsSummary } from '../core/slicer';
 import type { SheetLayout, SliceResult } from '../types/sculpture';
 import type { SculptureStore } from './useSculptureStore';
 
@@ -16,6 +17,7 @@ export interface ViewState {
   cameraPresetTrigger: number;
   sheetLayouts: SheetLayout[] | null;
   isPreviewModalOpen: boolean;
+  exportAnywayConfirmed: boolean;
 }
 
 export interface ViewActions {
@@ -27,9 +29,20 @@ export interface ViewActions {
   setCameraPreset: (preset: CameraPreset) => void;
   openSheetPreviewModal: () => void;
   closeSheetPreviewModal: () => void;
+  confirmExportAnyway: () => void;
 }
 
 export type ViewSlice = ViewState & ViewActions;
+
+export function isExportBlockedByDiscardedChains(
+  techniqueId: string,
+  sliceResult: SliceResult | null,
+  exportAnywayConfirmed: boolean
+): boolean {
+  if (techniqueId !== 'stacked' || !sliceResult) return false;
+  const summary = getDiscardedChainsSummary(sliceResult);
+  return summary.totalDiscarded > 0 && !exportAnywayConfirmed;
+}
 
 export function getNextNonEmptyFloor(
   plates: SliceResult['plates'],
@@ -62,10 +75,13 @@ export const createViewSlice: StateCreator<
   cameraPresetTrigger: 0,
   sheetLayouts: null,
   isPreviewModalOpen: false,
+  exportAnywayConfirmed: false,
 
   setViewMode: (mode) => set({ viewMode: mode }),
   toggleWireframe: () => set((s) => ({ wireframe: !s.wireframe })),
   setShowAllFloors: (showAll) => set({ showAllFloors: showAll }),
+
+  confirmExportAnyway: () => set({ exportAnywayConfirmed: true }),
 
   setActiveFloor: (floorIndex) => {
     const res = get().sliceResult;
@@ -93,7 +109,7 @@ export const createViewSlice: StateCreator<
       if (!waffleResult) return;
       try {
         const layouts = generateWaffleSheetLayouts(waffleResult, params);
-        set({ sheetLayouts: layouts, isPreviewModalOpen: true, errorMessage: null });
+        set({ sheetLayouts: layouts, isPreviewModalOpen: true, exportAnywayConfirmed: false, errorMessage: null });
       } catch (err) {
         set({
           errorMessage: err instanceof Error ? err.message : String(err),
@@ -109,7 +125,7 @@ export const createViewSlice: StateCreator<
         build.jointId === 'discs'
           ? generateDiscsLayouts(sliceResult, discs, params)
           : generateSheetLayouts(sliceResult, params);
-      set({ sheetLayouts: layouts, isPreviewModalOpen: true, errorMessage: null });
+      set({ sheetLayouts: layouts, isPreviewModalOpen: true, exportAnywayConfirmed: false, errorMessage: null });
     } catch (err) {
       set({
         errorMessage: err instanceof Error ? err.message : String(err),
@@ -118,5 +134,5 @@ export const createViewSlice: StateCreator<
     }
   },
 
-  closeSheetPreviewModal: () => set({ isPreviewModalOpen: false }),
+  closeSheetPreviewModal: () => set({ isPreviewModalOpen: false, exportAnywayConfirmed: false }),
 });

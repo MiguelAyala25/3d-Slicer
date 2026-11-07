@@ -4,6 +4,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { useSculptureStore } from '../store/useSculptureStore';
+import { isExportBlockedByDiscardedChains } from '../store/viewSlice';
+import { getDiscardedChainsSummary } from '../core/slicer';
 import { DEFAULT_PARAMS } from '../core/params';
 import { DEFAULT_BUILD } from '../core/build/types';
 import { INITIAL_WAFFLE_STATE } from '../store/waffleSlice';
@@ -308,5 +310,58 @@ describe('useSculptureStore Characterization Tests (M1 / C7-4 & C7-5)', () => {
     });
     await useSculptureStore.getState().discardAutosaveSession();
     expect(useSculptureStore.getState().pendingAutosave).toBeNull();
+  });
+
+  it('6. Export confirmation with open chains discarded (DEC-2 / D2 / C9-1)', () => {
+    // 1. Selector logic with discarded chains
+    const cleanResult = {
+      plates: [[{ exterior: [[0, 0], [10, 0], [10, 10], [0, 10]], holes: [], area: 100 }]],
+      zPositions: [0],
+      scaleFactor: 1.0,
+      scaledBounds: [[[0, 0], [10, 10]]],
+      scaledHeight: 10,
+      warnings: [],
+    } as unknown as import('../types/sculpture').SliceResult;
+    expect(isExportBlockedByDiscardedChains('stacked', cleanResult, false)).toBe(false);
+    expect(getDiscardedChainsSummary(cleanResult)).toEqual({ totalDiscarded: 0, affectedFloors: [] });
+
+    const puncturedResult = {
+      ...cleanResult,
+      warnings: [
+        { floorIndex: 0, openChainsDiscarded: 2, openChainsRepaired: 0, message: 'warning' },
+        { floorIndex: 2, openChainsDiscarded: 1, openChainsRepaired: 1, message: 'warning' },
+      ],
+    };
+    expect(getDiscardedChainsSummary(puncturedResult)).toEqual({
+      totalDiscarded: 3,
+      affectedFloors: [0, 2],
+    });
+
+    // Blocked if unconfirmed
+    expect(isExportBlockedByDiscardedChains('stacked', puncturedResult, false)).toBe(true);
+    // Unblocked if confirmed
+    expect(isExportBlockedByDiscardedChains('stacked', puncturedResult, true)).toBe(false);
+    // Non-stacked (e.g. waffle) is never blocked by this
+    expect(isExportBlockedByDiscardedChains('waffle', puncturedResult, false)).toBe(false);
+
+    // 2. Store actions and state transitions
+    useSculptureStore.setState({
+      sliceResult: puncturedResult,
+      exportAnywayConfirmed: false,
+    });
+    expect(useSculptureStore.getState().exportAnywayConfirmed).toBe(false);
+
+    // User confirms export anyway
+    useSculptureStore.getState().confirmExportAnyway();
+    expect(useSculptureStore.getState().exportAnywayConfirmed).toBe(true);
+
+    // Closing modal resets confirmation
+    useSculptureStore.getState().closeSheetPreviewModal();
+    expect(useSculptureStore.getState().exportAnywayConfirmed).toBe(false);
+    expect(useSculptureStore.getState().isPreviewModalOpen).toBe(false);
+
+    // Re-opening modal keeps confirmation false until re-confirmed
+    useSculptureStore.getState().openSheetPreviewModal();
+    expect(useSculptureStore.getState().exportAnywayConfirmed).toBe(false);
   });
 });

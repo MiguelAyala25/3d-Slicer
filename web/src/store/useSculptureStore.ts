@@ -476,3 +476,8 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     clearError: () => set({ errorMessage: null }),
   };
 });
+
+if (typeof window !== 'undefined') {
+  (window as unknown as { __SCULPTURE_STORE__: typeof useSculptureStore }).__SCULPTURE_STORE__ =
+    useSculptureStore;
+}

@@ -3,6 +3,7 @@ import { AlertTriangle, FileOutput, Loader2, Sliders } from 'lucide-react';
 import { useSculptureStore } from '../../../store/useSculptureStore';
 import { getWaffleAxesConfig } from '../../../core/waffle/canonicalFrame';
 import { generateWaffleSheetLayouts } from '../../../core/layout';
+import { getDiscardedChainsSummary } from '../../../core/slicer';
 import { WaffleWarningsPanel } from './WaffleWarningsPanel';
 
 export function ResultSection() {
@@ -59,6 +60,11 @@ export function ResultSection() {
       dz: (max[2] - min[2]).toFixed(1),
     };
   }, [waffleResult]);
+
+  const discardedSummary = useMemo(() => {
+    if (isWaffle) return { totalDiscarded: 0, affectedFloors: [] };
+    return getDiscardedChainsSummary(sliceResult);
+  }, [isWaffle, sliceResult]);
 
   const hasResult = isWaffle ? Boolean(waffleResult) : Boolean(sliceResult);
 
@@ -194,6 +200,18 @@ export function ResultSection() {
           <Sliders className="w-3.5 h-3.5 text-[#0A84FF]" />
           <span>Hoja de prueba de ranuras</span>
         </button>
+      )}
+
+      {!isWaffle && discardedSummary.totalDiscarded > 0 && (
+        <div
+          data-testid="discarded-chains-notice"
+          className="flex items-center gap-1.5 p-2 rounded-md bg-amber-500/15 border border-amber-500/40 text-[11px] text-amber-200"
+        >
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span>
+            {discardedSummary.totalDiscarded} cadena(s) abierta(s) descartada(s). Se requerirá confirmación para exportar.
+          </span>
+        </div>
       )}
 
       <button

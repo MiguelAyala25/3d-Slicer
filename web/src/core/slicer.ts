@@ -387,3 +387,31 @@ export function sliceMesh(
   const cache = new AxisSliceCache(rawPositions, params.axis);
   return sliceMeshFromCache(cache, params);
 }
+
+export interface DiscardedChainsSummary {
+  totalDiscarded: number;
+  affectedFloors: number[];
+}
+
+/**
+ * Agrega el total de cadenas abiertas descartadas y lista los pisos afectados (DEC-2 / D2).
+ */
+export function getDiscardedChainsSummary(
+  sliceResult: SliceResult | null
+): DiscardedChainsSummary {
+  if (!sliceResult || !sliceResult.warnings || sliceResult.warnings.length === 0) {
+    return { totalDiscarded: 0, affectedFloors: [] };
+  }
+  let totalDiscarded = 0;
+  const affectedFloors: number[] = [];
+  for (const w of sliceResult.warnings) {
+    if (w.openChainsDiscarded > 0) {
+      totalDiscarded += w.openChainsDiscarded;
+      if (!affectedFloors.includes(w.floorIndex)) {
+        affectedFloors.push(w.floorIndex);
+      }
+    }
+  }
+  affectedFloors.sort((a, b) => a - b);
+  return { totalDiscarded, affectedFloors };
+}

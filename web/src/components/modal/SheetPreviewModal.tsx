@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   Archive,
   Download,
   Maximize2,
@@ -13,6 +14,7 @@ import {
   generateSheetDxf,
   getSheetFileBaseName,
 } from '../../core/dxfExporter';
+import { getDiscardedChainsSummary } from '../../core/slicer';
 import { useSculptureStore } from '../../store/useSculptureStore';
 
 function triggerBlobDownload(blob: Blob, fileName: string): void {
@@ -30,11 +32,22 @@ export function SheetPreviewModal() {
   const isOpen = useSculptureStore((s) => s.isPreviewModalOpen);
   const sheets = useSculptureStore((s) => s.sheetLayouts);
   const closeModal = useSculptureStore((s) => s.closeSheetPreviewModal);
+  const build = useSculptureStore((s) => s.build);
+  const sliceResult = useSculptureStore((s) => s.sliceResult);
+  const exportAnywayConfirmed = useSculptureStore((s) => s.exportAnywayConfirmed);
+  const confirmExportAnyway = useSculptureStore((s) => s.confirmExportAnyway);
 
   const [activeTab, setActiveTab] = useState(0);
   const [zoom, setZoom] = useState(1.0);
 
   const currentSheet = sheets?.[activeTab] ?? sheets?.[0] ?? null;
+
+  const discardedSummary = useMemo(() => {
+    if (build.techniqueId !== 'stacked') return { totalDiscarded: 0, affectedFloors: [] };
+    return getDiscardedChainsSummary(sliceResult);
+  }, [build.techniqueId, sliceResult]);
+
+  const isBlocked = discardedSummary.totalDiscarded > 0 && !exportAnywayConfirmed;
 
   const svgMarkup = useMemo(() => {
     if (!currentSheet) return '';
@@ -44,6 +57,7 @@ export function SheetPreviewModal() {
   if (!isOpen || !sheets || !currentSheet) return null;
 
   const handleDownloadCurrentDxf = () => {
+    if (isBlocked) return;
     const dxf = generateSheetDxf(currentSheet);
     const base = getSheetFileBaseName(currentSheet);
     triggerBlobDownload(
@@ -53,6 +67,7 @@ export function SheetPreviewModal() {
   };
 
   const handleDownloadCurrentSvg = () => {
+    if (isBlocked) return;
     const svg = generateSheetSvg(currentSheet, { includeReference: true });
     const base = getSheetFileBaseName(currentSheet);
     triggerBlobDownload(
@@ -62,6 +77,7 @@ export function SheetPreviewModal() {
   };
 
   const handleDownloadAllZip = async () => {
+    if (isBlocked) return;
     const zipBlob = await exportAllSheetsZip(sheets);
     triggerBlobDownload(zipBlob, 'cortes_escultura_dxf_svg.zip');
   };
@@ -154,6 +170,39 @@ export function SheetPreviewModal() {
           </div>
         </div>
 
+        {/* Banner de bloqueo por cadenas abiertas descartadas (DEC-2 / D2) */}
+        {discardedSummary.totalDiscarded > 0 && (
+          <div
+            data-testid="discarded-chains-export-warning"
+            className={`flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-b text-xs ${
+              isBlocked
+                ? 'bg-amber-500/15 border-amber-500/30 text-amber-200'
+                : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>
+                <strong>Atención:</strong> Se descartaron {discardedSummary.totalDiscarded} cadena(s) abierta(s) en los pisos:{' '}
+                {discardedSummary.affectedFloors.map((f) => `Piso ${f}`).join(', ')}.
+                {isBlocked
+                  ? ' La exportación está bloqueada para prevenir piezas cortadas incompletas.'
+                  : ' Exportación desbloqueada bajo confirmación explícita.'}
+              </span>
+            </div>
+            {isBlocked && (
+              <button
+                type="button"
+                data-testid="btn-export-anyway"
+                onClick={confirmExportAnyway}
+                className="px-3 py-1.5 rounded-md bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs transition-colors shrink-0 select-none shadow"
+              >
+                Exportar de todos modos
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Lienzo SVG */}
         <div className="flex-1 overflow-auto p-6 flex items-center justify-center bg-[#09090B]">
           <div
@@ -181,24 +230,27 @@ export function SheetPreviewModal() {
           <div className="flex items-center gap-2">
             <button
               type="button"
+              disabled={isBlocked}
               onClick={handleDownloadCurrentSvg}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-white/10 hover:bg-white/15 text-xs font-medium text-[#F4F4F5]"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-white/10 hover:bg-white/15 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium text-[#F4F4F5] transition-opacity"
             >
               <Download className="w-3.5 h-3.5" />
               Exportar esta hoja (.svg)
             </button>
             <button
               type="button"
+              disabled={isBlocked}
               onClick={handleDownloadCurrentDxf}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-[#0A84FF] hover:bg-[#0070E0] text-xs font-medium text-white"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-md bg-[#0A84FF] hover:bg-[#0070E0] disabled:opacity-40 disabled:cursor-not-allowed text-xs font-medium text-white transition-opacity"
             >
               <Download className="w-3.5 h-3.5" />
               Exportar esta hoja (.dxf)
             </button>
             <button
               type="button"
+              disabled={isBlocked}
               onClick={handleDownloadAllZip}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white transition-opacity"
             >
               <Archive className="w-3.5 h-3.5" />
               Exportar todas (.zip DXF + SVG)
