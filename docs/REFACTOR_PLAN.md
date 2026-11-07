@@ -145,7 +145,7 @@ Por qué este orden:
 | C1 | ✅ PASSED | `38d21e9` | `66bb171` | ✅ Aprobado |
 | C2 | ✅ PASSED | `66bb171` | `41a7139` | ✅ Aprobado |
 | C3 | ✅ PASSED | `41a7139` | `f071fce` | ✅ Aprobado |
-| C4 | ⬜ Pendiente | | | |
+| C4 | ✅ PASSED | `f071fce` | `e689bf0` | ⏳ En revisión |
 | C5 | ⬜ Pendiente | | | |
 | C6 | ⬜ Pendiente | | | |
 | C7 | ⬜ Pendiente | | | |

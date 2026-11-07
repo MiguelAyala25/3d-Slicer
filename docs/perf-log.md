@@ -139,5 +139,30 @@ Mediana de 5 ejecuciones (con 1 calentamiento previo):
 - **C3-3 (O4)**: Test de caracterización con 5000+ cadenas abiertas agregado previamente (`b4cf9bc`), obteniendo exactamente los mismos resultados antes y después (`toEqual`).
 - **C3-4**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
 
+---
+
+## 6. Hot Path del Seccionado (C4 / Issue O2)
+
+### 6.1 Mediciones de Rendimiento (B0 / scripts/bench-slice.ts)
+
+Mediana de 5 ejecuciones (con 1 calentamiento previo) midiendo `sliceMeshFromCache` y peak heap antes y después de eliminar asignaciones por triángulo y habilitar Z-buckets adaptativos:
+
+| Malla | Triángulos | Slice 50p Antes (ms) | Slice 50p Después (ms) | Slice 200p Antes (ms) | Slice 200p Después (ms) | Heap Pico Antes (MB) | Heap Pico Después (MB) |
+|---|---|---|---|---|---|---|---|
+| **Hand.OBJ** | 470 | 5.32 | 5.60 | 21.34 | 19.72 | 55.87 | 61.11 |
+| **dragon-meshed.obj** | 500,000 | 270.35 | 249.48 | 958.95 | 959.83 | 121.97 | 118.94 |
+| **Sphere ~998k** | 998,000 | 316.25 | 305.96 | 1184.30 | 1121.10 | 136.60 | 164.79 |
+
+*Nota sobre O2*:
+- Eliminación de arrays por triángulo en `extractSegmentsAtZ`: se eliminaron por completo las ~6 asignaciones de arrays locales (`vx`, `vy`, `vz`, `above`, `ptsX`, `ptsY`) por triángulo candidato evaluado. En una malla de 500k a 1M triángulos con 200 cortes, esto evita millones de objetos temporales en el heap de V8.
+- Z-buckets adaptativos: `computeNumZBuckets(triCount) = clamp(round(sqrt(triCount)), 128, 4096)`. En mallas densas como el dragón (707 buckets) o la esfera de 1M (999 buckets), reduce la dispersión de candidatos irrelevantes en cada plano Z.
+
+### 6.2 Verificación de Criterios C4
+- **C4-1 (identidad bit a bit)**: Pruebas unitarias en `slicer.test.ts` con oráculo de referencia (`referenceExtractSegmentsAtZ`) y comparación directa con `toEqual` entre 128 buckets y buckets adaptativos (141 buckets en esfera sintética de 20k triángulos, y en fixtures `test_l_block.obj` en los 3 ejes y `test_torus.stl`). Salida 100% idéntica bit a bit.
+- **C4-2 (cobertura de bordes)**: Tests en `slicer.test.ts` para caras coplanares al plano de corte (tapa superior, inferior y meseta horizontal intermedia) y cortes pasando exactamente por vértices aislados (vértice superior, inferior y silla intermedia de un octaedro). Todos pasando sin `NaN` ni duplicados.
+- **C4-3 (medición, O2)**: Mediciones de `sliceMeshFromCache` y peak heap registradas en la tabla 6.1.
+- **C4-4**: La constante fija `NUM_Z_BUCKETS = 128` fue reemplazada por `MIN_Z_BUCKETS = 128`, `MAX_Z_BUCKETS = 4096` y `computeNumZBuckets(triCount)` adaptativo. Se ejecutaron dos commits de optimización separados (`perf: remove per-triangle allocations` y `perf: adaptive z-buckets`).
+- **C4-5**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
+
 
 
