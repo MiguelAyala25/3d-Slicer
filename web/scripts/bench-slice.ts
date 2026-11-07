@@ -7,6 +7,7 @@ import { AxisSliceCache, sliceMeshFromCache } from '../src/core/slicer';
 import { sliceWaffleFromCaches } from '../src/core/waffle/waffleSlicer';
 import { DEFAULT_PARAMS } from '../src/core/params';
 import { DEFAULT_WAFFLE_PARAMS } from '../src/core/waffle/constants';
+import { normalizeAndValidateGeometry } from '../src/core/meshRepair';
 import type { CoreParams } from '../types/sculpture';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,6 +63,41 @@ function createSyntheticSphereMesh(subdivisions: number): Float32Array {
   const res = new Float32Array(pos);
   geom.dispose();
   return res;
+}
+
+function create200ClosedComponentsGeometry(): THREE.BufferGeometry {
+  const positions: number[] = [];
+  // 100 pairs of outer box + inner box = 200 closed components
+  for (let gx = 0; gx < 10; gx++) {
+    for (let gy = 0; gy < 10; gy++) {
+      const cx = gx * 20;
+      const cy = gy * 20;
+      // Outer box [-6, 6]
+      const pOuter = [
+        [cx - 6, cy - 6, -6], [cx + 6, cy - 6, -6], [cx + 6, cy + 6, -6], [cx - 6, cy + 6, -6],
+        [cx - 6, cy - 6, 6], [cx + 6, cy - 6, 6], [cx + 6, cy + 6, 6], [cx - 6, cy + 6, 6],
+      ];
+      // Inner box [-3, 3] (outward normals)
+      const pInner = [
+        [cx - 3, cy - 3, -3], [cx + 3, cy - 3, -3], [cx + 3, cy + 3, -3], [cx - 3, cy + 3, -3],
+        [cx - 3, cy - 3, 3], [cx + 3, cy - 3, 3], [cx + 3, cy + 3, 3], [cx - 3, cy + 3, 3],
+      ];
+      const faces = [
+        [0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7],
+        [0, 1, 5], [0, 5, 4], [2, 3, 7], [2, 7, 6],
+        [0, 4, 7], [0, 7, 3], [1, 2, 6], [1, 6, 5],
+      ];
+      for (const tri of faces) {
+        positions.push(...pOuter[tri[0]], ...pOuter[tri[1]], ...pOuter[tri[2]]);
+      }
+      for (const tri of faces) {
+        positions.push(...pInner[tri[0]], ...pInner[tri[1]], ...pInner[tri[2]]);
+      }
+    }
+  }
+  const geom = new THREE.BufferGeometry();
+  geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+  return geom;
 }
 
 function runMeasurement(
@@ -243,6 +279,20 @@ async function main() {
 
     console.log(`- dragon-meshed.obj: 10 cortes secuenciales = ${elapsed10.toFixed(2)} ms | 1 corte coalesced = ${elapsed1.toFixed(2)} ms (Ahorro: ${(100 * (1 - elapsed1 / elapsed10)).toFixed(1)}%)`);
   }
+
+  // 5. Medición de normalizeAndValidateGeometry con 200 componentes conexas cerradas (C6 / O3)
+  console.log('\n[5/5] Midiendo normalizeAndValidateGeometry con 200 componentes conexas cerradas (C6 / O3)...');
+  const benchCompGeom = create200ClosedComponentsGeometry();
+  // Calentamiento
+  normalizeAndValidateGeometry(benchCompGeom, 'bench_200_comp.stl');
+  const compTimes: number[] = [];
+  for (let r = 0; r < 5; r++) {
+    const t0 = performance.now();
+    normalizeAndValidateGeometry(benchCompGeom, 'bench_200_comp.stl');
+    compTimes.push(performance.now() - t0);
+  }
+  const medianCompTime = median(compTimes);
+  console.log(`- 200 componentes cerradas (2400 tris, 100 exteriores + 100 cavidades): ${medianCompTime.toFixed(2)} ms (mediana de 5)`);
 
   console.log('\n=== RESULTADOS BENCHMARK B0 (Mediana de 5 ejecuciones) ===');
   console.table(results);

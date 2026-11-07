@@ -117,6 +117,7 @@ export function normalizeAndValidateGeometry(
       ? indexAttr.array
       : new Uint32Array(indexAttr.array);
 
+  const posArray = weldedPos.array as Float32Array;
   const vertexCount = weldedPos.count;
   // Mapa de aristas sin dirección: key = minV * vertexCount + maxV
   const edgeCounts = new Map<number, number>();
@@ -207,11 +208,12 @@ export function normalizeAndValidateGeometry(
     const countVerts = compFaces.length * 3;
 
     for (const f of compFaces) {
+      const fBase = f * 3;
       for (let k = 0; k < 3; k++) {
-        const vi = indices[f * 3 + k];
-        const vx = weldedPos.getX(vi);
-        const vy = weldedPos.getY(vi);
-        const vz = weldedPos.getZ(vi);
+        const vi = indices[fBase + k] * 3;
+        const vx = posArray[vi];
+        const vy = posArray[vi + 1];
+        const vz = posArray[vi + 2];
         sumX += vx;
         sumY += vy;
         sumZ += vz;
@@ -230,32 +232,33 @@ export function normalizeAndValidateGeometry(
     // Volumen firmado restando el centroide de la componente
     let signedVol6 = 0;
     for (const f of compFaces) {
-      const i0 = indices[f * 3];
-      const i1 = indices[f * 3 + 1];
-      const i2 = indices[f * 3 + 2];
-      const ax = weldedPos.getX(i0) - cx0;
-      const ay = weldedPos.getY(i0) - cy0;
-      const az = weldedPos.getZ(i0) - cz0;
-      const bx = weldedPos.getX(i1) - cx0;
-      const by = weldedPos.getY(i1) - cy0;
-      const bz = weldedPos.getZ(i1) - cz0;
-      const cx = weldedPos.getX(i2) - cx0;
-      const cy = weldedPos.getY(i2) - cy0;
-      const cz = weldedPos.getZ(i2) - cz0;
+      const fBase = f * 3;
+      const i0 = indices[fBase] * 3;
+      const i1 = indices[fBase + 1] * 3;
+      const i2 = indices[fBase + 2] * 3;
+      const ax = posArray[i0] - cx0;
+      const ay = posArray[i0 + 1] - cy0;
+      const az = posArray[i0 + 2] - cz0;
+      const bx = posArray[i1] - cx0;
+      const by = posArray[i1 + 1] - cy0;
+      const bz = posArray[i1 + 2] - cz0;
+      const cx = posArray[i2] - cx0;
+      const cy = posArray[i2 + 1] - cy0;
+      const cz = posArray[i2 + 2] - cz0;
       signedVol6 +=
         ax * (by * cz - bz * cy) +
         ay * (bz * cx - bx * cz) +
         az * (bx * cy - by * cx);
     }
 
-    const firstVi = indices[compFaces[0] * 3];
+    const firstVi = indices[compFaces[0] * 3] * 3;
     closedComponents.push({
       faces: compFaces,
       signedVol6,
       sampleVertex: [
-        weldedPos.getX(firstVi),
-        weldedPos.getY(firstVi),
-        weldedPos.getZ(firstVi),
+        posArray[firstVi],
+        posArray[firstVi + 1],
+        posArray[firstVi + 2],
       ],
       minX,
       minY,
@@ -292,21 +295,22 @@ export function normalizeAndValidateGeometry(
       }
       let hits = 0;
       for (const f of other.faces) {
-        const i0 = indices[f * 3];
-        const i1 = indices[f * 3 + 1];
-        const i2 = indices[f * 3 + 2];
-        const x0 = weldedPos.getX(i0);
-        const x1 = weldedPos.getX(i1);
-        const x2 = weldedPos.getX(i2);
+        const fBase = f * 3;
+        const i0 = indices[fBase] * 3;
+        const i1 = indices[fBase + 1] * 3;
+        const i2 = indices[fBase + 2] * 3;
+        const x0 = posArray[i0];
+        const x1 = posArray[i1];
+        const x2 = posArray[i2];
         // Descarte rápido: el rayo apunta hacia +X, omitir triángulos completamente detrás
         if (x0 < ox && x1 < ox && x2 < ox) continue;
         if (
           rayIntersectsTriangle(
             ox, oy, oz,
             rdx, rdy, rdz,
-            x0, weldedPos.getY(i0), weldedPos.getZ(i0),
-            x1, weldedPos.getY(i1), weldedPos.getZ(i1),
-            x2, weldedPos.getY(i2), weldedPos.getZ(i2)
+            x0, posArray[i0 + 1], posArray[i0 + 2],
+            x1, posArray[i1 + 1], posArray[i1 + 2],
+            x2, posArray[i2 + 1], posArray[i2 + 2]
           )
         ) {
           hits++;
@@ -336,11 +340,14 @@ export function normalizeAndValidateGeometry(
   // Reconstruir geometría no indexada con vértices soldados e índices con winding normalizado
   const outPositions = new Float32Array(faceCount * 9);
   for (let f = 0; f < faceCount; f++) {
+    const fBase = f * 3;
+    const dstBase = f * 9;
     for (let k = 0; k < 3; k++) {
-      const vi = indices[f * 3 + k];
-      outPositions[f * 9 + k * 3] = weldedPos.getX(vi);
-      outPositions[f * 9 + k * 3 + 1] = weldedPos.getY(vi);
-      outPositions[f * 9 + k * 3 + 2] = weldedPos.getZ(vi);
+      const vi = indices[fBase + k] * 3;
+      const dst = dstBase + k * 3;
+      outPositions[dst] = posArray[vi];
+      outPositions[dst + 1] = posArray[vi + 1];
+      outPositions[dst + 2] = posArray[vi + 2];
     }
   }
 

@@ -188,5 +188,28 @@ Medición de una ráfaga continua de 10 mensajes `SLICE` consecutivos (enviados 
 - **C5-4 (sin spinner colgado)**: Test específico en `workerQueue.test.ts` valida que tras una ráfaga `isSlicing` regresa a `false` de manera determinista y el resultado corresponde al último job solicitado. Los tests E2E pasan 8/12 idénticos a la línea base sin spinner colgado.
 - **C5-5**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
 
+---
+
+## 8. Validator: Separación y Optimización de Anidamiento (C6 / Issues M4 y O3)
+
+### 8.1 Mediciones de Rendimiento (B0 / scripts/bench-slice.ts)
+
+Medición de `normalizeAndValidateGeometry` sobre una malla sintética con **200 componentes conexas cerradas** (2400 triángulos: 100 exteriores + 100 cavidades anidadas) antes y después de eliminar llamadas a `getX/getY/getZ` y leer directamente del `Float32Array`:
+
+| Escenario | Triángulos | Componentes Cerradas | Tiempo Antes (ms) | Tiempo Después (ms) | Mejora (%) |
+|---|---|---|---|---|---|
+| **Cajas Múltiples (100 ext + 100 int)** | 2,400 | 200 (100 anidadas) | **14.34 ms** | **12.12 ms** | **-15.5 %** |
+
+*Nota sobre O3*:
+- Lectura directa por offsets en `posArray = weldedPos.array as Float32Array` dentro de `normalizeAndValidateGeometry`: eliminó todas las llamadas intermedias a `weldedPos.getX/getY/getZ` en el bucle de centroide/AABB, volumen firmado (`signedVol6`), `sampleVertex`, el bucle de ray casting de anidamiento y la reconstrucción final de `outPositions`.
+- Cero llamadas a `getX/getY/getZ` en `src/core/meshRepair.ts`.
+
+### 8.2 Verificación de Criterios C6
+- **C6-1 (M4)**: Se crearon `src/core/errors.ts` (`ValidationError`), `src/core/paramValidation.ts` (`SUPPORTED_EXTENSIONS`, `MAX_FILE_SIZE_BYTES`, `validateFileExtension`, `validateParams`) y `src/core/meshRepair.ts` (`MAX_TRIANGLES`, `normalizeAndValidateGeometry`). `src/core/validator.ts` actúa como fachada que reexporta todos los símbolos; todo el repositorio compila limpiamente sin romper imports.
+- **C6-2 (mensajes idénticos)**: Tests de caracterización exhaustivos en `validator.test.ts` fijan los límites min/max de cada parámetro y los textos exactos de `ValidationError` tanto en `validateParams` como en `validateFileExtension`.
+- **C6-3 (O3)**: El test de caracterización de componentes anidadas y separadas en `validator.test.ts` confirma exactamente el mismo conteo de componentes, profundidad de anidamiento, inversiones y checksum numérico antes y después. La dirección del rayo no se modificó.
+- **C6-4**: `Select-String -Path src\core\meshRepair.ts -Pattern "getX\(|getY\(|getZ\("` devuelve **0 coincidencias**.
+- **C6-5**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
+
 
 
