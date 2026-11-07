@@ -333,6 +333,54 @@ describe('validator & params', () => {
       expect(metadata.openComponentCount).toBe(1);
       expect(metadata.warnings.some((w) => w.includes('abierta'))).toBe(true);
     });
+
+    it('characterization (O3 / C6-3): nested components with outward normals and disjoint separated components', () => {
+      // 1) Nested components where inner box starts with outward normals (vol > 0).
+      // Since nestingDepth is 1 (inside outer box), it must be inverted to cavity (vol < 0).
+      const outerBox = createBoxGeometryWithWinding([-30, -30, -30], [30, 30, 30], false);
+      const innerBoxOutward = createBoxGeometryWithWinding([-15, -15, -15], [15, 15, 15], false); // outward normals
+      const nestedPos = new Float32Array([
+        ...outerBox.getAttribute('position').array,
+        ...innerBoxOutward.getAttribute('position').array,
+      ]);
+      const nestedGeom = new THREE.BufferGeometry();
+      nestedGeom.setAttribute('position', new THREE.BufferAttribute(nestedPos, 3));
+
+      const { geometry: normNested, metadata: metaNested } = normalizeAndValidateGeometry(nestedGeom, 'nested_outward.stl');
+      expect(metaNested.isWatertight).toBe(true);
+      expect(metaNested.openComponentCount).toBe(0);
+      expect(metaNested.invertedComponentCount).toBe(1); // inner cavity inverted
+      expect(metaNested.faceCount).toBe(24);
+      expect(metaNested.vertexCount).toBe(16);
+      expect(normNested.getAttribute('position').count).toBe(72);
+
+      // 2) Disjoint separated components: Box A (outward, depth 0) and Box B (inward, depth 0)
+      const boxA = createBoxGeometryWithWinding([-50, -10, -10], [-30, 10, 10], false);
+      const boxBInward = createBoxGeometryWithWinding([30, -10, -10], [50, 10, 10], true); // inward normals
+      const disjointPos = new Float32Array([
+        ...boxA.getAttribute('position').array,
+        ...boxBInward.getAttribute('position').array,
+      ]);
+      const disjointGeom = new THREE.BufferGeometry();
+      disjointGeom.setAttribute('position', new THREE.BufferAttribute(disjointPos, 3));
+
+      const { geometry: normDisjoint, metadata: metaDisjoint } = normalizeAndValidateGeometry(disjointGeom, 'disjoint_boxes.stl');
+      expect(metaDisjoint.isWatertight).toBe(true);
+      expect(metaDisjoint.openComponentCount).toBe(0);
+      expect(metaDisjoint.invertedComponentCount).toBe(1); // only Box B was inverted
+      expect(metaDisjoint.faceCount).toBe(24);
+      expect(metaDisjoint.vertexCount).toBe(16);
+      expect(normDisjoint.getAttribute('position').count).toBe(72);
+
+      // Check sum of positions to guarantee exact numeric consistency
+      const posArr = normDisjoint.getAttribute('position').array as Float32Array;
+      let checksum = 0;
+      for (let i = 0; i < posArr.length; i++) {
+        checksum = (checksum + posArr[i] * (i + 1)) % 1000000007;
+      }
+      expect(posArr.length).toBe(216);
+      expect(checksum).toBe(164280);
+    });
   });
 
   it('rejects point-cloud PLY without element face', () => {
