@@ -38,20 +38,13 @@ import {
 } from './workerClient';
 import { generateSlotCalibrationSheet } from '../core/waffle/calibrationSheet';
 import type { WaffleParams, WaffleSliceResult, WaffleSection } from '../core/waffle/types';
+import { saveMeshBufferToIndexedDB } from '../core/autosave';
 import {
-  checkParamsCompatibility,
-  serializeProject,
-  type ParsedProjectData,
-} from '../core/project';
-import {
-  clearAutosaveStorage,
-  loadMeshBufferFromIndexedDB,
-  loadProjectFromLocalStorage,
-  saveMeshBufferToIndexedDB,
-  saveProjectToLocalStorage,
-  type AutosaveSessionSnapshot,
-  type StoredMeshRecord,
-} from '../core/autosave';
+  createProjectSlice,
+  persistAutosaveIfLoaded,
+  type PendingAutosaveSession,
+  type ProjectSlice,
+} from './projectSlice';
 import type {
   Axis,
   MeshMetadata,
@@ -61,14 +54,10 @@ import type {
 } from '../types/sculpture';
 
 export { AUTO_SLICE_DEBOUNCE_MS };
+export type { PendingAutosaveSession };
 
 export type CameraPreset = 'iso' | 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
 export type ViewMode = 'original' | 'plates';
-
-export interface PendingAutosaveSession {
-  snapshot: AutosaveSessionSnapshot | null;
-  meshRecord: StoredMeshRecord | null;
-}
 
 export interface SculptureState {
   // Parámetros y banderas
@@ -104,9 +93,6 @@ export interface SculptureState {
   sheetLayouts: SheetLayout[] | null;
   isPreviewModalOpen: boolean;
 
-  // Sesión de autosave pendiente de confirmación (Corrección #5f)
-  pendingAutosave: PendingAutosaveSession | null;
-
   // Mensajes de estado y errores
   statusMessage: string;
   errorMessage: string | null;
@@ -126,19 +112,17 @@ export interface SculptureActions {
   setPlatesFromDimension: (dim: ModelDimension, mm: number) => void;
   setTechnique: (id: TechniqueId, opts?: { confirmed?: boolean }) => { needsConfirmation: boolean; discCount: number };
   setJoint: (id: JointId, opts?: { confirmed?: boolean }) => { needsConfirmation: boolean; discCount: number };
-
-  // Proyecto, autosave y exportación
-  checkAutosaveOnStartup: () => Promise<void>;
-  restoreAutosaveSession: () => Promise<void>;
-  discardAutosaveSession: () => Promise<void>;
-  exportProjectJsonString: () => string;
-  importProjectFromParsed: (parsed: ParsedProjectData, forceAdapt?: boolean) => Promise<{ needsConfirmation: boolean }>;
   openSheetPreviewModal: () => void;
   closeSheetPreviewModal: () => void;
   clearError: () => void;
 }
 
-export type SculptureStore = SculptureState & SculptureActions & DiscsSlice & WaffleState & WaffleActions;
+export type SculptureStore = SculptureState &
+  SculptureActions &
+  DiscsSlice &
+  ProjectSlice &
+  WaffleState &
+  WaffleActions;
 
 function getNextNonEmptyFloor(
   plates: SliceResult['plates'],
@@ -160,9 +144,11 @@ function getNextNonEmptyFloor(
 export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
   let lastSlicedAxis: Axis | null = null;
   const discsSlice = createDiscsSlice(set, get, api);
+  const projectSlice = createProjectSlice(set, get, api);
 
   return {
     ...discsSlice,
+    ...projectSlice,
     ...INITIAL_WAFFLE_STATE,
 
     params: { ...DEFAULT_PARAMS },
@@ -192,8 +178,6 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
     sheetLayouts: null,
     isPreviewModalOpen: false,
-
-    pendingAutosave: null,
 
     statusMessage: 'Carga un modelo 3D (.obj, .stl, .3mf, .ply) para comenzar',
     errorMessage: null,
@@ -252,15 +236,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       });
 
       // Autosave automático si hay malla cargada
-      if (state.meshGeometry && state.meshFileName) {
-        saveProjectToLocalStorage(
-          get().params,
-          get().discs,
-          state.meshFileName,
-          get().build,
-          get().waffleParams
-        );
-      }
+      persistAutosaveIfLoaded(get());
 
       if (key === 'thickness' && !get().wafflePitchManuallyEdited) {
         set((s) => ({
@@ -448,13 +424,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }));
 
         if (state.meshFileName) {
-          saveProjectToLocalStorage(
-            get().params,
-            get().discs,
-            state.meshFileName,
-            get().build,
-            get().waffleParams
-          );
+          persistAutosaveIfLoaded(get());
         }
       };
 
@@ -478,13 +448,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         });
 
         if (state.meshFileName) {
-          saveProjectToLocalStorage(
-            get().params,
-            get().discs,
-            state.meshFileName,
-            get().build,
-            get().waffleParams
-          );
+          persistAutosaveIfLoaded(get());
         }
       };
 
@@ -565,15 +529,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         statusMessage,
       });
 
-      if (state.meshGeometry && state.meshFileName) {
-        saveProjectToLocalStorage(
-          get().params,
-          get().discs,
-          state.meshFileName,
-          get().build,
-          get().waffleParams
-        );
-      }
+      persistAutosaveIfLoaded(get());
 
       if (
         state.meshGeometry &&
@@ -643,15 +599,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           };
         });
 
-        if (get().meshGeometry && get().meshFileName) {
-          saveProjectToLocalStorage(
-            get().params,
-            get().discs,
-            get().meshFileName,
-            get().build,
-            get().waffleParams
-          );
-        }
+        persistAutosaveIfLoaded(get());
 
         if (get().meshGeometry) {
           void get().runSlice();
@@ -668,15 +616,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           };
         });
 
-        if (get().meshGeometry && get().meshFileName) {
-          saveProjectToLocalStorage(
-            get().params,
-            get().discs,
-            get().meshFileName,
-            get().build,
-            get().waffleParams
-          );
-        }
+        persistAutosaveIfLoaded(get());
 
         if (get().meshGeometry) {
           void get().runSlice();
@@ -783,9 +723,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         }));
       }
 
-      if (get().meshGeometry && get().meshFileName) {
-        saveProjectToLocalStorage(get().params, get().discs, get().meshFileName, get().build);
-      }
+      persistAutosaveIfLoaded(get(), undefined, false);
 
       if (
         get().meshGeometry &&
@@ -796,180 +734,6 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       }
 
       return { needsConfirmation: false, discCount: 0 };
-    },
-
-    checkAutosaveOnStartup: async () => {
-      try {
-        const envelope = loadProjectFromLocalStorage();
-        if (!envelope) return;
-        const meshRecord = await loadMeshBufferFromIndexedDB();
-        if (meshRecord && meshRecord.fileName === envelope.meshFileName) {
-          set({
-            pendingAutosave: {
-              snapshot: envelope,
-              meshRecord,
-            },
-          });
-        }
-      } catch {
-        // Ignorado si localStorage o IndexedDB fallan
-      }
-    },
-
-    restoreAutosaveSession: async () => {
-      const { pendingAutosave } = get();
-      if (!pendingAutosave || !pendingAutosave.snapshot) return;
-
-      const { snapshot, meshRecord } = pendingAutosave;
-      set({ pendingAutosave: null });
-
-      try {
-        set({ params: { ...snapshot.params }, gapManuallyEdited: true });
-        if (meshRecord) {
-          await get().loadMeshArrayBuffer(
-            meshRecord.buffer,
-            meshRecord.fileName,
-            false
-          );
-        }
-        let healedWaffleParams = snapshot.waffleParams;
-        const loadedExtents = get().modelExtents;
-        if (healedWaffleParams && loadedExtents) {
-          const { h1, h2 } = horizontalExtentsForUpAxis(
-            loadedExtents,
-            healedWaffleParams.upAxis
-          );
-          const minHorizScaled = Math.min(h1, h2) * healedWaffleParams.targetScale;
-          if (
-            Math.abs(healedWaffleParams.targetScale - 1.0) < 1e-6 &&
-            minHorizScaled < 2 * healedWaffleParams.pitch
-          ) {
-            const healedScale = computeInitialWaffleScale(
-              loadedExtents,
-              snapshot.params,
-              healedWaffleParams.upAxis,
-              healedWaffleParams.pitch,
-              { kind: 'plates' }
-            );
-            const healedPitch = computeAdaptiveWafflePitch(
-              loadedExtents,
-              healedScale,
-              healedWaffleParams.upAxis,
-              snapshot.params.thickness
-            );
-            healedWaffleParams = {
-              ...healedWaffleParams,
-              targetScale: healedScale,
-              pitch: healedPitch,
-            };
-          }
-        }
-        await get().importProjectFromParsed(
-          {
-            version:
-              snapshot.build.jointId === 'none' || snapshot.build.techniqueId === 'waffle'
-                ? '2.0'
-                : '1.0',
-            params: snapshot.params,
-            discs: snapshot.discs,
-            build: snapshot.build,
-            waffleParams: healedWaffleParams,
-          },
-          true
-        );
-        set({ statusMessage: 'Sesión anterior restaurada con éxito' });
-      } catch (err) {
-        set({
-          errorMessage: err instanceof Error ? err.message : String(err),
-          statusMessage: 'Error al restaurar la sesión anterior',
-        });
-      }
-    },
-
-    discardAutosaveSession: async () => {
-      set({ pendingAutosave: null });
-      try {
-        clearAutosaveStorage();
-      } catch {
-        // Ignorado
-      }
-    },
-
-    exportProjectJsonString: () => {
-      const { params, discs, build, waffleParams } = get();
-      return serializeProject(params, build, discs, waffleParams);
-    },
-
-    importProjectFromParsed: async (parsed, forceAdapt = false) => {
-      const state = get();
-      const mergedParams: SculptureParams = {
-        ...state.params,
-        ...parsed.params,
-      };
-      const compatible = checkParamsCompatibility(
-        mergedParams,
-        state.params,
-        parsed.build,
-        state.build,
-        parsed.waffleParams,
-        state.waffleParams,
-        mergedParams,
-        state.params
-      );
-      const isResultNull =
-        parsed.build.techniqueId === 'waffle'
-          ? state.waffleResult === null
-          : state.sliceResult === null;
-
-      if (!compatible && !forceAdapt && !isResultNull) {
-        return { needsConfirmation: true };
-      }
-
-      set({
-        build: { ...parsed.build },
-        params: mergedParams,
-        gapManuallyEdited:
-          Math.abs(mergedParams.gap - mergedParams.thickness) > 0.01,
-        sizeIntent: { kind: 'plates' },
-      });
-
-      if (parsed.waffleParams) {
-        set({
-          waffleParams: { ...parsed.waffleParams },
-          wafflePitchManuallyEdited: true,
-        });
-      }
-
-      clearAutoSliceTimer();
-      if (state.meshGeometry && (!compatible || isResultNull)) {
-        await get().runSlice();
-      }
-
-      const manager = get().discManager;
-      if (parsed.build.jointId === 'discs') {
-        manager.loadDiscsFromProject(parsed.discs);
-        const currentSlice = get().sliceResult;
-        if (currentSlice) {
-          manager.purgeInvalidDiscs(currentSlice.plates);
-        }
-        set({
-          discs: manager.getAllDiscs(),
-          canUndo: manager.canUndo(),
-          canRedo: manager.canRedo(),
-          selectedDiscId: null,
-          statusMessage: 'Proyecto cargado correctamente',
-        });
-      } else {
-        manager.loadDiscsFromProject([]);
-        set({
-          discs: [],
-          canUndo: false,
-          canRedo: false,
-          selectedDiscId: null,
-          statusMessage: 'Proyecto cargado correctamente',
-        });
-      }
-      return { needsConfirmation: false };
     },
 
     setWaffleParam: (key, value) => {
@@ -1013,15 +777,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         isResultDirty: get().waffleResult !== null,
       });
 
-      if (get().meshGeometry && get().meshFileName) {
-        saveProjectToLocalStorage(
-          get().params,
-          get().discs,
-          get().meshFileName,
-          get().build,
-          nextWaffleParams
-        );
-      }
+      persistAutosaveIfLoaded(get(), nextWaffleParams);
 
       if (get().meshGeometry && get().build.techniqueId === 'waffle') {
         if (key === 'upAxis') {
@@ -1051,15 +807,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         isResultDirty: state.waffleResult !== null,
       });
 
-      if (state.meshGeometry && state.meshFileName) {
-        saveProjectToLocalStorage(
-          get().params,
-          get().discs,
-          state.meshFileName,
-          get().build,
-          nextWaffleParams
-        );
-      }
+      persistAutosaveIfLoaded(get(), nextWaffleParams);
 
       if (state.meshGeometry && get().build.techniqueId === 'waffle') {
         scheduleAutoSlice(() => void get().runSlice());
@@ -1165,15 +913,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
         isResultDirty: state.waffleResult !== null,
       });
 
-      if (state.meshGeometry && state.meshFileName) {
-        saveProjectToLocalStorage(
-          get().params,
-          get().discs,
-          state.meshFileName,
-          get().build,
-          nextWaffleParams
-        );
-      }
+      persistAutosaveIfLoaded(get(), nextWaffleParams);
 
       if (state.meshGeometry && get().build.techniqueId === 'waffle') {
         clearAutoSliceTimer();
