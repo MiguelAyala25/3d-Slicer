@@ -149,7 +149,7 @@ Por qué este orden:
 | C5 | ✅ PASSED | `3dfbb58` | `ac91cc2` | ✅ Aprobado |
 | C6 | ✅ PASSED | `85d3a8d` | `f8d103e` | ✅ Aprobado |
 | C7 | ✅ PASSED | `5fa807f` | `1417242` | ✅ Aprobado |
-| C8 | ✅ PASSED | `8da6005` | `647023b` | ⏳ En revisión |
+| C8 | ✅ PASSED | `8da6005` | `647023b` | ✅ Aprobado |
 | C9 | ⬜ Pendiente | | | |
 | C10 | ⬜ Pendiente | | | |
 | C11 | ⬜ Pendiente | | | |
@@ -997,6 +997,71 @@ Además de G1-G9 (**excepción a G5 en este chunk**: puede haber goldens que cam
 - **C9-3 (goldens):** `git diff --stat <START>..HEAD -- web/golden web/src/__tests__/__baseline__` debe estar **vacío**, salvo cambios que yo haya aprobado explícitamente, en cuyo caso están en commits `test(golden): ...` separados que citan mi aprobación y el informe incluye el diff por golden. Si aparece un cambio no aprobado: **STOP**.
 - **C9-4 (D6):** al cargar STL/OBJ/PLY, `ModelSection.tsx` muestra "Tamaño original asumido: X × Y × Z mm"; test de `meshLoader` (valor correcto) y e2e (texto visible) pasan; se muestra advertencia si alguna dimensión < 1 mm o > 5000 mm.
 - **C9-5:** `architecture.test.ts` pasa (el cambio de `MeshMetadata` no rompe la separación núcleo/UI).
+
+#### Plan de ejecución — C9
+
+Hash de inicio (`<START>`): `733520f` (`git status` limpio verificado).
+Se ejecutarán **4 commits separados** (1 de caracterización previa de `D2` según regla 8, 1 para la tolerancia relativa de `D2` / DEC-3 según `C9-2`, 1 para el bloqueo de exportación con confirmación explícita de `D2` / DEC-2 según `C9-1`, y 1 para el aviso de tamaño original asumido de `D6` / DEC-4 según `C9-4` y `C9-5`), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C9-1..C9-5`) al cerrar el chunk:
+
+1. **Paso 1 — Commit de caracterización previo de D2 (`test(slicer): add characterization test for mesh with missing triangle producing openChainsDiscarded`)**
+   - **Objetivo (regla 8 + paso 1 de `D2`):** fijar antes de tocar producción el comportamiento actual del seccionador cuando una malla tiene un agujero (un triángulo eliminado de un fixture cerrado).
+   - **Archivos a modificar:**
+     - `web/src/__tests__/slicer.test.ts`: añadir un test que cargue `test_l_block.stl` (20 triángulos = 180 floats), elimine 1 triángulo lateral (`positions.slice(0, 19 * 9)`), ejecute `sliceMesh` y compruebe que se emiten advertencias en `result.warnings` con `openChainsDiscarded > 0`, fijando los pisos afectados (`floorIndex`), conteos exactos de `openChainsDiscarded`/`openChainsRepaired` y el formato del `message` (`"Piso X: Y cadena(s) abierta(s) descartada(s), Z micro-brecha(s) cerrada(s)."`).
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/slicer.test.ts`.
+
+2. **Paso 2 — Commit de tolerancia relativa de D2 (`fix(stitcher): scale repair gap with model size`)**
+   - **Objetivo (`C9-2`, `C9-3`, DEC-3):** escalar la tolerancia máxima de reparación de micro-brechas con la diagonal 3D del modelo ya escalado en mm: `repairGap = clamp(diag × 1e-4, 0.005, 0.1)` mm, conservando `0.05` mm como valor por defecto de `stitchAndUnionSegments`.
+   - **Archivos a modificar:**
+     - `web/src/core/polygonStitcher.ts`:
+       - Exportar las constantes documentadas:
+         - `MIN_REPAIR_GAP_MM = 0.005` (`5 × SNAP_TOLERANCE`; por debajo no se distingue del snap de vértices).
+         - `MAX_REPAIR_GAP_LIMIT_MM = 0.1` (por debajo del kerf típico de `0.15` mm para no cerrar brechas visibles en silencio).
+         - `REPAIR_GAP_DIAG_FACTOR = 1e-4` (`~0.05` mm para una diagonal de `500` mm).
+         - Conservar `MAX_REPAIR_GAP_MM = 0.05` como valor por defecto.
+       - Exportar el helper puro `computeRepairGapMm(scaledDiagonalMm: number): number` que aplica `clamp(scaledDiagonalMm * REPAIR_GAP_DIAG_FACTOR, MIN_REPAIR_GAP_MM, MAX_REPAIR_GAP_LIMIT_MM)`.
+       - Añadir el parámetro opcional `maxRepairGapMm: number = MAX_REPAIR_GAP_MM` a `stitchAndUnionSegments(segments: DirectedSegment2D[], maxRepairGapMm: number = MAX_REPAIR_GAP_MM): StitchFloorResult`, reemplazando los usos internos de `MAX_REPAIR_GAP_MM` (`:253`, `:254`, `:359`) por `maxRepairGapMm`.
+     - `web/src/core/slicer.ts`:
+       - En `sliceMeshFromCache` (`:322-367`), calcular primero `scaledBounds` y la diagonal 3D escalada `scaledDiag = Math.hypot(scaledBounds[1][0] - scaledBounds[0][0], scaledBounds[1][1] - scaledBounds[0][1], totalHeight)`, obtener `repairGapMm = computeRepairGapMm(scaledDiag)` y pasarlo a `stitchAndUnionSegments(segments, repairGapMm)`.
+     - `web/src/__tests__/slicer.test.ts`:
+       - Añadir tests unitarios para `computeRepairGapMm` (clamping en `0.005`, escalado lineal `diag × 1e-4`, clamping en `0.1`) y para un lazo con micro-brecha de `0.03` mm en un modelo escalado `×0.01` (diagonal pequeña → `repairGap = 0.005` mm < `0.03` mm → la cadena abierta se descarta, `openChainsDiscarded === 1`) y `×100` (diagonal grande → `repairGap = 0.1` mm ≥ `0.03` mm → la micro-brecha se repara, `openChainsRepaired === 1`, `openChainsDiscarded === 0`).
+   - **Impacto en goldens (`C9-3`):** todas las mallas de `web/golden/*` y `web/src/__tests__/__baseline__/*` son estancas (`openChains.length === 0`), por lo que ningún golden cambia. Si algún golden cambiara, me detendré de inmediato (regla 4).
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run`.
+
+3. **Paso 3 — Commit de bloqueo de exportación con confirmación de D2 (`feat(export): require confirmation before exporting when open chains are discarded`)**
+   - **Objetivo (`C9-1`, DEC-2 = B):** impedir la exportación silenciosa de placas con cadenas abiertas descartadas (`openChainsDiscarded > 0`), mostrando los pisos afectados y exigiendo confirmación explícita (`"Exportar de todos modos"`).
+   - **Archivos a modificar:**
+     - `web/src/core/slicer.ts` (y reexportación/uso desde store y UI):
+       - Añadir y exportar el helper puro `getDiscardedChainsSummary(sliceResult: SliceResult | null): { totalDiscarded: number; affectedFloors: number[] }` que suma `openChainsDiscarded` y devuelve la lista ordenada de `floorIndex` con `openChainsDiscarded > 0`.
+     - `web/src/store/viewSlice.ts`:
+       - Añadir al estado `ViewState` el campo `exportAnywayConfirmed: boolean` (inicializado en `false`) y la acción `confirmExportAnyway: () => void` (que pone `exportAnywayConfirmed: true`), además del selector/helper `isExportBlockedByDiscardedChains(state): boolean` (que devuelve `true` cuando `build.techniqueId === 'stacked'`, el modal no está en modo hoja de calibración, `totalDiscarded > 0` y `!exportAnywayConfirmed`).
+       - Reiniciar `exportAnywayConfirmed: false` al abrir o cerrar `SheetPreviewModal` (`openSheetPreviewModal`, `closeSheetPreviewModal`) y al aplicar un nuevo corte en `useSculptureStore.ts`.
+     - `web/src/components/modal/SheetPreviewModal.tsx`:
+       - Si existen cadenas abiertas descartadas en el resultado actual (`totalDiscarded > 0`):
+         - Mostrar un banner de advertencia destacado (`data-testid="discarded-chains-export-warning"`) indicando el total de cadenas abiertas descartadas y la lista de pisos afectados (`Piso X, ...`).
+         - Mientras `exportAnywayConfirmed` sea `false`, deshabilitar los botones de descarga (`Exportar esta hoja (.svg)`, `Exportar esta hoja (.dxf)`, `Exportar todas (.zip DXF + SVG)`) y bloquear sus manejadores, mostrando el botón explícito `"Exportar de todos modos"` (`data-testid="btn-export-anyway"`).
+         - Al pulsar `"Exportar de todos modos"`, llamar a `confirmExportAnyway()`, habilitando los botones de descarga.
+       - Con un modelo sano (`totalDiscarded === 0`), no se muestra el banner ni se bloquea la descarga.
+     - `web/src/components/hud/inspector/ResultSection.tsx`:
+       - Cuando `totalDiscarded > 0` en técnica apilada, mostrar junto al botón `"Vista previa y exportar"` un aviso resumido con los pisos afectados indicando que se requerirá confirmación para exportar.
+     - **Tests (`C9-1`):**
+       - Unitario en `web/src/__tests__/storeCharacterization.test.ts`: comprobar con un `sliceResult` con `openChainsDiscarded > 0` (generado a partir del fixture con triángulo borrado) que `isExportBlockedByDiscardedChains` es `true` al abrir el modal, que pasa a `false` tras `confirmExportAnyway()`, y que con un modelo sano (`openChainsDiscarded === 0`) es `false` desde el inicio.
+       - E2E en `web/e2e/sculpture.spec.ts`: comprobar que con un modelo sano la exportación no muestra el aviso de bloqueo, y que al cargar una malla con un triángulo eliminado aparece el aviso con los pisos afectados, los botones de exportación están bloqueados hasta pulsar `"Exportar de todos modos"`, y tras pulsarlo la descarga de DXF funciona.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run`.
+
+4. **Paso 4 — Commit de aviso de unidades asumidas de D6 (`feat(model): display assumed original dimensions in mm and warn on extreme scales`)**
+   - **Objetivo (`C9-4`, `C9-5`, DEC-4 = B):** mostrar en `ModelSection.tsx` el tamaño original asumido en milímetros tras cargar un modelo y mostrar una advertencia suave si alguna dimensión es `< 1` mm o `> 5000` mm, sin romper la separación núcleo/UI.
+   - **Verificación previa del tipo `MeshMetadata` (paso 1 de `D6`):**
+     - `MeshMetadata` (`web/src/types/sculpture.ts:66-80`) **ya incluye** `extents: [number, number, number]` y `unitScaleApplied: number` (poblados en `web/src/core/meshRepair.ts:75-79, 389`). Por tanto, no es necesario romper la firma de `MeshMetadata` ni el protocolo del worker; se reutiliza `meshMetadata.extents` (con fallback a `modelExtents`).
+   - **Archivos a modificar:**
+     - `web/src/core/sizing.ts`:
+       - Exportar el helper puro ` hasExtremeAssumedDimensions(extents: readonly [number, number, number] | { x: number; y: number; z: number }): boolean` que devuelve `true` si alguna dimensión es `< 1` mm o `> 5000` mm (`MIN_ASSUMED_DIM_MM = 1`, `MAX_ASSUMED_DIM_MM = 5000`).
+     - `web/src/components/hud/inspector/ModelSection.tsx`:
+       - Mostrar bajo los controles de dimensiones la línea `"Tamaño original asumido: X.X × Y.Y × Z.Z mm"` (`data-testid="assumed-original-size"`).
+       - Si alguna dimensión original es `< 1` mm o `> 5000` mm, mostrar una advertencia suave (`data-testid="assumed-units-warning"`) indicando que el tamaño original es inusualmente pequeño (`< 1 mm`) o grande (`> 5000 mm`) y podría estar expresado en otras unidades (p. ej. metros o pulgadas).
+     - **Tests (`C9-4`, `C9-5`):**
+       - Unitarios en `web/src/__tests__/validator.test.ts` (y `sizing.test.ts`): comprobar que `loadMeshFromBuffer` informa las dimensiones originales exactas en `metadata.extents` para STL/OBJ/PLY/3MF y que `hasExtremeAssumedDimensions` detecta dimensiones `< 1` mm y `> 5000` mm.
+       - E2E en `web/e2e/sculpture.spec.ts`: comprobar que al cargar `test_l_block.obj` se muestra `"Tamaño original asumido: 30.0 × 30.0 × 15.0 mm"` en `ModelSection` (sin advertencia de escala extrema), y que al cargar un modelo con dimensión `< 1` mm se muestra la advertencia de unidades.
+   - **Verificación final del chunk:** ejecutar G1-G9 (`npx tsc --noEmit`, `npx vitest run`, `npm run build`, `npx playwright test`, `git diff` de goldens vacío) y comprobar todos los criterios `C9-1` a `C9-5`.
 
 ---
 

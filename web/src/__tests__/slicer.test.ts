@@ -832,4 +832,59 @@ describe('slicer & polygon stitcher', () => {
       }
     });
   });
+
+  describe('Open chains discarded characterization with punctured mesh (D2 / C9-1)', () => {
+    it('emits openChainsDiscarded warnings on affected floors when a triangle is removed from watertight fixture', () => {
+      const stlBuf = toArrayBuffer(fs.readFileSync(path.join(FIXTURES_DIR, 'test_l_block.stl')));
+      const mesh = loadMeshFromBuffer(stlBuf, 'test_l_block.stl');
+      const positions = mesh.geometry.getAttribute('position').array as Float32Array;
+
+      expect(positions.length).toBe(180); // 20 triangles
+
+      // Find a triangle that crosses the middle in Z (to ensure it intersects cut planes)
+      let targetTri = -1;
+      for (let t = 0; t < 20; t++) {
+        const z0 = positions[t * 9 + 2];
+        const z1 = positions[t * 9 + 5];
+        const z2 = positions[t * 9 + 8];
+        const minZ = Math.min(z0, z1, z2);
+        const maxZ = Math.max(z0, z1, z2);
+        if (minZ < 14 && maxZ > 16) {
+          targetTri = t;
+          break;
+        }
+      }
+      expect(targetTri).toBeGreaterThanOrEqual(0);
+
+      // Create a punctured mesh by omitting the target triangle
+      const puncturedPositions = new Float32Array(19 * 9);
+      puncturedPositions.set(positions.subarray(0, targetTri * 9), 0);
+      puncturedPositions.set(positions.subarray((targetTri + 1) * 9), targetTri * 9);
+
+      const params: SculptureParams = {
+        ...DEFAULT_PARAMS,
+        plates: 5,
+        thickness: 3.0,
+        gap: 2.0,
+        axis: 'z',
+      };
+
+      const result = sliceMesh(puncturedPositions, params);
+
+      // Verify that warnings are emitted and identify affected floors
+      expect(result.warnings.length).toBeGreaterThan(0);
+      const discardedWarnings = result.warnings.filter((w) => w.openChainsDiscarded > 0);
+      expect(discardedWarnings.length).toBeGreaterThan(0);
+
+      const totalDiscarded = result.warnings.reduce((acc, w) => acc + w.openChainsDiscarded, 0);
+      expect(totalDiscarded).toBeGreaterThanOrEqual(1);
+
+      // Verify warning message structure
+      for (const w of result.warnings) {
+        expect(w.message).toBe(
+          `Piso ${w.floorIndex}: ${w.openChainsDiscarded} cadena(s) abierta(s) descartada(s), ${w.openChainsRepaired} micro-brecha(s) cerrada(s).`
+        );
+      }
+    });
+  });
 });
