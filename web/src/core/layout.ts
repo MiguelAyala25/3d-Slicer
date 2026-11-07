@@ -77,7 +77,9 @@ function shiftPlatePolygons(
 }
 
 /**
- * Traducción 1:1 de _compute_plate_label (layout.py:190-263).
+ * Determina el texto, tamaño y posición de la etiqueta de placa (ej. 'P0'),
+ * ubicándola en el centroide del polígono mayor si hay suficiente despeje respecto a los bordes y discos,
+ * o fuera de la pieza si no cabe internamente.
  */
 export function computePlateLabel(
   plateIdx: number,
@@ -175,7 +177,7 @@ export function createEmptySheet(
 }
 
 /**
- * Traducción 1:1 de calculate_used_dimensions (layout.py:110-144) y _compute_scrap_tags (layout.py:392-412).
+ * Calcula dimensiones utilizadas, áreas de ocupación porcentual y etiquetas de retales sobrantes reutilizables.
  */
 function finalizeSheetStats(sheet: SheetLayout, scrapTagEnabled: boolean): void {
   let maxX = 0.0;
@@ -218,7 +220,7 @@ function finalizeSheetStats(sheet: SheetLayout, scrapTagEnabled: boolean): void 
   sheet.remnantHeight = Number(Math.max(0.0, usableH - sheet.usedHeight).toFixed(1));
   sheet.remnantAreaMm2 = Number(Math.max(0.0, usableArea - sheet.usedAreaMm2).toFixed(1));
 
-  // ScrapTags (layout.py:392-412)
+  // Etiquetas de retazos aprovechables (ScrapTags) si superan las dimensiones mínimas configuradas
   sheet.scrapTags = [];
   if (!scrapTagEnabled) return;
   if (sheet.usedWidth <= 0 && sheet.usedHeight <= 0) return;
@@ -302,7 +304,7 @@ export function generateSheetLayouts(
     const w = bounds.maxX - bounds.minX;
     const h = bounds.maxY - bounds.minY;
 
-    // Verificación exacta de layout.py:183-187
+    // Verificar que la placa quepa dentro del área útil de la hoja (ancho y alto utilizables)
     if (!isWithinUsableArea(w, h, params)) {
       throw new ValidationError(
         `La placa ${i} (${w.toFixed(1)} x ${h.toFixed(1)} mm) excede el área útil de la hoja (${usableW.toFixed(1)} x ${usableH.toFixed(1)} mm). Ajusta el tamaño de la hoja o escala el modelo 3D.`

@@ -10,7 +10,7 @@ import type { PlateContour, Point2D } from '../../../types/sculpture';
 
 /**
  * Verifica si un punto (x, y) cae sobre el material de una placa,
- * con una tolerancia de borde opcional en mm (por defecto 1.0 mm, coincidiendo con viewer.py:680).
+ * con una tolerancia de margen de borde opcional en mm (por defecto 1.0 mm para evitar colocación en cantos frágiles).
  */
 export function isPointOnPlate(
   x: number,

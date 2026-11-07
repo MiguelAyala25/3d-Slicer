@@ -26,9 +26,8 @@ function addDxfClosedPolyline(
 }
 
 /**
- * Traducción 1:1 de _draw_dashed_circle_dxf (exporter.py:341-358).
  * Genera entidades ARC en la capa GRABADO para representar un círculo punteado
- * (cuando gapIndex === plateIndex - 1).
+ * de alineación (cuando gapIndex === plateIndex - 1).
  */
 function addDxfDashedCircle(
   dxf: DxfWriter,
@@ -105,7 +104,7 @@ export function generateSheetDxf(sheet: SheetLayout): string {
       }
     }
 
-    // Círculos de alineación de discos en GRABADO (exporter.py:322-338):
+    // Círculos de alineación de discos en GRABADO:
     // - gapIndex === plateIndex (isDashed === false) -> 1 CIRCLE sólido
     // - gapIndex === plateIndex - 1 (isDashed === true) -> N ARC punteados
     // Ambos con r = (d.diameter + engraveClearance) / 2

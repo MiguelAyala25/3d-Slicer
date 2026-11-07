@@ -11,7 +11,7 @@ export const FORMAT_VERSION_V1 = '1.0';
 export const FORMAT_VERSION_V2 = '2.0';
 
 /**
- * Esquema exacto de project.py:29-39 y web/golden/l_block_project.json (§0.0).
+ * Esquema serializado del archivo de proyecto v1.0 compatible con web/golden/l_block_project.json.
  */
 export interface SerializedProjectFile {
   version: string;
@@ -55,8 +55,8 @@ export function projectFormatFor(
 }
 
 /**
- * Serializa el proyecto en el formato exacto de project.py:14-46 y
- * web/golden/l_block_project.json (byte-compatible con json.dumps(..., indent=2)).
+ * Serializa el proyecto en el formato canónico v1.0 compatible byte a byte con
+ * web/golden/l_block_project.json (indentación de 2 espacios y flotantes formateados).
  */
 export function serializeProjectJson(
   params: SculptureParams,
@@ -610,8 +610,8 @@ export function parseProjectJson(
 }
 
 /**
- * Traducción exacta de project.py:88-115 (check_params_compatibility).
- * Verifica si los parámetros geométricos de corte coinciden.
+ * Verifica si los parámetros geométricos de corte (placas, espesor, hueco, eje y configuración waffle) coinciden
+ * con el proyecto abierto para evitar aplicar un corte con parámetros incompatibles.
  */
 export function checkParamsCompatibility(
   fileParams: Pick<SculptureParams, 'plates' | 'thickness' | 'gap' | 'axis'>,

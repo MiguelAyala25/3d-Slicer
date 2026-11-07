@@ -224,7 +224,7 @@ export class DiscManager {
 
   /**
    * Re-escala las coordenadas (x, y) de todos los discos por `scaleRatio = newAutoScale / oldAutoScale`
-   * antes de ejecutar `purgeInvalidDiscs` (Corrección #5c, main.py:201-212).
+   * manteniendo la posición relativa sobre el modelo cuando cambia la escala global antes de purgar inválidos.
    */
   rescalePositions(scaleRatio: number): void {
     if (

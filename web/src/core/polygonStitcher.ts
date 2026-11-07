@@ -41,7 +41,7 @@ export interface StitchFloorResult {
 export const SNAP_TOLERANCE = 1e-3;       // 0.001 mm
 export const MAX_REPAIR_GAP_MM = 0.05;    // 0.05 mm máxima micro-brecha reparable
 export const CLIPPER_SCALE = 100_000;     // Precisión 1e-5 mm en enteros de Clipper64
-export const MIN_POLYGON_AREA_MM2 = 1e-3; // Igual que slicer.py:296 (poly.area >= 1e-3)
+export const MIN_POLYGON_AREA_MM2 = 1e-3; // Área mínima en mm² para descartar astillas numéricas y contornos colapsados
 
 interface VertexNode {
   x: number;

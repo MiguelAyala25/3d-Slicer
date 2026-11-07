@@ -11,7 +11,8 @@ import type {
 } from '../../../types/sculpture';
 
 /**
- * Traducción 1:1 de _layout_discs_into_sheets (layout.py:434-648).
+ * Acomoda los discos conectores en bandejas organizadas por hueco (par de placas Pk-Pk+1),
+ * empaquetándolos en las hojas de corte de placas o en hojas dedicadas según la configuración.
  */
 export function layoutDiscsIntoSheets(
   discs: Disc[],
@@ -122,7 +123,7 @@ export function layoutDiscsIntoSheets(
       cursorX += trayW + effSpacing;
       rowHeight = Math.max(rowHeight, trayH);
     } else {
-      // Bandeja multi-fila cuando el grupo supera el ancho útil de la hoja (layout.py:553-633)
+      // Bandeja multi-fila cuando el grupo de discos supera el ancho útil continuo de la hoja
       if (cursorX > margin) {
         cursorX = margin;
         cursorY += rowHeight + effSpacing;

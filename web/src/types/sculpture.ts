@@ -1,18 +1,18 @@
 export type Axis = 'x' | 'y' | 'z';
 
 export interface SculptureParams {
-  plates: number;            // params.py:13 default 10, ui.py:96 [2..200]
-  thickness: number;         // params.py:14 default 3.0, ui.py:101 [0.1..100.0]
-  gap: number;               // params.py:15 default 3.0, ui.py:107 [0.1..1000.0]
-  axis: Axis;                // params.py:16 default 'z', ui.py:113 ['x','y','z']
-  sheetW: number;            // params.py:19 default 600.0, ui.py:124 [10.0..5000.0]
-  sheetH: number;            // params.py:20 default 400.0, ui.py:130 [10.0..5000.0]
-  sheetMargin: number;       // params.py:21 default 10.0, ui.py:136 [0.0..200.0]
-  partGap: number;           // params.py:22 default 5.0, ui.py:142 [0.0..100.0]
-  kerf: number;              // params.py:25 default 0.15, ui.py:148 [0.0..5.0]
-  discDiameter: number;      // params.py:28 default 6.0, [0.1..5000.0]
-  engraveClearance: number;  // params.py:30 default 0.3, ui.py:155 [0.0..10.0]
-  scrapTagEnabled: boolean;  // params.py:33 default true, ui.py:162 boolean
+  plates: number;            // Número de placas [2..200], default 10
+  thickness: number;         // Espesor del material en mm [0.1..100.0], default 3.0
+  gap: number;               // Separación/hueco entre placas en mm [0.1..1000.0], default 3.0
+  axis: Axis;                // Eje normal de corte ['x','y','z'], default 'z'
+  sheetW: number;            // Ancho de la hoja de corte en mm [10.0..5000.0], default 600.0
+  sheetH: number;            // Alto de la hoja de corte en mm [10.0..5000.0], default 400.0
+  sheetMargin: number;       // Margen perimetral de hoja en mm [0.0..200.0], default 10.0
+  partGap: number;           // Separación mínima entre piezas en mm [0.0..100.0], default 5.0
+  kerf: number;              // Ancho de corte del láser/fresa en mm [0.0..5.0], default 0.15
+  discDiameter: number;      // Diámetro nominal de discos conectores en mm [0.1..5000.0], default 6.0
+  engraveClearance: number;  // Holgura radial/diametral para círculo grabado en mm [0.0..10.0], default 0.3
+  scrapTagEnabled: boolean;  // Generación de etiquetas de retal sobrante, default true
 }
 
 export type CoreParams = Omit<SculptureParams, 'discDiameter' | 'engraveClearance'>;
@@ -41,7 +41,7 @@ export interface PlateEngraveDisc {
   id: number;
   x: number;               // Coordenada X local a la placa (mm CAD)
   y: number;               // Coordenada Y local a la placa (mm CAD)
-  diameter: number;        // d.diameter + params.engraveClearance (layout.py:173)
+  diameter: number;        // Diámetro final con holgura: d.diameter + params.engraveClearance
   nominalDiameter: number; // d.diameter sin holgura
   gapIndex: number;        // gapIndex === plateIndex -> sólido; gapIndex === plateIndex - 1 -> punteado
   isDashed: boolean;       // false: círculo SÓLIDO (gapIndex === i); true: PUNTEADO (gapIndex === i - 1)

@@ -54,7 +54,7 @@ export class AxisSliceCache {
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
 
-    // 1. Rotar para alinear el eje elegido con +Z (idéntico a slicer.py:134-156)
+    // 1. Rotar para alinear el eje elegido con +Z
     const nVerts = this.triCount * 3;
     for (let i = 0; i < nVerts; i++) {
       const rx = rawPositions[i * 3];
@@ -62,12 +62,12 @@ export class AxisSliceCache {
       const rz = rawPositions[i * 3 + 2];
       let x: number, y: number, z: number;
       if (axis === 'x') {
-        // trimesh.transformations.rotation_matrix(-pi/2, [0, 1, 0])
+        // Rotación de -90° sobre el eje Y: X -> +Z, Z -> -X
         x = -rz;
         y = ry;
         z = rx;
       } else if (axis === 'y') {
-        // trimesh.transformations.rotation_matrix(+pi/2, [1, 0, 0])
+        // Rotación de +90° sobre el eje X: Y -> +Z, Z -> -Y
         x = rx;
         y = -rz;
         z = ry;
@@ -88,7 +88,7 @@ export class AxisSliceCache {
       if (z > maxZ) maxZ = z;
     }
 
-    // 2. Centrar en el origen usando bounds.mean(axis=0) (idéntico a slicer.py:159)
+    // 2. Centrar en el origen restando el centroide del AABB (bounding box)
     const cx = 0.5 * (minX + maxX);
     const cy = 0.5 * (minY + maxY);
     const cz = 0.5 * (minZ + maxZ);

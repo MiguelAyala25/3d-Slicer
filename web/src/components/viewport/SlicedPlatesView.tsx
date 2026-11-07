@@ -53,7 +53,7 @@ export function SlicedPlatesView() {
       const contour = sliceResult.plates[i];
       if (!contour || contour.length === 0) continue;
 
-      // Color HSV estable basado en índice físico i / total (viewer.py:390)
+      // Rampa HSV perceptual y estable basada en la fracción de altura física (índice i / total)
       const hue = total > 1 ? (i / total) * 0.78 : 0.55;
       const color = new THREE.Color().setHSL(hue, 0.72, 0.56);
 

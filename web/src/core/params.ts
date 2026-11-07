@@ -1,7 +1,7 @@
 import type { SculptureParams } from '../types/sculpture';
 
 /**
- * Límites y pasos extraídos de params.py:9-59 y ui.py:94-205 (§0.0).
+ * Límites y pasos de los parámetros de corte y hoja en milímetros.
  */
 export const PARAM_BOUNDS = {
   plates: { min: 2, max: 200, step: 1 },
@@ -17,7 +17,7 @@ export const PARAM_BOUNDS = {
 } as const;
 
 /**
- * Valores por defecto extraídos de params.py:9-33 (§0.0).
+ * Valores por defecto de los parámetros de escultura y hoja en milímetros.
  */
 export const DEFAULT_PARAMS: SculptureParams = {
   plates: 10,

@@ -260,7 +260,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       const nextParams: SculptureParams = { ...state.params, [key]: value };
       let nextGapEdited = state.gapManuallyEdited;
 
-      // Sincronización exacta de ui.py:265-272 (solo con unión 'discs', CH-6)
+      // Sincronización automática gap = thickness si el usuario no editó gap manualmente (unión por discos)
       if (key === 'thickness' && !state.gapManuallyEdited && state.build.jointId === 'discs') {
         nextParams.gap = value as number;
       } else if (key === 'gap') {
