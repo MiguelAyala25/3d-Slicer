@@ -244,33 +244,47 @@ export function stitchAndUnionSegments(
   }
 
   // 2. Unir el final (tail) de una cadena abierta con el inicio (head) de otra
-  //    usando un hash espacial 2D con radio MAX_REPAIR_GAP_MM antes de decidir cierre o descarte
+  //    usando un hash espacial 2D con radio MAX_REPAIR_GAP_MM antes de decidir cierre o descarte.
+  //    headGrid se mantiene incrementalmente: cada cadena activa se indexa una sola vez por su head,
+  //    y se remueve al desactivarse (al fusionarse como B o al cerrarse como A).
   if (openChains.length > 0) {
     const active = new Uint8Array(openChains.length);
     active.fill(1);
     const invRepairCell = 1.0 / MAX_REPAIR_GAP_MM;
     const maxGapSq = MAX_REPAIR_GAP_MM * MAX_REPAIR_GAP_MM;
 
-    let mergedAny = true;
-    while (mergedAny) {
-      mergedAny = false;
+    // Inicializar headGrid una sola vez con los índices ordenados de todas las cadenas abiertas
+    const headGrid = new Map<number, number[]>();
+    for (let cIdx = 0; cIdx < openChains.length; cIdx++) {
+      const headV = vertices[openChains[cIdx][0]];
+      const hx = Math.floor(headV.x * invRepairCell);
+      const hy = Math.floor(headV.y * invRepairCell);
+      const key = cellKey(hx, hy);
+      const bucket = headGrid.get(key);
+      if (bucket) bucket.push(cIdx);
+      else headGrid.set(key, [cIdx]);
+    }
 
-      // Construir hash espacial de los heads de cadenas abiertas activas
-      const headGrid = new Map<number, number[]>();
-      for (let cIdx = 0; cIdx < openChains.length; cIdx++) {
-        if (!active[cIdx]) continue;
-        const headV = vertices[openChains[cIdx][0]];
-        const hx = Math.floor(headV.x * invRepairCell);
-        const hy = Math.floor(headV.y * invRepairCell);
-        const key = cellKey(hx, hy);
-        const bucket = headGrid.get(key);
-        if (bucket) bucket.push(cIdx);
-        else headGrid.set(key, [cIdx]);
+    function removeHeadFromGrid(chainIdx: number): void {
+      const headV = vertices[openChains[chainIdx][0]];
+      const hx = Math.floor(headV.x * invRepairCell);
+      const hy = Math.floor(headV.y * invRepairCell);
+      const key = cellKey(hx, hy);
+      const bucket = headGrid.get(key);
+      if (bucket) {
+        const idx = bucket.indexOf(chainIdx);
+        if (idx !== -1) {
+          bucket.splice(idx, 1);
+        }
       }
+    }
 
-      for (let i = 0; i < openChains.length; i++) {
-        if (!active[i]) continue;
-        const chainA = openChains[i];
+    for (let i = 0; i < openChains.length; i++) {
+      if (!active[i]) continue;
+      const chainA = openChains[i];
+
+      // Extender chainA de forma iterativa mientras encuentre una cabeza vecina en headGrid
+      while (active[i]) {
         const tailIdx = chainA[chainA.length - 1];
         const tailV = vertices[tailIdx];
         const tx = Math.floor(tailV.x * invRepairCell);
@@ -283,7 +297,8 @@ export function stitchAndUnionSegments(
           for (let dy = -1; dy <= 1; dy++) {
             const bucket = headGrid.get(cellKey(tx + dx, ty + dy));
             if (!bucket) continue;
-            for (const j of bucket) {
+            for (let b = 0; b < bucket.length; b++) {
+              const j = bucket[b];
               if (j === i || !active[j]) continue;
               const headV = vertices[openChains[j][0]];
               const dSq =
@@ -297,33 +312,38 @@ export function stitchAndUnionSegments(
           }
         }
 
-        if (bestOther !== -1) {
-          const chainB = openChains[bestOther];
-          const bridgeDist = Math.sqrt(bestDistSq);
-          if (bridgeDist > SNAP_TOLERANCE) {
-            openChainsRepaired++;
-          }
-          if (tailIdx === chainB[0]) {
-            for (let k = 1; k < chainB.length; k++) {
-              chainA.push(chainB[k]);
-            }
-          } else {
-            for (let k = 0; k < chainB.length; k++) {
-              chainA.push(chainB[k]);
-            }
-          }
-          active[bestOther] = 0;
-          mergedAny = true;
+        if (bestOther === -1) {
+          // No hay candidato para extender la cola de chainA; pasar a la siguiente cadena
+          break;
+        }
 
-          // Si tras fusionar la cadena cierra exactamente sobre su propio head
-          if (chainA[chainA.length - 1] === chainA[0]) {
-            chainA.pop();
-            if (chainA.length >= 3) {
-              closedLoops.push(chainA.map((vi) => [vertices[vi].x, vertices[vi].y]));
-            }
-            active[i] = 0;
+        // Fusionar chainB en chainA
+        const chainB = openChains[bestOther];
+        const bridgeDist = Math.sqrt(bestDistSq);
+        if (bridgeDist > SNAP_TOLERANCE) {
+          openChainsRepaired++;
+        }
+        if (tailIdx === chainB[0]) {
+          for (let k = 1; k < chainB.length; k++) {
+            chainA.push(chainB[k]);
           }
-          break; // Reconstruir headGrid y continuar
+        } else {
+          for (let k = 0; k < chainB.length; k++) {
+            chainA.push(chainB[k]);
+          }
+        }
+        active[bestOther] = 0;
+        removeHeadFromGrid(bestOther);
+
+        // Si tras fusionar la cadena cierra exactamente sobre su propio head
+        if (chainA[chainA.length - 1] === chainA[0]) {
+          chainA.pop();
+          if (chainA.length >= 3) {
+            closedLoops.push(chainA.map((vi) => [vertices[vi].x, vertices[vi].y]));
+          }
+          active[i] = 0;
+          removeHeadFromGrid(i);
+          break;
         }
       }
     }
