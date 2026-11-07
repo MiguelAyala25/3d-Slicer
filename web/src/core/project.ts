@@ -1,10 +1,17 @@
 import { DEFAULT_BUILD } from './build/types';
 import type { BuildConfig, JointId, TechniqueId } from './build/types';
 import { validateBuildParams } from './build/validateBuild';
-import { DEFAULT_PARAMS, PARAM_BOUNDS } from './params';
+import { DEFAULT_PARAMS } from './params';
 import { validateParams, ValidationError } from './validator';
 import type { Axis, Disc, SculptureParams } from '../types/sculpture';
 import type { WaffleParams } from './waffle/types';
+import {
+  validateAndParseDiscs,
+  validateMaterialSection,
+  validateStackedTechniqueParams,
+  validateWaffleTechniqueParams,
+  validateDiscsJointParams,
+} from './projectSchema';
 
 export const FORMAT_VERSION = '1.0';
 
@@ -209,57 +216,6 @@ export function serializeProject(
   return serializeProject2(params, build, discs, waffleParams);
 }
 
-function parseDiscsList(rawDiscs: unknown, maxPlates: number): Disc[] {
-  if (!Array.isArray(rawDiscs)) {
-    throw new ValidationError("El archivo de proyecto no contiene una lista 'discs' válida.");
-  }
-
-  const seenIds = new Set<number>();
-  const discs: Disc[] = [];
-
-  for (let i = 0; i < rawDiscs.length; i++) {
-    const item = rawDiscs[i] as Record<string, unknown>;
-    if (!item || typeof item !== 'object') {
-      throw new ValidationError(`El disco en la posición ${i} es inválido.`);
-    }
-    const id = Number(item.id);
-    const x = Number(item.x);
-    const y = Number(item.y);
-    const diameter = Number(item.diameter);
-    const gapIndex = Number(item.hueco);
-
-    if (!Number.isInteger(id) || id <= 0) {
-      throw new ValidationError(`El disco #${i} tiene un 'id' inválido (${String(item.id)}).`);
-    }
-    if (seenIds.has(id)) {
-      throw new ValidationError(`El archivo contiene IDs de disco duplicados (id=${id}).`);
-    }
-    seenIds.add(id);
-
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      throw new ValidationError(`El disco id=${id} tiene coordenadas (x, y) no numéricas.`);
-    }
-    if (
-      !Number.isFinite(diameter) ||
-      diameter < PARAM_BOUNDS.discDiameter.min ||
-      diameter > PARAM_BOUNDS.discDiameter.max
-    ) {
-      throw new ValidationError(
-        `El disco id=${id} tiene un diámetro inválido (${diameter} mm).`
-      );
-    }
-    if (!Number.isInteger(gapIndex) || gapIndex < 0 || gapIndex >= maxPlates - 1) {
-      throw new ValidationError(
-        `El disco id=${id} tiene un hueco fuera de rango (${gapIndex}; máximo permitido ${maxPlates - 2}).`
-      );
-    }
-
-    discs.push({ id, x, y, diameter, gapIndex });
-  }
-
-  return discs;
-}
-
 export function parseProjectJson(
   jsonText: string,
   baseParams: SculptureParams = DEFAULT_PARAMS
@@ -300,7 +256,7 @@ export function parseProjectJson(
     };
 
     validateParams(params);
-    const discs = parseDiscsList(obj.discs, params.plates);
+    const discs = validateAndParseDiscs(obj.discs, params.plates);
 
     return {
       version: '1.0',
@@ -324,38 +280,7 @@ export function parseProjectJson(
   }
 
   // Material
-  if (!obj.material || typeof obj.material !== 'object' || Array.isArray(obj.material)) {
-    throw new ValidationError("El campo 'material' debe ser un objeto.");
-  }
-  const mat = obj.material as Record<string, unknown>;
-  const requiredMatKeys = [
-    'thickness',
-    'sheetW',
-    'sheetH',
-    'sheetMargin',
-    'partGap',
-    'kerf',
-    'scrapTagEnabled',
-  ] as const;
-  for (const rk of requiredMatKeys) {
-    if (!(rk in mat)) {
-      throw new ValidationError(`Falta el campo obligatorio 'material.${rk}' en el archivo JSON.`);
-    }
-  }
-  for (const k of Object.keys(mat)) {
-    if (!requiredMatKeys.includes(k as any)) {
-      throw new ValidationError(`Campo no reconocido '${k}' en 'material'.`);
-    }
-  }
-  const numericMatKeys = ['thickness', 'sheetW', 'sheetH', 'sheetMargin', 'partGap', 'kerf'] as const;
-  for (const nk of numericMatKeys) {
-    if (typeof mat[nk] !== 'number' || !Number.isFinite(mat[nk])) {
-      throw new ValidationError(`El campo 'material.${nk}' debe ser numérico.`);
-    }
-  }
-  if (typeof mat.scrapTagEnabled !== 'boolean') {
-    throw new ValidationError("El campo 'material.scrapTagEnabled' debe ser booleano.");
-  }
+  const mat = validateMaterialSection(obj.material);
 
   // Technique
   if (!obj.technique || typeof obj.technique !== 'object' || Array.isArray(obj.technique)) {
@@ -379,92 +304,33 @@ export function parseProjectJson(
     throw new ValidationError(`Técnica desconocida: '${techId}'.`);
   }
 
-  if (!tech.params || typeof tech.params !== 'object' || Array.isArray(tech.params)) {
-    throw new ValidationError("El campo 'technique.params' debe ser un objeto.");
-  }
-  const tParams = tech.params as Record<string, unknown>;
-
   let parsedWaffleParams: WaffleParams | undefined;
+  let plates = baseParams.plates;
+  let axis: Axis = baseParams.axis;
 
   if (techId === 'waffle') {
-    const requiredWaffleKeys = [
-      'upAxis',
-      'pitch',
-      'slotClearance',
-      'gridOffset',
-      'slotLabelsEnabled',
-      'targetScale',
-    ] as const;
-
-    const allowedWaffleKeys = [
-      ...requiredWaffleKeys,
-      'distributionMethod',
-      'count1',
-      'count2',
-      'distance1',
-      'distance2',
-      'notchFactor',
-      'notchAngle',
-    ] as const;
-
-    for (const rk of requiredWaffleKeys) {
-      if (!(rk in tParams)) {
-        throw new ValidationError(`Falta el campo obligatorio 'technique.params.${rk}' en el archivo JSON.`);
-      }
-    }
-    for (const k of Object.keys(tParams)) {
-      if (!allowedWaffleKeys.includes(k as any)) {
-        throw new ValidationError(`Campo no reconocido '${k}' en 'technique.params'.`);
-      }
-    }
-
-    const upAxis = String(tParams.upAxis).toLowerCase();
-    if (upAxis !== 'x' && upAxis !== 'y' && upAxis !== 'z') {
-      throw new ValidationError("El campo 'technique.params.upAxis' debe ser 'x', 'y' o 'z'.");
-    }
-
-    const numKeys = ['pitch', 'slotClearance', 'gridOffset', 'targetScale'] as const;
-    for (const nk of numKeys) {
-      if (typeof tParams[nk] !== 'number' || !Number.isFinite(tParams[nk])) {
-        throw new ValidationError(`El campo 'technique.params.${nk}' debe ser numérico.`);
-      }
-    }
-
-    if (typeof tParams.slotLabelsEnabled !== 'boolean') {
-      throw new ValidationError("El campo 'technique.params.slotLabelsEnabled' debe ser booleano.");
-    }
-
+    const validatedWaffle = validateWaffleTechniqueParams(tech.params);
     parsedWaffleParams = {
-      upAxis: upAxis as Axis,
-      pitch: tParams.pitch as number,
-      slotClearance: tParams.slotClearance as number,
-      gridOffset: tParams.gridOffset as number,
-      slotLabelsEnabled: tParams.slotLabelsEnabled as boolean,
-      targetScale: tParams.targetScale as number,
-      distributionMethod: tParams.distributionMethod as any,
-      count1: typeof tParams.count1 === 'number' ? tParams.count1 : undefined,
-      count2: typeof tParams.count2 === 'number' ? tParams.count2 : undefined,
-      distance1: typeof tParams.distance1 === 'number' ? tParams.distance1 : undefined,
-      distance2: typeof tParams.distance2 === 'number' ? tParams.distance2 : undefined,
-      notchFactor: typeof tParams.notchFactor === 'number' ? tParams.notchFactor : undefined,
-      notchAngle: typeof tParams.notchAngle === 'number' ? tParams.notchAngle : undefined,
+      upAxis: validatedWaffle.upAxis,
+      pitch: validatedWaffle.pitch,
+      slotClearance: validatedWaffle.slotClearance,
+      gridOffset: validatedWaffle.gridOffset,
+      slotLabelsEnabled: validatedWaffle.slotLabelsEnabled,
+      targetScale: validatedWaffle.targetScale,
+      distributionMethod: validatedWaffle.distributionMethod,
+      count1: validatedWaffle.count1,
+      count2: validatedWaffle.count2,
+      distance1: validatedWaffle.distance1,
+      distance2: validatedWaffle.distance2,
+      notchFactor: validatedWaffle.notchFactor,
+      notchAngle: validatedWaffle.notchAngle,
     };
+    axis = validatedWaffle.upAxis;
   } else {
     // techId === 'stacked'
-    if (!('plates' in tParams)) {
-      throw new ValidationError("Falta el campo obligatorio 'technique.params.plates' en el archivo JSON.");
-    }
-    if (!('axis' in tParams)) {
-      throw new ValidationError("Falta el campo obligatorio 'technique.params.axis' en el archivo JSON.");
-    }
-    for (const k of Object.keys(tParams)) {
-      if (k !== 'plates' && k !== 'axis') {
-        throw new ValidationError(`Campo no reconocido '${k}' en 'technique.params'.`);
-      }
-    }
-    if (typeof tParams.plates !== 'number' || !Number.isFinite(tParams.plates)) {
-      throw new ValidationError("El campo 'technique.params.plates' debe ser numérico.");
-    }
+    const validatedStacked = validateStackedTechniqueParams(tech.params);
+    plates = validatedStacked.plates;
+    axis = validatedStacked.axis;
   }
 
   // Joint
@@ -525,32 +391,23 @@ export function parseProjectJson(
     }
   }
 
-  if (!joint.params || typeof joint.params !== 'object' || Array.isArray(joint.params)) {
-    throw new ValidationError("El campo 'joint.params' debe ser un objeto.");
-  }
-  const jParams = joint.params as Record<string, unknown>;
+  let gap = 0;
+  let discDiameter = baseParams.discDiameter;
+  let engraveClearance = baseParams.engraveClearance;
+
   if (jointId === 'slots' || jointId === 'none') {
-    const keys = Object.keys(jParams);
+    if (!joint.params || typeof joint.params !== 'object' || Array.isArray(joint.params)) {
+      throw new ValidationError("El campo 'joint.params' debe ser un objeto.");
+    }
+    const keys = Object.keys(joint.params as Record<string, unknown>);
     if (keys.length > 0) {
       throw new ValidationError(`Campo no reconocido '${keys[0]}' en 'joint.params'.`);
     }
   } else if (jointId === 'discs') {
-    const reqJointKeys = ['gap', 'discDiameter', 'engraveClearance'] as const;
-    for (const rk of reqJointKeys) {
-      if (!(rk in jParams)) {
-        throw new ValidationError(`Falta el campo obligatorio 'joint.params.${rk}' en el archivo JSON.`);
-      }
-    }
-    for (const k of Object.keys(jParams)) {
-      if (!reqJointKeys.includes(k as any)) {
-        throw new ValidationError(`Campo no reconocido '${k}' en 'joint.params'.`);
-      }
-    }
-    for (const rk of reqJointKeys) {
-      if (typeof jParams[rk] !== 'number' || !Number.isFinite(jParams[rk])) {
-        throw new ValidationError(`El campo 'joint.params.${rk}' debe ser numérico.`);
-      }
-    }
+    const validatedDiscsParams = validateDiscsJointParams(joint.params);
+    gap = validatedDiscsParams.gap;
+    discDiameter = validatedDiscsParams.discDiameter;
+    engraveClearance = validatedDiscsParams.engraveClearance;
   }
 
   const build: BuildConfig = {
@@ -559,25 +416,25 @@ export function parseProjectJson(
   };
 
   const params: SculptureParams = {
-    thickness: mat.thickness as number,
-    sheetW: mat.sheetW as number,
-    sheetH: mat.sheetH as number,
-    sheetMargin: mat.sheetMargin as number,
-    partGap: mat.partGap as number,
-    kerf: mat.kerf as number,
-    scrapTagEnabled: mat.scrapTagEnabled as boolean,
-    plates: techId === 'waffle' ? baseParams.plates : (tParams.plates as number),
-    axis: techId === 'waffle' ? (parsedWaffleParams?.upAxis ?? 'z') : (String(tParams.axis).toLowerCase() as Axis),
-    gap: jointId === 'none' || jointId === 'slots' ? 0 : (jParams.gap as number),
-    discDiameter: jointId === 'none' || jointId === 'slots' ? baseParams.discDiameter : (jParams.discDiameter as number),
-    engraveClearance: jointId === 'none' || jointId === 'slots' ? baseParams.engraveClearance : (jParams.engraveClearance as number),
+    thickness: mat.thickness,
+    sheetW: mat.sheetW,
+    sheetH: mat.sheetH,
+    sheetMargin: mat.sheetMargin,
+    partGap: mat.partGap,
+    kerf: mat.kerf,
+    scrapTagEnabled: mat.scrapTagEnabled,
+    plates,
+    axis,
+    gap,
+    discDiameter,
+    engraveClearance,
   };
 
   validateBuildParams(params, build, parsedWaffleParams);
 
   let discs: Disc[] = [];
   if (jointId === 'discs') {
-    discs = parseDiscsList(joint.discs, params.plates);
+    discs = validateAndParseDiscs(joint.discs, params.plates);
   }
 
   return {
