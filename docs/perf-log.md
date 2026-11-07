@@ -211,5 +211,25 @@ Medición de `normalizeAndValidateGeometry` sobre una malla sintética con **200
 - **C6-4**: `Select-String -Path src\core\meshRepair.ts -Pattern "getX\(|getY\(|getZ\("` devuelve **0 coincidencias**.
 - **C6-5**: G5 vacío (`git diff --stat web/golden web/src/__tests__/__baseline__` sin cambios).
 
+---
 
+## 9. Store: División del Store Monolítico (C7 / Issue M1)
+
+### 9.1 Métricas de Estructura y Modularización (`web/src/store/`)
+
+| Archivo | Líneas Antes | Líneas Después | Responsabilidad |
+|---|---|---|---|
+| `useSculptureStore.ts` | 1,472 | **478** (< 500) | Estado base del modelo, mutadores de parámetros de apilado/técnica/junta, ejecución de `runSlice`, composición de slices |
+| `workerClient.ts` | *(en store)* | **237** | `AUTO_SLICE_DEBOUNCE_MS = 350`, singleton del Worker, cola de promesas (`pendingJobs`), llamadas tipadas al worker y `scheduleAutoSlice` |
+| `projectSlice.ts` | *(en store)* | **437** | `exportProjectAction`, `importProjectAction`, hidratación de geometría/estado, autosave IndexedDB (`restoreAutosaveSession`, `discardAutosaveSession`) |
+| `viewSlice.ts` | *(en store)* | **97** | Estado visual 3D/2D (`viewMode`, `cameraPreset`, `inspectingFloor`, `isInspectingWarning`), navegación de pisos con `getNextNonEmptyFloor` |
+| `waffleSlice.ts` | 47 | **255** | Tipos + `INITIAL_WAFFLE_STATE` + `computeUpdatedWaffleParamsForExtents` + `createWaffleSlice` (acciones Waffle completas) |
+| `discsSlice.ts` | 209 | **209** | Sin cambios funcionales (creación, arrastre, borrado y auto-colocación de discos) |
+
+### 9.2 Verificación de Criterios C7
+- **C7-1 (tamaño)**: `(Get-Content web/src/store/useSculptureStore.ts).Count` = **478 líneas** (< 500).
+- **C7-2 (estructura)**: Existen `workerClient.ts`, `projectSlice.ts` y `viewSlice.ts` (más `waffleSlice.ts` y `discsSlice.ts`). Sin ciclos de importación en runtime; `architecture.test.ts` en verde.
+- **C7-3 (debounce único)**: `Get-ChildItem web/src/store -Recurse -File | Select-String -Pattern "\b350\b"` devuelve **1 sola coincidencia** (`export const AUTO_SLICE_DEBOUNCE_MS = 350;` en `web/src/store/workerClient.ts`).
+- **C7-4 y C7-5 (test de caracterización e idéntico número de `runSlice`)**: Se añadió `web/src/__tests__/storeCharacterization.test.ts` (entorno `jsdom`, 5 tests) en commit separado (`36986bd`) antes de tocar el store. Verifica ráfaga debounced de 5 cambios en < 350 ms produciendo 1 sola invocación a `runSlice`, disparo inmediato en cambio discreto (`setAxis`), protección de confirmación (`pendingConfirmation`) en `setTechnique`/`setJoint` con discos sin disparar `runSlice`, navegación de `viewSlice` y ciclo `exportProjectAction`/`importProjectAction`. Pasa idéntico antes y después del refactor.
+- **C7-6 (E2E y nota sobre suscripción global)**: Suite E2E verificada en la línea base documentada (8 passed, 4 fallos preexistentes de coordenadas de canvas/W5). La suscripción global opcional `store.subscribe(...)` se omitió deliberadamente y se mantuvo `scheduleAutoSlice` explícito desde `workerClient.ts` porque tests existentes (`sizing.test.ts`, `zeroGap.test.ts`, `joints.test.ts`) y la hidratación de `restoreAutosaveSession` invocan `useSculptureStore.setState(...)` directamente esperando que no dispare re-slicing colateral.
 
