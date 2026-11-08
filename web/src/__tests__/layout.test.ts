@@ -133,4 +133,87 @@ describe('layout engine (layout.ts)', () => {
     const sheetsDiscsEmpty = generateDiscsLayouts(mockSliceResultZ, [], paramsZeroClearance);
     expect(sheetsCore).toEqual(sheetsDiscsEmpty);
   });
+
+  describe('Characterization of sheet occupancy and label positions (C11 / D4 / D5)', () => {
+    it('characterizes layout stats for L-block fixture on Z-axis', () => {
+      const sheets = generateDiscsLayouts(mockSliceResultZ, projectData.discs, layoutParams);
+      expect(sheets.length).toBe(2);
+
+      const sheet0 = sheets[0];
+      expect(sheet0.sheetType).toBe('plates');
+      expect(sheet0.plates.length).toBe(5);
+      expect(sheet0.usedWidth).toBe(89);
+      expect(sheet0.usedHeight).toBe(11.5);
+      expect(sheet0.usedAreaMm2).toBe(1023.5);
+      expect(sheet0.usableAreaMm2).toBe(220400);
+      expect(sheet0.occupancyPct).toBe(0.5);
+
+      // Verify label placement on each plate
+      const labels = sheet0.plates.map((p) => ({
+        idx: p.plateIndex,
+        text: p.labelText,
+        x: Number(p.labelX.toFixed(4)),
+        y: Number(p.labelY.toFixed(4)),
+        size: p.labelSize,
+        outside: p.labelOutside,
+      }));
+      expect(labels).toEqual([
+        { idx: 0, text: 'P0', x: 21.5, y: 15.75, size: 2, outside: false },
+        { idx: 1, text: 'P1', x: 49.5, y: 15.75, size: 2, outside: false },
+        { idx: 2, text: 'P2', x: 69.8333, y: 7, size: 2, outside: true },
+        { idx: 3, text: 'P3', x: 82.5, y: 15.75, size: 2, outside: false },
+        { idx: 4, text: 'P4', x: 95.1667, y: 15.75, size: 2, outside: false },
+      ]);
+    });
+
+    it('characterizes baseline layout and occupancy for 30 mixed synthetic plates', () => {
+      const synthetic30Plates = Array.from({ length: 30 }, (_, i) => {
+        const w = (i % 3 === 0) ? 15 : (i % 3 === 1) ? 50 + (i % 4) * 10 : 25 + (i % 6) * 5;
+        const h = (i % 3 === 0) ? 40 + (i % 5) * 5 : (i % 3 === 1) ? 20 : 25 + (i % 6) * 5;
+        return [
+          {
+            exterior: [
+              [0, 0],
+              [w, 0],
+              [w, h],
+              [0, h],
+            ] as [number, number][],
+            holes: [] as [number, number][][],
+            area: w * h,
+          },
+        ];
+      });
+
+      const syntheticSliceResult: SliceResult = {
+        plates: synthetic30Plates,
+        zPositions: Array.from({ length: 30 }, (_, i) => i * 3),
+        scaleFactor: 1,
+        scaledBounds: [[0, 0], [100, 100]],
+        scaledHeight: 90,
+        warnings: [],
+      };
+
+      const syntheticParams: SculptureParams = {
+        ...DEFAULT_PARAMS,
+        plates: 30,
+        thickness: 3.0,
+        gap: 3.0,
+        axis: 'z',
+        sheetW: 200.0,
+        sheetH: 150.0,
+        sheetMargin: 10.0,
+        partGap: 5.0,
+        kerf: 0.15,
+        engraveClearance: 0.3,
+        scrapTagEnabled: false,
+      };
+
+      const sheets = generateSheetLayouts(syntheticSliceResult, syntheticParams);
+      // Baseline with sequential shelf placement without sorting:
+      expect(sheets.length).toBe(5);
+      expect(sheets.map((s) => s.plates.length)).toEqual([7, 6, 7, 7, 3]);
+      expect(sheets.map((s) => s.occupancyPct)).toEqual([65.8, 71.3, 74.8, 82.3, 26.7]);
+      expect(sheets.map((s) => s.usedAreaMm2)).toEqual([15400, 16675, 17500, 19250, 6250]);
+    });
+  });
 });
