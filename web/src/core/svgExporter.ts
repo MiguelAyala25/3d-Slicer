@@ -1,3 +1,4 @@
+import { estimateTextWidth } from './labelMetrics';
 import type { Point2D, SheetLayout } from '../types/sculpture';
 
 export interface SvgExportOptions {
@@ -137,7 +138,7 @@ export function generateSheetSvg(
     const lblCy = grp.trayY + grp.trayH * 0.5;
     const lblSize = Math.max(
       2.0,
-      Math.min(4.0, (labelZoneW * 0.85) / Math.max(1, grp.label.length * 0.6))
+      Math.min(4.0, (labelZoneW * 0.85) / Math.max(1, estimateTextWidth(grp.label, 1)))
     );
     engraveElements.push(
       renderCadText(lblCx, lblCy, lblSize, '#0000FF', grp.label)

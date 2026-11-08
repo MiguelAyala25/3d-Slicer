@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generateSheetLayouts } from '../core/layout';
 import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
+import { GLYPH_WIDTH_RATIO, estimateTextWidth } from '../core/labelMetrics';
 import { parseProjectJson } from '../core/project';
 import { DEFAULT_PARAMS } from '../core/params';
 import { ValidationError } from '../core/validator';
@@ -214,6 +215,30 @@ describe('layout engine (layout.ts)', () => {
       expect(sheets.map((s) => s.plates.length)).toEqual([7, 6, 7, 7, 3]);
       expect(sheets.map((s) => s.occupancyPct)).toEqual([65.8, 71.3, 74.8, 82.3, 26.7]);
       expect(sheets.map((s) => s.usedAreaMm2)).toEqual([15400, 16675, 17500, 19250, 6250]);
+    });
+
+    it('validates centralized GLYPH_WIDTH_RATIO and label containment (C11-3 / C11-5)', () => {
+      expect(GLYPH_WIDTH_RATIO).toBe(0.6);
+      expect(estimateTextWidth('P10', 4)).toBeCloseTo(3 * 4 * 0.6, 4);
+
+      // Verify label containment for all inside labels across L-block plates
+      const sheets = generateDiscsLayouts(mockSliceResultZ, projectData.discs, layoutParams);
+      for (const sheet of sheets) {
+        for (const plate of sheet.plates) {
+          if (!plate.labelOutside) {
+            const labelW = estimateTextWidth(plate.labelText, plate.labelSize);
+            const labelH = plate.labelSize;
+            const halfW = labelW * 0.5;
+            const halfH = labelH * 0.5;
+
+            // Box must be inside piece bounding box
+            expect(plate.labelX - halfW).toBeGreaterThanOrEqual(plate.xOffset);
+            expect(plate.labelX + halfW).toBeLessThanOrEqual(plate.xOffset + plate.width);
+            expect(plate.labelY - halfH).toBeGreaterThanOrEqual(plate.yOffset);
+            expect(plate.labelY + halfH).toBeLessThanOrEqual(plate.yOffset + plate.height);
+          }
+        }
+      }
     });
   });
 });

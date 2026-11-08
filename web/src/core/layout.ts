@@ -2,6 +2,7 @@ import {
   distanceToPolygonBoundary,
   pointInPolygonWithHoles,
 } from './geometry2d';
+import { estimateTextWidth } from './labelMetrics';
 import { validateParams, ValidationError } from './validator';
 import type {
   CoreParams,
@@ -99,7 +100,7 @@ export function computePlateLabel(
   const labelText = `P${plateIdx}`;
   const minDim = Math.min(w, h);
   const textSize = Math.max(2.0, Math.min(8.0, minDim * 0.12));
-  const textWidthEst = labelText.length * textSize * 0.65;
+  const textWidthEst = estimateTextWidth(labelText, textSize);
   const requiredRadius = Math.max(textWidthEst * 0.5, textSize * 0.5) + 0.5;
 
   // Polígono de mayor área
@@ -408,7 +409,7 @@ export function computeWaffleSectionLabel(
 } {
   const minDim = Math.min(w, h);
   const textSize = Math.max(2.0, Math.min(8.0, minDim * 0.12));
-  const textWidthEst = labelText.length * textSize * 0.65;
+  const textWidthEst = estimateTextWidth(labelText, textSize);
   const requiredRadius = Math.max(textWidthEst * 0.5, textSize * 0.5) + 0.5;
 
   let largest = localPolys[0];
@@ -430,7 +431,7 @@ export function computeWaffleSectionLabel(
     const labelMaxY = cy + halfH;
 
     for (const s of slotLabels) {
-      const sHalfW = s.text.length * s.fontSize * 0.65 * 0.5 + 0.25;
+      const sHalfW = estimateTextWidth(s.text, s.fontSize) * 0.5 + 0.25;
       const sHalfH = s.fontSize * 0.5 + 0.25;
       const margin = 0.8;
 

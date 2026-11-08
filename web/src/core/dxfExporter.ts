@@ -7,6 +7,7 @@ import {
   point3d,
 } from '@tarikjabiri/dxf';
 import JSZip from 'jszip';
+import { estimateTextWidth } from './labelMetrics';
 import { generateSheetSvg } from './svgExporter';
 import type { Point2D, SheetLayout } from '../types/sculpture';
 
@@ -62,7 +63,7 @@ function addDxfCenteredText(
   height: number,
   text: string
 ): void {
-  const approxHalfW = text.length * height * 0.3;
+  const approxHalfW = estimateTextWidth(text, height) * 0.5;
   const insertX = cx - approxHalfW;
   const insertY = cy - height * 0.5;
   dxf.addText(point3d(insertX, insertY, 0), height, text, {
@@ -164,7 +165,7 @@ export function generateSheetDxf(sheet: SheetLayout): string {
     const lblCy = grp.trayY + grp.trayH * 0.5;
     const lblSize = Math.max(
       2.0,
-      Math.min(4.0, (labelZoneW * 0.85) / Math.max(1, grp.label.length * 0.6))
+      Math.min(4.0, (labelZoneW * 0.85) / Math.max(1, estimateTextWidth(grp.label, 1)))
     );
     addDxfCenteredText(dxf, 'GRABADO', lblCx, lblCy, lblSize, grp.label);
   }
