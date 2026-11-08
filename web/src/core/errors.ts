@@ -152,7 +152,7 @@ export interface ErrorParamsMap {
   BUILD_TECHNIQUE_REQUIRED: Record<string, never>;
   BUILD_UNKNOWN_TECHNIQUE: { id: string };
   BUILD_JOINT_REQUIRED: Record<string, never>;
-  BUILD_WAFFLE_REQUIRES_SLOTS_JOINT: Record<string, never>;
+  BUILD_WAFFLE_REQUIRES_SLOTS_JOINT: { withCode?: boolean };
   BUILD_SLOTS_EXCLUSIVE_TO_WAFFLE: Record<string, never>;
   BUILD_UNKNOWN_JOINT: { id: string };
   BUILD_ROD_JOINT_UNAVAILABLE: Record<string, never>;
@@ -219,22 +219,11 @@ export class ValidationError<K extends ErrorCode = ErrorCode> extends Error {
   readonly code: K;
   readonly params: ErrorParamsMap[K];
 
-  constructor(code: K, params: ErrorParamsMap[K]);
-  constructor(legacyMessage: string);
-  constructor(arg1: K | string, arg2?: ErrorParamsMap[K]) {
-    if (typeof arg1 === 'string' && arg2 === undefined) {
-      super(arg1);
-      this.name = 'ValidationError';
-      this.code = 'PROJECT_SCHEMA_ISSUE' as K;
-      this.params = { message: arg1 } as ErrorParamsMap[K];
-    } else {
-      const code = arg1 as K;
-      const params = (arg2 ?? {}) as ErrorParamsMap[K];
-      super(formatErrorMessageEs(code, params));
-      this.name = 'ValidationError';
-      this.code = code;
-      this.params = params;
-    }
+  constructor(code: K, params: ErrorParamsMap[K]) {
+    super(formatErrorMessageEs(code, params));
+    this.name = 'ValidationError';
+    this.code = code;
+    this.params = params;
   }
 }
 

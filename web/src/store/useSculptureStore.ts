@@ -364,7 +364,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     setTechnique: (id, opts) => {
       clearAutoSliceTimer();
       if (id !== 'stacked' && id !== 'waffle') {
-        throw new ValidationError(`Técnica desconocida: '${id}'.`);
+        throw new ValidationError('BUILD_UNKNOWN_TECHNIQUE', { id });
       }
       const { techniqueId: currentTechniqueId, jointId: currentJointId } = get().build;
       if (id === currentTechniqueId) return { needsConfirmation: false, discCount: 0 };
@@ -410,13 +410,13 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       clearAutoSliceTimer();
       const joint = getJoint(id);
       if (!joint.available) {
-        throw new ValidationError(`La unión «${joint.label}» aún no está disponible.`);
+        throw new ValidationError('BUILD_JOINT_UNAVAILABLE', { label: joint.label });
       }
       if (id === 'slots') {
-        throw new ValidationError('La unión «Encaje por ranuras» es exclusiva de la técnica «Waffle».');
+        throw new ValidationError('BUILD_SLOTS_EXCLUSIVE_TO_WAFFLE', {});
       }
       if (get().build.techniqueId === 'waffle') {
-        throw new ValidationError('La técnica «Waffle» solo admite la unión «Encaje por ranuras».');
+        throw new ValidationError('BUILD_WAFFLE_REQUIRES_SLOTS_JOINT', { withCode: false });
       }
       const currentJointId = get().build.jointId;
       if (id === currentJointId) return { needsConfirmation: false, discCount: 0 };

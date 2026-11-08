@@ -94,4 +94,48 @@ describe('Architecture & Core Independence (D-2, DoD-5)', () => {
 
     expect(violations).toEqual([]);
   });
+
+  it('core files only instantiate ValidationError with typed ErrorCode (C12 / M6)', () => {
+    const allFiles = getAllTsFiles(CORE_DIR);
+    const violations: string[] = [];
+
+    for (const file of allFiles) {
+      const rel = path.relative(CORE_DIR, file).replace(/\\/g, '/');
+      if (rel === 'errors.ts') continue;
+
+      const content = fs.readFileSync(file, 'utf-8');
+      const matches = content.matchAll(/new\s+ValidationError\s*\(\s*([^,\s)]+)/gs);
+      for (const match of matches) {
+        const firstArg = match[1];
+        if (!/^'[A-Z0-9_]+'$/.test(firstArg)) {
+          violations.push(`${rel} -> ${match[0]}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('i18n/es.ts is headless and does not import react, three, or UI components (C12 / M6)', () => {
+    const i18nFile = path.resolve(__dirname, '../i18n/es.ts');
+    expect(fs.existsSync(i18nFile)).toBe(true);
+
+    const content = fs.readFileSync(i18nFile, 'utf-8');
+    const lines = content.split('\n');
+    const violations: string[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (
+        /from\s+['"]react['"]/i.test(line) ||
+        /from\s+['"]three['"]/i.test(line) ||
+        /from\s+['"][^'"]*components/i.test(line) ||
+        /import\s+['"][^'"]*components/i.test(line)
+      ) {
+        violations.push(`i18n/es.ts:${i + 1} -> ${line.trim()}`);
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
 });

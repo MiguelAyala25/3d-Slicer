@@ -159,11 +159,11 @@ describe('i18n and typed errors (C12 / M6)', () => {
     }
   });
 
-  it('supports legacy string construction in ValidationError during transition', () => {
-    const legacyErr = new ValidationError('Legacy message for compatibility');
-    expect(legacyErr.message).toBe('Legacy message for compatibility');
-    expect(legacyErr.code).toBe('PROJECT_SCHEMA_ISSUE');
-    expect(legacyErr.name).toBe('ValidationError');
+  it('strictly requires ErrorCode and params in ValidationError constructor', () => {
+    const err = new ValidationError('PROJECT_SCHEMA_ISSUE', { message: 'Custom schema issue' });
+    expect(err.message).toBe('Custom schema issue');
+    expect(err.code).toBe('PROJECT_SCHEMA_ISSUE');
+    expect(err.name).toBe('ValidationError');
   });
 
   it('provides expected UI constants in UI_TEXTS_ES', () => {

@@ -91,8 +91,10 @@ export const ERROR_MESSAGES_ES: { [K in ErrorCode]: (p: ErrorParamsMap[K]) => st
   BUILD_TECHNIQUE_REQUIRED: () => 'Selecciona una técnica de construcción.',
   BUILD_UNKNOWN_TECHNIQUE: (p) => `Técnica desconocida: '${p.id}'.`,
   BUILD_JOINT_REQUIRED: () => 'Selecciona un tipo de unión.',
-  BUILD_WAFFLE_REQUIRES_SLOTS_JOINT: () =>
-    "La técnica «Waffle» solo admite la unión «Encaje por ranuras» ('slots').",
+  BUILD_WAFFLE_REQUIRES_SLOTS_JOINT: (p) =>
+    p?.withCode
+      ? "La técnica «Waffle» solo admite la unión «Encaje por ranuras» ('slots')."
+      : 'La técnica «Waffle» solo admite la unión «Encaje por ranuras».',
   BUILD_SLOTS_EXCLUSIVE_TO_WAFFLE: () =>
     'La unión «Encaje por ranuras» es exclusiva de la técnica «Waffle».',
   BUILD_UNKNOWN_JOINT: (p) => `Unión desconocida: '${p.id}'.`,

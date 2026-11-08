@@ -350,7 +350,7 @@ export function parseProjectJson(
   const jointId = String(joint.id);
   if (techId === 'waffle') {
     if (jointId !== 'slots') {
-      throw new ValidationError('BUILD_WAFFLE_REQUIRES_SLOTS_JOINT', {});
+      throw new ValidationError('BUILD_WAFFLE_REQUIRES_SLOTS_JOINT', { withCode: true });
     }
   } else {
     if (jointId === 'slots') {

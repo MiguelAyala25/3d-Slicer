@@ -22,7 +22,7 @@ export function validateBuildParams(
 
   if (build.techniqueId === 'waffle') {
     if (build.jointId !== 'slots') {
-      throw new ValidationError('BUILD_WAFFLE_REQUIRES_SLOTS_JOINT', {});
+      throw new ValidationError('BUILD_WAFFLE_REQUIRES_SLOTS_JOINT', { withCode: true });
     }
 
     validateParams(params);
