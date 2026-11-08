@@ -86,7 +86,8 @@ export function generateSheetDxf(sheet: SheetLayout): string {
   dxf.addLayer('CORTE', Colors.Red, 'CONTINUOUS');
   dxf.addLayer('GRABADO', Colors.Blue, 'CONTINUOUS');
 
-  // Placas
+  // Placas (contornos en geometría nominal sin offset de kerf; la compensación
+  // de kerf en contornos la realiza la máquina/software de corte — ver README.md, sección "Kerf")
   for (const plate of sheet.plates) {
     for (const poly of plate.polygons) {
       const extPts: Point2D[] = poly.exterior.map(([x, y]) => [
