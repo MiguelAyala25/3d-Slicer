@@ -150,8 +150,8 @@ Por qué este orden:
 | C6 | ✅ PASSED | `85d3a8d` | `f8d103e` | ✅ Aprobado |
 | C7 | ✅ PASSED | `5fa807f` | `1417242` | ✅ Aprobado |
 | C8 | ✅ PASSED | `8da6005` | `647023b` | ✅ Aprobado |
-| C9 | ✅ PASSED | `733520f` | `978834e` | Pendiente de revisión |
-| C10 | ⬜ Pendiente | | | |
+| C9 | ✅ PASSED | `733520f` | `978834e` | ✅ Aprobado |
+| C10 | ✅ PASSED | `cb1c422` | `4a4b3b5` | Pendiente de revisión |
 | C11 | ⬜ Pendiente | | | |
 
 ### 2.2 Flujo de trabajo por chunk (plan → revisión → ejecución → commit y push)
@@ -1089,6 +1089,19 @@ Además de G1-G9:
 - **C10-2 (README):** hay una sección "Kerf" que dice (a) contornos de placa en geometría nominal, la compensación la hace la máquina; (b) qué piezas reciben kerf **según el código actual**, verificado con `Select-String -Pattern "kerf" -Path src\core -Recurse` (discos en `dxfExporter.ts`/`svgExporter.ts` y ranuras waffle: el informe cita archivo:línea de cada una); (c) valor por defecto 0.15 mm y rango de `params.ts`.
 - **C10-3:** salidas DXF/SVG idénticas: `exporter.test.ts` y `waffleExporter.test.ts` pasan sin cambios; G5 vacío.
 
+#### Plan de ejecución — C10
+
+Hash de inicio (`<START>`): `cb1c422` (`git status` limpio verificado).
+Se ejecuta **1 único commit** para el issue `D1` (`docs(kerf): document kerf compensation policy in README and dxfExporter`):
+
+1. **Verificación exhaustiva en código (`Select-String -Pattern "kerf" -Path src\core -Recurse`):**
+   - `web/src/core/params.ts:14, 31` y `web/src/core/paramValidation.ts:102-108`: rango `[0.0, 5.0]` mm (paso `0.01` mm) y valor por defecto `0.15` mm.
+   - `web/src/core/dxfExporter.ts:172-175` y `web/src/core/svgExporter.ts:147-150`: discos de unión en capa `CORTE` con `cutRadius = (disc.diameter + sheet.kerf) * 0.5`.
+   - `web/src/core/waffle/waffleSlicer.ts:60, 129-132`, `web/src/core/build/validateBuild.ts:47-51`, `web/src/core/waffle/calibrationSheet.ts:53, 69` y `web/src/core/waffle/types.ts:33, 84`: ranuras de ensamble waffle con `drawnSlotWidth = thickness + slotClearance - kerf` (`> 0.05` mm).
+   - `web/src/core/dxfExporter.ts:89-106` y `web/src/core/svgExporter.ts:78-89`: contornos exteriores e interiores de placas exportados en geometría nominal 1:1 (sin offset de kerf).
+2. **Cambios de documentación (`C10-1`, `C10-2`):**
+   - `README.md`: añadir sección `## Kerf (Compensación de corte láser)` detallando (a) contornos de placa en geometría nominal, (b) piezas que ya incluyen compensación de `kerf` con sus `archivo:línea` exactos y la advertencia de no compensarlas dos veces en la máquina, y (c) valor por defecto `0.15 mm` y rango `0.0–5.0 mm`.
+   - `web/src/core/dxfExporter.ts:89-90`: añadir comentario sobre el bucle de contornos de placa remitiendo a la sección `Kerf` de `README.md`, sin tocar ninguna línea de código ejecutable.
 ---
 
 ### C11 — Layout y etiquetas
