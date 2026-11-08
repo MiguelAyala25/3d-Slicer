@@ -153,7 +153,7 @@ Por qué este orden:
 | C9 | ✅ PASSED | `733520f` | `978834e` | ✅ Aprobado |
 | C10 | ✅ PASSED | `cb1c422` | `4a4b3b5` | ✅ Aprobado |
 | C11 | ✅ PASSED | `ee70918` | `94536b0` | ✅ Aprobado |
-| C12 | 📋 PLANIFICADO | `63d8529` | — | Pendiente de visto bueno del plan |
+| C12 | ⏳ EN EJECUCIÓN | `fd878f4` | — | En ejecución |
 
 ### 2.2 Flujo de trabajo por chunk (plan → revisión → ejecución → commit y push)
 
@@ -1237,7 +1237,7 @@ Además de G1-G9:
 
 #### Plan de ejecución — C12
 
-Hash de inicio (`<START>`): `63d8529` (`git status` limpio verificado).
+Hash de inicio (`<START>`): `fd878f4` (`git status` limpio verificado).
 Se ejecutarán **6 commits separados** (1 de infraestructura + caracterización de códigos, 4 de migración modular de `core/` y 1 de guardia arquitectónica final), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C12-1..C12-5`) al cerrar el chunk:
 
 1. **Paso 1 — Infraestructura tipada de errores/avisos y diccionario `es` (`refactor(i18n): add typed ErrorCode, WarningCode and Spanish message catalog in src/i18n/es.ts`)**
