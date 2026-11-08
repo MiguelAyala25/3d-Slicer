@@ -217,6 +217,164 @@ describe('layout engine (layout.ts)', () => {
       expect(sheets.map((s) => s.usedAreaMm2)).toEqual([15400, 16675, 17500, 19250, 6250]);
     });
 
+    it('improves packing efficiency when optimizeLayout is enabled without collisions (C11-1 / C11-2)', () => {
+      const synthetic30Plates = Array.from({ length: 30 }, (_, i) => {
+        const w = (i % 3 === 0) ? 15 : (i % 3 === 1) ? 50 + (i % 4) * 10 : 25 + (i % 6) * 5;
+        const h = (i % 3 === 0) ? 40 + (i % 5) * 5 : (i % 3 === 1) ? 20 : 25 + (i % 6) * 5;
+        return [
+          {
+            exterior: [
+              [0, 0],
+              [w, 0],
+              [w, h],
+              [0, h],
+            ] as [number, number][],
+            holes: [] as [number, number][][],
+            area: w * h,
+          },
+        ];
+      });
+
+      const syntheticSliceResult: SliceResult = {
+        plates: synthetic30Plates,
+        zPositions: Array.from({ length: 30 }, (_, i) => i * 3),
+        scaleFactor: 1,
+        scaledBounds: [[0, 0], [100, 100]],
+        scaledHeight: 90,
+        warnings: [],
+      };
+
+      const syntheticParams: SculptureParams = {
+        ...DEFAULT_PARAMS,
+        plates: 30,
+        thickness: 3.0,
+        gap: 3.0,
+        axis: 'z',
+        sheetW: 200.0,
+        sheetH: 150.0,
+        sheetMargin: 10.0,
+        partGap: 5.0,
+        kerf: 0.15,
+        engraveClearance: 0.3,
+        scrapTagEnabled: false,
+      };
+
+      // 1. Without optimization: 5 sheets
+      const defaultSheets = generateSheetLayouts(syntheticSliceResult, syntheticParams);
+      expect(defaultSheets.length).toBe(5);
+
+      // 2. With optimizeLayout = true: fewer sheets (≤ 4 sheets)
+      const optSheets = generateSheetLayouts(syntheticSliceResult, {
+        ...syntheticParams,
+        optimizeLayout: true,
+      });
+      expect(optSheets.length).toBeLessThanOrEqual(defaultSheets.length);
+      expect(optSheets.length).toBeLessThan(5);
+
+      // (a) Average occupancy across non-empty sheets is strictly better
+      const avgDefaultOcc =
+        defaultSheets.reduce((s, sh) => s + sh.occupancyPct, 0) / defaultSheets.length;
+      const avgOptOcc =
+        optSheets.reduce((s, sh) => s + sh.occupancyPct, 0) / optSheets.length;
+      expect(avgOptOcc).toBeGreaterThan(avgDefaultOcc);
+
+      // (b) Geometrical non-overlapping check between all pairs on each sheet
+      for (const sheet of optSheets) {
+        for (let i = 0; i < sheet.plates.length; i++) {
+          for (let j = i + 1; j < sheet.plates.length; j++) {
+            const pA = sheet.plates[i];
+            const pB = sheet.plates[j];
+
+            const overlapX =
+              Math.min(pA.xOffset + pA.width, pB.xOffset + pB.width) -
+              Math.max(pA.xOffset, pB.xOffset);
+            const overlapY =
+              Math.min(pA.yOffset + pA.height, pB.yOffset + pB.height) -
+              Math.max(pA.yOffset, pB.yOffset);
+
+            // They cannot overlap in both dimensions (strict AABB separation)
+            const hasCollision = overlapX > 1e-4 && overlapY > 1e-4;
+            expect(hasCollision).toBe(false);
+          }
+        }
+      }
+
+      // (c) All plates are completely within the usable sheet bounds
+      for (const sheet of optSheets) {
+        for (const plate of sheet.plates) {
+          expect(plate.xOffset).toBeGreaterThanOrEqual(sheet.margin - 1e-4);
+          expect(plate.xOffset + plate.width).toBeLessThanOrEqual(
+            sheet.width - sheet.margin + 1e-4
+          );
+          expect(plate.yOffset).toBeGreaterThanOrEqual(sheet.margin - 1e-4);
+          expect(plate.yOffset + plate.height).toBeLessThanOrEqual(
+            sheet.height - sheet.margin + 1e-4
+          );
+        }
+      }
+
+      // (d) All 30 original plates are present and preserved
+      const recoveredIndices = optSheets
+        .flatMap((s) => s.plates.map((p) => p.plateIndex))
+        .sort((a, b) => a - b);
+      expect(recoveredIndices).toEqual(Array.from({ length: 30 }, (_, i) => i));
+
+      // Discs and slot labels isometry test under 90-degree rotation:
+      const discsSlice = {
+        plates: [
+          [
+            {
+              exterior: [
+                [0, 0],
+                [40, 0],
+                [40, 20],
+                [0, 20],
+              ] as [number, number][],
+              holes: [] as [number, number][][],
+              area: 800,
+            },
+          ],
+          [
+            {
+              exterior: [
+                [0, 0],
+                [40, 0],
+                [40, 20],
+                [0, 20],
+              ] as [number, number][],
+              holes: [] as [number, number][][],
+              area: 800,
+            },
+          ],
+        ],
+        zPositions: [0, 3],
+        scaleFactor: 1,
+        scaledBounds: [[0, 0], [40, 20]] as [[number, number], [number, number]],
+        scaledHeight: 6,
+        warnings: [],
+      };
+      const testDiscs = [{ id: 1, x: 10, y: 5, diameter: 6, gapIndex: 0 }];
+      const discSheets = generateDiscsLayouts(discsSlice, testDiscs, {
+        ...DEFAULT_PARAMS,
+        plates: 2,
+        sheetW: 30, // Normal width 40 does not fit into 30 - 2*5 = 20, but rotated width 20 fits!
+        sheetH: 100, // Rotated plates fit into height
+        sheetMargin: 5,
+        partGap: 2,
+        optimizeLayout: true,
+      });
+
+      expect(discSheets.length).toBeGreaterThanOrEqual(1);
+      const placedPl = discSheets[0].plates[0];
+      // Plate was rotated by 90°: width became 20, height became 40
+      expect(placedPl.width).toBe(20);
+      expect(placedPl.height).toBe(40);
+      expect(placedPl.discs.length).toBe(1);
+      // Original disc was at (10, 5) with h = 20. Rotated: x' = h - y = 20 - 5 = 15, y' = x = 10
+      expect(placedPl.discs[0].x).toBe(15);
+      expect(placedPl.discs[0].y).toBe(10);
+    });
+
     it('validates centralized GLYPH_WIDTH_RATIO and label containment (C11-3 / C11-5)', () => {
       expect(GLYPH_WIDTH_RATIO).toBe(0.6);
       expect(estimateTextWidth('P10', 4)).toBeCloseTo(3 * 4 * 0.6, 4);

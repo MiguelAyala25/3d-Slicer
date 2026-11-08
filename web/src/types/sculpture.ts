@@ -13,6 +13,7 @@ export interface SculptureParams {
   discDiameter: number;      // Diámetro nominal de discos conectores en mm [0.1..5000.0], default 6.0
   engraveClearance: number;  // Holgura radial/diametral para círculo grabado en mm [0.0..10.0], default 0.3
   scrapTagEnabled: boolean;  // Generación de etiquetas de retal sobrante, default true
+  optimizeLayout?: boolean;  // Optimización de empaquetado (orden FFD y rotación de 90°), default false
 }
 
 export type CoreParams = Omit<SculptureParams, 'discDiameter' | 'engraveClearance'>;

@@ -78,6 +78,78 @@ function shiftPlatePolygons(
 }
 
 /**
+ * Rota 90° en sentido antihorario una pieza planar en sus coordenadas locales [0, w] x [0, h],
+ * remapeándola a [0, h] x [0, w] mediante (x, y) ↦ (h - y, x).
+ * Es una isometría rígida (det = +1) que preserva la orientación CCW de exteriores y CW de agujeros,
+ * y transforma congruentemente marcas grabadas (discos y etiquetas de ranura).
+ */
+export function rotatePlateLocal90(
+  polygons: PolygonWithHoles[],
+  discs: PlateEngraveDisc[],
+  slotLabels: SlotLabel[] | undefined,
+  w: number,
+  h: number
+): {
+  polygons: PolygonWithHoles[];
+  discs: PlateEngraveDisc[];
+  slotLabels: SlotLabel[];
+  width: number;
+  height: number;
+} {
+  const newPolygons: PolygonWithHoles[] = polygons.map((poly) => ({
+    exterior: poly.exterior.map(([x, y]) => [
+      Number((h - y).toFixed(4)),
+      Number(x.toFixed(4)),
+    ]),
+    holes: poly.holes.map((hole) =>
+      hole.map(([x, y]) => [
+        Number((h - y).toFixed(4)),
+        Number(x.toFixed(4)),
+      ])
+    ),
+    area: poly.area,
+  }));
+
+  const newDiscs: PlateEngraveDisc[] = discs.map((d) => ({
+    ...d,
+    x: Number((h - d.y).toFixed(4)),
+    y: Number(d.x.toFixed(4)),
+  }));
+
+  const newSlotLabels: SlotLabel[] = (slotLabels ?? []).map((s) => ({
+    ...s,
+    x: Number((h - s.y).toFixed(4)),
+    y: Number(s.x.toFixed(4)),
+  }));
+
+  return {
+    polygons: newPolygons,
+    discs: newDiscs,
+    slotLabels: newSlotLabels,
+    width: h,
+    height: w,
+  };
+}
+
+/**
+ * Ordena piezas por altura descendente (First-Fit Decreasing / FFD) para acomodo en estantes,
+ * manteniendo intacto el identificador / plateIndex original.
+ */
+export function orderPlatesForPacking<T extends { plateIndex: number; width: number; height: number }>(
+  items: readonly T[]
+): T[] {
+  return [...items].sort((a, b) => {
+    if (Math.abs(b.height - a.height) > 1e-4) {
+      return b.height - a.height;
+    }
+    if (Math.abs(b.width - a.width) > 1e-4) {
+      return b.width - a.width;
+    }
+    return a.plateIndex - b.plateIndex;
+  });
+}
+
+/**
  * Determina el texto, tamaño y posición de la etiqueta de placa (ej. 'P0'),
  * ubicándola en el centroide del polígono mayor si hay suficiente despeje respecto a los bordes y discos,
  * o fuera de la pieza si no cabe internamente.
@@ -266,7 +338,8 @@ export function isWithinUsableArea(
 export function generateSheetLayouts(
   sliceResult: SliceResult,
   params: CoreParams,
-  hooks?: JointLayoutHooks
+  hooks?: JointLayoutHooks,
+  options?: { optimizeLayout?: boolean }
 ): SheetLayout[] {
   validateParams(params);
 
@@ -282,6 +355,65 @@ export function generateSheetLayouts(
   const margin = params.sheetMargin;
   const maxX = params.sheetW - margin;
   const maxY = params.sheetH - margin;
+  const shouldOptimize = options?.optimizeLayout ?? params.optimizeLayout ?? false;
+
+  interface PlateCandidate {
+    plateIndex: number;
+    width: number;
+    height: number;
+    polygons: PolygonWithHoles[];
+    discs: PlateEngraveDisc[];
+  }
+
+  const rawCandidates: PlateCandidate[] = [];
+
+  for (let i = 0; i < sliceResult.plates.length; i++) {
+    const platePolys = sliceResult.plates[i];
+    if (!platePolys || platePolys.length === 0) continue;
+
+    const bounds = getPlateBounds(platePolys);
+    let w = bounds.maxX - bounds.minX;
+    let h = bounds.maxY - bounds.minY;
+
+    let localPolys = shiftPlatePolygons(platePolys, -bounds.minX, -bounds.minY);
+    let localDiscs: PlateEngraveDisc[] =
+      hooks?.plateEngraveMarks(i, bounds.minX, bounds.minY) ?? [];
+
+    const fitsNormal = isWithinUsableArea(w, h, params);
+    const fitsRotated = isWithinUsableArea(h, w, params);
+
+    if (!fitsNormal) {
+      if (fitsRotated) {
+        const rot = rotatePlateLocal90(localPolys, localDiscs, undefined, w, h);
+        localPolys = rot.polygons;
+        localDiscs = rot.discs;
+        w = rot.width;
+        h = rot.height;
+      } else {
+        throw new ValidationError(
+          `La placa ${i} (${w.toFixed(1)} x ${h.toFixed(1)} mm) excede el área útil de la hoja (${usableW.toFixed(1)} x ${usableH.toFixed(1)} mm). Ajusta el tamaño de la hoja o escala el modelo 3D.`
+        );
+      }
+    } else if (shouldOptimize && fitsRotated && h > w) {
+      const rot = rotatePlateLocal90(localPolys, localDiscs, undefined, w, h);
+      localPolys = rot.polygons;
+      localDiscs = rot.discs;
+      w = rot.width;
+      h = rot.height;
+    }
+
+    rawCandidates.push({
+      plateIndex: i,
+      width: w,
+      height: h,
+      polygons: localPolys,
+      discs: localDiscs,
+    });
+  }
+
+  const candidates = shouldOptimize
+    ? orderPlatesForPacking(rawCandidates)
+    : rawCandidates;
 
   const sheets: SheetLayout[] = [];
   let sheetCounter = 0;
@@ -297,24 +429,23 @@ export function generateSheetLayouts(
   let cursorY = margin;
   let rowHeight = 0.0;
 
-  for (let i = 0; i < sliceResult.plates.length; i++) {
-    const platePolys = sliceResult.plates[i];
-    if (!platePolys || platePolys.length === 0) continue;
+  for (const cand of candidates) {
+    let w = cand.width;
+    let h = cand.height;
+    let localPolys = cand.polygons;
+    let localDiscs = cand.discs;
 
-    const bounds = getPlateBounds(platePolys);
-    const w = bounds.maxX - bounds.minX;
-    const h = bounds.maxY - bounds.minY;
-
-    // Verificar que la placa quepa dentro del área útil de la hoja (ancho y alto utilizables)
-    if (!isWithinUsableArea(w, h, params)) {
-      throw new ValidationError(
-        `La placa ${i} (${w.toFixed(1)} x ${h.toFixed(1)} mm) excede el área útil de la hoja (${usableW.toFixed(1)} x ${usableH.toFixed(1)} mm). Ajusta el tamaño de la hoja o escala el modelo 3D.`
-      );
+    if (shouldOptimize && isWithinUsableArea(h, w, params)) {
+      const fitsCurrentRowNormal = cursorX + w <= maxX;
+      const fitsCurrentRowRotated = cursorX + h <= maxX && cursorY + w <= maxY;
+      if (!fitsCurrentRowNormal && fitsCurrentRowRotated && cursorX > margin) {
+        const rot = rotatePlateLocal90(localPolys, localDiscs, undefined, w, h);
+        localPolys = rot.polygons;
+        localDiscs = rot.discs;
+        w = rot.width;
+        h = rot.height;
+      }
     }
-
-    const localPolys = shiftPlatePolygons(platePolys, -bounds.minX, -bounds.minY);
-    const localDiscs: PlateEngraveDisc[] =
-      hooks?.plateEngraveMarks(i, bounds.minX, bounds.minY) ?? [];
 
     if (cursorX + w > maxX && cursorX > margin) {
       cursorX = margin;
@@ -323,25 +454,33 @@ export function generateSheetLayouts(
     }
 
     if (cursorY + h > maxY) {
-      if (currentSheet.plates.length > 0) {
-        sheets.push(currentSheet);
-        sheetCounter += 1;
+      if (shouldOptimize && isWithinUsableArea(h, w, params) && cursorY + w <= maxY) {
+        const rot = rotatePlateLocal90(localPolys, localDiscs, undefined, w, h);
+        localPolys = rot.polygons;
+        localDiscs = rot.discs;
+        w = rot.width;
+        h = rot.height;
+      } else {
+        if (currentSheet.plates.length > 0) {
+          sheets.push(currentSheet);
+          sheetCounter += 1;
+        }
+        currentSheet = createEmptySheet(
+          sheetCounter,
+          'plates',
+          params.thickness,
+          params,
+          hooks?.sheetEngraveClearance ?? 0
+        );
+        cursorX = margin;
+        cursorY = margin;
+        rowHeight = 0.0;
       }
-      currentSheet = createEmptySheet(
-        sheetCounter,
-        'plates',
-        params.thickness,
-        params,
-        hooks?.sheetEngraveClearance ?? 0
-      );
-      cursorX = margin;
-      cursorY = margin;
-      rowHeight = 0.0;
     }
 
     const plateYOffset = cursorY;
     const finalLabel = computePlateLabel(
-      i,
+      cand.plateIndex,
       localPolys,
       localDiscs,
       w,
@@ -351,7 +490,7 @@ export function generateSheetLayouts(
     );
 
     const placed: PlacedPlate = {
-      plateIndex: i,
+      plateIndex: cand.plateIndex,
       xOffset: cursorX,
       yOffset: plateYOffset,
       width: w,
@@ -513,7 +652,8 @@ export function computeWaffleSectionLabel(
 
 export function generateWaffleSheetLayouts(
   waffleResult: WaffleSliceResult,
-  params: CoreParams
+  params: CoreParams,
+  options?: { optimizeLayout?: boolean }
 ): SheetLayout[] {
   validateParams(params);
 
@@ -529,6 +669,69 @@ export function generateWaffleSheetLayouts(
   const margin = params.sheetMargin;
   const maxX = params.sheetW - margin;
   const maxY = params.sheetH - margin;
+  const shouldOptimize = options?.optimizeLayout ?? params.optimizeLayout ?? false;
+
+  const allSections: WaffleSection[] = [
+    ...waffleResult.p1Sections.filter((s) => s.polygons.length > 0),
+    ...waffleResult.p2Sections.filter((s) => s.polygons.length > 0),
+  ];
+
+  interface WaffleCandidate {
+    plateIndex: number;
+    sectionId: string;
+    width: number;
+    height: number;
+    polygons: PolygonWithHoles[];
+    slotLabels: SlotLabel[];
+  }
+
+  const rawCandidates: WaffleCandidate[] = [];
+
+  for (let idx = 0; idx < allSections.length; idx++) {
+    const section = allSections[idx];
+    const bounds = section.bounds2D;
+    let w = bounds.maxU - bounds.minU;
+    let h = bounds.maxV - bounds.minV;
+
+    let localPolys = shiftPlatePolygons(section.polygons, -bounds.minU, -bounds.minV);
+    let localSlotLabels = section.slotLabels ?? [];
+
+    const fitsNormal = isWithinUsableArea(w, h, params);
+    const fitsRotated = isWithinUsableArea(h, w, params);
+
+    if (!fitsNormal) {
+      if (fitsRotated) {
+        const rot = rotatePlateLocal90(localPolys, [], localSlotLabels, w, h);
+        localPolys = rot.polygons;
+        localSlotLabels = rot.slotLabels;
+        w = rot.width;
+        h = rot.height;
+      } else {
+        throw new ValidationError(
+          `La pieza ${section.id} (${w.toFixed(1)} x ${h.toFixed(1)} mm) excede el área útil de la hoja (${usableW.toFixed(1)} x ${usableH.toFixed(1)} mm). Ajusta el tamaño de la hoja o reduce la escala del modelo.`
+        );
+      }
+    } else if (shouldOptimize && fitsRotated && h > w) {
+      const rot = rotatePlateLocal90(localPolys, [], localSlotLabels, w, h);
+      localPolys = rot.polygons;
+      localSlotLabels = rot.slotLabels;
+      w = rot.width;
+      h = rot.height;
+    }
+
+    rawCandidates.push({
+      plateIndex: idx,
+      sectionId: section.id,
+      width: w,
+      height: h,
+      polygons: localPolys,
+      slotLabels: localSlotLabels,
+    });
+  }
+
+  const candidates = shouldOptimize
+    ? orderPlatesForPacking(rawCandidates)
+    : rawCandidates;
 
   const sheets: SheetLayout[] = [];
   let sheetCounter = 0;
@@ -544,26 +747,23 @@ export function generateWaffleSheetLayouts(
   let cursorY = margin;
   let rowHeight = 0.0;
 
-  // All valid sections from P1 followed by P2
-  const allSections: WaffleSection[] = [
-    ...waffleResult.p1Sections.filter((s) => s.polygons.length > 0),
-    ...waffleResult.p2Sections.filter((s) => s.polygons.length > 0),
-  ];
+  for (const cand of candidates) {
+    let w = cand.width;
+    let h = cand.height;
+    let localPolys = cand.polygons;
+    let localSlotLabels = cand.slotLabels;
 
-  for (let idx = 0; idx < allSections.length; idx++) {
-    const section = allSections[idx];
-    const bounds = section.bounds2D;
-    const w = bounds.maxU - bounds.minU;
-    const h = bounds.maxV - bounds.minV;
-
-    if (!isWithinUsableArea(w, h, params)) {
-      throw new ValidationError(
-        `La pieza ${section.id} (${w.toFixed(1)} x ${h.toFixed(1)} mm) excede el área útil de la hoja (${usableW.toFixed(1)} x ${usableH.toFixed(1)} mm). Ajusta el tamaño de la hoja o reduce la escala del modelo.`
-      );
+    if (shouldOptimize && isWithinUsableArea(h, w, params)) {
+      const fitsCurrentRowNormal = cursorX + w <= maxX;
+      const fitsCurrentRowRotated = cursorX + h <= maxX && cursorY + w <= maxY;
+      if (!fitsCurrentRowNormal && fitsCurrentRowRotated && cursorX > margin) {
+        const rot = rotatePlateLocal90(localPolys, [], localSlotLabels, w, h);
+        localPolys = rot.polygons;
+        localSlotLabels = rot.slotLabels;
+        w = rot.width;
+        h = rot.height;
+      }
     }
-
-    const localPolys = shiftPlatePolygons(section.polygons, -bounds.minU, -bounds.minV);
-    const localSlotLabels = section.slotLabels ?? [];
 
     if (cursorX + w > maxX && cursorX > margin) {
       cursorX = margin;
@@ -572,25 +772,33 @@ export function generateWaffleSheetLayouts(
     }
 
     if (cursorY + h > maxY) {
-      if (currentSheet.plates.length > 0) {
-        sheets.push(currentSheet);
-        sheetCounter += 1;
+      if (shouldOptimize && isWithinUsableArea(h, w, params) && cursorY + w <= maxY) {
+        const rot = rotatePlateLocal90(localPolys, [], localSlotLabels, w, h);
+        localPolys = rot.polygons;
+        localSlotLabels = rot.slotLabels;
+        w = rot.width;
+        h = rot.height;
+      } else {
+        if (currentSheet.plates.length > 0) {
+          sheets.push(currentSheet);
+          sheetCounter += 1;
+        }
+        currentSheet = createEmptySheet(
+          sheetCounter,
+          'plates',
+          params.thickness,
+          params,
+          0
+        );
+        cursorX = margin;
+        cursorY = margin;
+        rowHeight = 0.0;
       }
-      currentSheet = createEmptySheet(
-        sheetCounter,
-        'plates',
-        params.thickness,
-        params,
-        0
-      );
-      cursorX = margin;
-      cursorY = margin;
-      rowHeight = 0.0;
     }
 
     const plateYOffset = cursorY;
     const finalLabel = computeWaffleSectionLabel(
-      section.id,
+      cand.sectionId,
       localPolys,
       localSlotLabels,
       w,
@@ -608,7 +816,7 @@ export function generateWaffleSheetLayouts(
     }));
 
     const placed: PlacedPlate = {
-      plateIndex: idx,
+      plateIndex: cand.plateIndex,
       xOffset: cursorX,
       yOffset: plateYOffset,
       width: w,

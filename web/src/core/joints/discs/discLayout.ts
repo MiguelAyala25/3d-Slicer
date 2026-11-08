@@ -305,7 +305,17 @@ export function createDiscsLayoutHooks(
 export function generateDiscsLayouts(
   sliceResult: SliceResult,
   discs: Disc[],
-  params: SculptureParams
+  params: SculptureParams,
+  options?: { optimizeLayout?: boolean }
 ): SheetLayout[] {
-  return generateSheetLayouts(sliceResult, params, createDiscsLayoutHooks(discs, params));
+  const mergedParams =
+    options?.optimizeLayout !== undefined
+      ? { ...params, optimizeLayout: options.optimizeLayout }
+      : params;
+  return generateSheetLayouts(
+    sliceResult,
+    mergedParams,
+    createDiscsLayoutHooks(discs, mergedParams),
+    options
+  );
 }
