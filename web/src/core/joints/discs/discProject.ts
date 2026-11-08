@@ -1,5 +1,4 @@
-import { PARAM_BOUNDS } from '../../params';
-import { ValidationError } from '../../validator';
+import { validateAndParseDiscs } from '../../projectSchema';
 import type { Disc } from '../../../types/sculpture';
 
 export function formatCanonicalFloat(n: number): string {
@@ -26,52 +25,5 @@ export function serializeDiscsHueco(discs: Disc[]): string {
 }
 
 export function parseDiscsHueco(rawDiscs: unknown, plates: number): Disc[] {
-  if (!Array.isArray(rawDiscs)) {
-    throw new ValidationError("El archivo de proyecto no contiene una lista 'discs' válida.");
-  }
-
-  const seenIds = new Set<number>();
-  const discs: Disc[] = [];
-
-  for (let i = 0; i < rawDiscs.length; i++) {
-    const item = rawDiscs[i] as Record<string, unknown>;
-    if (!item || typeof item !== 'object') {
-      throw new ValidationError(`El disco en la posición ${i} es inválido.`);
-    }
-    const id = Number(item.id);
-    const x = Number(item.x);
-    const y = Number(item.y);
-    const diameter = Number(item.diameter);
-    const gapIndex = Number(item.hueco);
-
-    if (!Number.isInteger(id) || id <= 0) {
-      throw new ValidationError(`El disco #${i} tiene un 'id' inválido (${String(item.id)}).`);
-    }
-    if (seenIds.has(id)) {
-      throw new ValidationError(`El archivo contiene IDs de disco duplicados (id=${id}).`);
-    }
-    seenIds.add(id);
-
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      throw new ValidationError(`El disco id=${id} tiene coordenadas (x, y) no numéricas.`);
-    }
-    if (
-      !Number.isFinite(diameter) ||
-      diameter < PARAM_BOUNDS.discDiameter.min ||
-      diameter > PARAM_BOUNDS.discDiameter.max
-    ) {
-      throw new ValidationError(
-        `El disco id=${id} tiene un diámetro inválido (${diameter} mm).`
-      );
-    }
-    if (!Number.isInteger(gapIndex) || gapIndex < 0 || gapIndex >= plates - 1) {
-      throw new ValidationError(
-        `El disco id=${id} tiene un hueco fuera de rango (${gapIndex}; máximo permitido ${plates - 2}).`
-      );
-    }
-
-    discs.push({ id, x, y, diameter, gapIndex });
-  }
-
-  return discs;
+  return validateAndParseDiscs(rawDiscs, plates);
 }

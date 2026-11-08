@@ -9,7 +9,7 @@ import type { WaffleDistributionMethod } from './waffle/types';
  */
 export function validateAndParseDiscs(rawDiscs: unknown, maxPlates: number): Disc[] {
   if (!Array.isArray(rawDiscs)) {
-    throw new ValidationError("El archivo de proyecto no contiene una lista 'discs' válida.");
+    throw new ValidationError('PROJECT_DISCS_LIST_INVALID', {});
   }
 
   const seenIds = new Set<number>();
@@ -18,7 +18,7 @@ export function validateAndParseDiscs(rawDiscs: unknown, maxPlates: number): Dis
   for (let i = 0; i < rawDiscs.length; i++) {
     const item = rawDiscs[i];
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
-      throw new ValidationError(`El disco en la posición ${i} es inválido.`);
+      throw new ValidationError('PROJECT_DISC_ITEM_INVALID', { position: i });
     }
 
     const discObj = item as Record<string, unknown>;
@@ -29,29 +29,29 @@ export function validateAndParseDiscs(rawDiscs: unknown, maxPlates: number): Dis
     const gapIndex = Number(discObj.hueco);
 
     if (!Number.isInteger(id) || id <= 0) {
-      throw new ValidationError(`El disco #${i} tiene un 'id' inválido (${String(discObj.id)}).`);
+      throw new ValidationError('PROJECT_DISC_ID_INVALID', { index: i, id: String(discObj.id) });
     }
     if (seenIds.has(id)) {
-      throw new ValidationError(`El archivo contiene IDs de disco duplicados (id=${id}).`);
+      throw new ValidationError('PROJECT_DISC_ID_DUPLICATE', { id });
     }
     seenIds.add(id);
 
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      throw new ValidationError(`El disco id=${id} tiene coordenadas (x, y) no numéricas.`);
+      throw new ValidationError('PROJECT_DISC_COORDS_NON_NUMERIC', { id });
     }
     if (
       !Number.isFinite(diameter) ||
       diameter < PARAM_BOUNDS.discDiameter.min ||
       diameter > PARAM_BOUNDS.discDiameter.max
     ) {
-      throw new ValidationError(
-        `El disco id=${id} tiene un diámetro inválido (${diameter} mm).`
-      );
+      throw new ValidationError('PROJECT_DISC_DIAMETER_INVALID', { id, diameter });
     }
     if (!Number.isInteger(gapIndex) || gapIndex < 0 || gapIndex >= maxPlates - 1) {
-      throw new ValidationError(
-        `El disco id=${id} tiene un hueco fuera de rango (${gapIndex}; máximo permitido ${maxPlates - 2}).`
-      );
+      throw new ValidationError('PROJECT_DISC_GAP_OUT_OF_RANGE', {
+        id,
+        gapIndex,
+        maxAllowed: maxPlates - 2,
+      });
     }
 
     discs.push({ id, x, y, diameter, gapIndex });
@@ -74,7 +74,7 @@ export type ValidatedMaterial = z.infer<typeof MaterialObjectSchema>;
 
 export function validateMaterialSection(matRaw: unknown): ValidatedMaterial {
   if (!matRaw || typeof matRaw !== 'object' || Array.isArray(matRaw)) {
-    throw new ValidationError("El campo 'material' debe ser un objeto.");
+    throw new ValidationError('PROJECT_FIELD_MUST_BE_OBJECT', { field: 'material' });
   }
   const mat = matRaw as Record<string, unknown>;
   const requiredMatKeys = [
@@ -89,29 +89,31 @@ export function validateMaterialSection(matRaw: unknown): ValidatedMaterial {
 
   for (const rk of requiredMatKeys) {
     if (!(rk in mat)) {
-      throw new ValidationError(`Falta el campo obligatorio 'material.${rk}' en el archivo JSON.`);
+      throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', { field: `material.${rk}` });
     }
   }
 
   for (const k of Object.keys(mat)) {
     if (!requiredMatKeys.includes(k as (typeof requiredMatKeys)[number])) {
-      throw new ValidationError(`Campo no reconocido '${k}' en 'material'.`);
+      throw new ValidationError('PROJECT_UNRECOGNIZED_SECTION_FIELD', { field: k, section: 'material' });
     }
   }
 
   const numericMatKeys = ['thickness', 'sheetW', 'sheetH', 'sheetMargin', 'partGap', 'kerf'] as const;
   for (const nk of numericMatKeys) {
     if (typeof mat[nk] !== 'number' || !Number.isFinite(mat[nk])) {
-      throw new ValidationError(`El campo 'material.${nk}' debe ser numérico.`);
+      throw new ValidationError('PROJECT_FIELD_MUST_BE_NUMERIC', { field: `material.${nk}` });
     }
   }
   if (typeof mat.scrapTagEnabled !== 'boolean') {
-    throw new ValidationError("El campo 'material.scrapTagEnabled' debe ser booleano.");
+    throw new ValidationError('PROJECT_FIELD_MUST_BE_BOOLEAN', { field: 'material.scrapTagEnabled' });
   }
 
   const parseResult = MaterialObjectSchema.safeParse(mat);
   if (!parseResult.success) {
-    throw new ValidationError(parseResult.error.issues[0].message);
+    throw new ValidationError('PROJECT_SCHEMA_ISSUE', {
+      message: parseResult.error.issues[0].message,
+    });
   }
 
   return parseResult.data;
@@ -124,23 +126,32 @@ export interface ValidatedStackedTechnique {
 
 export function validateStackedTechniqueParams(tParamsRaw: unknown): ValidatedStackedTechnique {
   if (!tParamsRaw || typeof tParamsRaw !== 'object' || Array.isArray(tParamsRaw)) {
-    throw new ValidationError("El campo 'technique.params' debe ser un objeto.");
+    throw new ValidationError('PROJECT_FIELD_MUST_BE_OBJECT', { field: 'technique.params' });
   }
   const tParams = tParamsRaw as Record<string, unknown>;
 
   if (!('plates' in tParams)) {
-    throw new ValidationError("Falta el campo obligatorio 'technique.params.plates' en el archivo JSON.");
+    throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', {
+      field: 'technique.params.plates',
+    });
   }
   if (!('axis' in tParams)) {
-    throw new ValidationError("Falta el campo obligatorio 'technique.params.axis' en el archivo JSON.");
+    throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', {
+      field: 'technique.params.axis',
+    });
   }
   for (const k of Object.keys(tParams)) {
     if (k !== 'plates' && k !== 'axis') {
-      throw new ValidationError(`Campo no reconocido '${k}' en 'technique.params'.`);
+      throw new ValidationError('PROJECT_UNRECOGNIZED_SECTION_FIELD', {
+        field: k,
+        section: 'technique.params',
+      });
     }
   }
   if (typeof tParams.plates !== 'number' || !Number.isFinite(tParams.plates)) {
-    throw new ValidationError("El campo 'technique.params.plates' debe ser numérico.");
+    throw new ValidationError('PROJECT_FIELD_MUST_BE_NUMERIC', {
+      field: 'technique.params.plates',
+    });
   }
 
   return {
@@ -169,7 +180,7 @@ export type ValidatedWaffleTechnique = z.infer<typeof WaffleTechniqueParamsSchem
 
 export function validateWaffleTechniqueParams(tParamsRaw: unknown): ValidatedWaffleTechnique {
   if (!tParamsRaw || typeof tParamsRaw !== 'object' || Array.isArray(tParamsRaw)) {
-    throw new ValidationError("El campo 'technique.params' debe ser un objeto.");
+    throw new ValidationError('PROJECT_FIELD_MUST_BE_OBJECT', { field: 'technique.params' });
   }
   const tParams = tParamsRaw as Record<string, unknown>;
 
@@ -195,30 +206,39 @@ export function validateWaffleTechniqueParams(tParamsRaw: unknown): ValidatedWaf
 
   for (const rk of requiredWaffleKeys) {
     if (!(rk in tParams)) {
-      throw new ValidationError(`Falta el campo obligatorio 'technique.params.${rk}' en el archivo JSON.`);
+      throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', {
+        field: `technique.params.${rk}`,
+      });
     }
   }
 
   for (const k of Object.keys(tParams)) {
     if (!allowedWaffleKeys.includes(k as (typeof allowedWaffleKeys)[number])) {
-      throw new ValidationError(`Campo no reconocido '${k}' en 'technique.params'.`);
+      throw new ValidationError('PROJECT_UNRECOGNIZED_SECTION_FIELD', {
+        field: k,
+        section: 'technique.params',
+      });
     }
   }
 
   const upAxis = String(tParams.upAxis).toLowerCase();
   if (upAxis !== 'x' && upAxis !== 'y' && upAxis !== 'z') {
-    throw new ValidationError("El campo 'technique.params.upAxis' debe ser 'x', 'y' o 'z'.");
+    throw new ValidationError('PROJECT_WAFFLE_UP_AXIS_INVALID', {});
   }
 
   const numKeys = ['pitch', 'slotClearance', 'gridOffset', 'targetScale'] as const;
   for (const nk of numKeys) {
     if (typeof tParams[nk] !== 'number' || !Number.isFinite(tParams[nk])) {
-      throw new ValidationError(`El campo 'technique.params.${nk}' debe ser numérico.`);
+      throw new ValidationError('PROJECT_FIELD_MUST_BE_NUMERIC', {
+        field: `technique.params.${nk}`,
+      });
     }
   }
 
   if (typeof tParams.slotLabelsEnabled !== 'boolean') {
-    throw new ValidationError("El campo 'technique.params.slotLabelsEnabled' debe ser booleano.");
+    throw new ValidationError('PROJECT_FIELD_MUST_BE_BOOLEAN', {
+      field: 'technique.params.slotLabelsEnabled',
+    });
   }
 
   const normalized = {
@@ -229,7 +249,7 @@ export function validateWaffleTechniqueParams(tParamsRaw: unknown): ValidatedWaf
   const parsed = WaffleTechniqueParamsSchema.safeParse(normalized);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
-    throw new ValidationError(issue.message);
+    throw new ValidationError('PROJECT_SCHEMA_ISSUE', { message: issue.message });
   }
 
   return parsed.data;
@@ -245,32 +265,39 @@ export type ValidatedDiscsJointParams = z.infer<typeof DiscsJointParamsSchema>;
 
 export function validateDiscsJointParams(jParamsRaw: unknown): ValidatedDiscsJointParams {
   if (!jParamsRaw || typeof jParamsRaw !== 'object' || Array.isArray(jParamsRaw)) {
-    throw new ValidationError("El campo 'joint.params' debe ser un objeto.");
+    throw new ValidationError('PROJECT_FIELD_MUST_BE_OBJECT', { field: 'joint.params' });
   }
   const jParams = jParamsRaw as Record<string, unknown>;
   const reqJointKeys = ['gap', 'discDiameter', 'engraveClearance'] as const;
 
   for (const rk of reqJointKeys) {
     if (!(rk in jParams)) {
-      throw new ValidationError(`Falta el campo obligatorio 'joint.params.${rk}' en el archivo JSON.`);
+      throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', {
+        field: `joint.params.${rk}`,
+      });
     }
   }
   for (const k of Object.keys(jParams)) {
     if (!reqJointKeys.includes(k as (typeof reqJointKeys)[number])) {
-      throw new ValidationError(`Campo no reconocido '${k}' en 'joint.params'.`);
+      throw new ValidationError('PROJECT_UNRECOGNIZED_SECTION_FIELD', {
+        field: k,
+        section: 'joint.params',
+      });
     }
   }
 
   for (const rk of reqJointKeys) {
     if (typeof jParams[rk] !== 'number' || !Number.isFinite(jParams[rk])) {
-      throw new ValidationError(`El campo 'joint.params.${rk}' debe ser numérico.`);
+      throw new ValidationError('PROJECT_FIELD_MUST_BE_NUMERIC', {
+        field: `joint.params.${rk}`,
+      });
     }
   }
 
   const parsed = DiscsJointParamsSchema.safeParse(jParams);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
-    throw new ValidationError(issue.message);
+    throw new ValidationError('PROJECT_SCHEMA_ISSUE', { message: issue.message });
   }
 
   return parsed.data;

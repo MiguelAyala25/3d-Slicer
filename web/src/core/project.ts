@@ -3,6 +3,7 @@ import type { BuildConfig, JointId, TechniqueId } from './build/types';
 import { validateBuildParams } from './build/validateBuild';
 import { DEFAULT_PARAMS } from './params';
 import { validateParams, ValidationError } from './validator';
+import { UI_TEXTS_ES } from '../i18n/es';
 import type { Axis, Disc, SculptureParams } from '../types/sculpture';
 import type { WaffleParams } from './waffle/types';
 import {
@@ -224,26 +225,24 @@ export function parseProjectJson(
   try {
     raw = JSON.parse(jsonText);
   } catch {
-    throw new ValidationError('El archivo de proyecto no contiene un JSON válido.');
+    throw new ValidationError('PROJECT_INVALID_JSON', {});
   }
 
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    throw new ValidationError('El formato del archivo de proyecto es inválido.');
+    throw new ValidationError('PROJECT_INVALID_FORMAT', {});
   }
 
   const obj = raw as Record<string, unknown>;
   const version = obj.version;
   if (version !== '1.0' && version !== '2.0') {
-    throw new ValidationError(
-      `Versión de archivo no soportada: '${String(version)}' (se esperaba '1.0' o '2.0').`
-    );
+    throw new ValidationError('PROJECT_UNSUPPORTED_VERSION', { version: String(version) });
   }
 
   if (version === '1.0') {
     const requiredKeys = ['plates', 'thickness', 'gap', 'axis', 'discs'] as const;
     for (const key of requiredKeys) {
       if (!(key in obj)) {
-        throw new ValidationError(`Falta el campo obligatorio '${key}' en el archivo JSON.`);
+        throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', { field: key });
       }
     }
 
@@ -270,12 +269,12 @@ export function parseProjectJson(
   const allowedRootKeys = ['version', 'material', 'technique', 'joint'];
   for (const k of ['material', 'technique', 'joint']) {
     if (!(k in obj)) {
-      throw new ValidationError(`Falta el campo obligatorio '${k}' en el archivo JSON.`);
+      throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', { field: k });
     }
   }
   for (const k of Object.keys(obj)) {
     if (!allowedRootKeys.includes(k)) {
-      throw new ValidationError(`Campo no reconocido '${k}' en la raíz.`);
+      throw new ValidationError('PROJECT_UNRECOGNIZED_ROOT_FIELD', { field: k });
     }
   }
 
@@ -284,24 +283,27 @@ export function parseProjectJson(
 
   // Technique
   if (!obj.technique || typeof obj.technique !== 'object' || Array.isArray(obj.technique)) {
-    throw new ValidationError("El campo 'technique' debe ser un objeto.");
+    throw new ValidationError('PROJECT_FIELD_MUST_BE_OBJECT', { field: 'technique' });
   }
   const tech = obj.technique as Record<string, unknown>;
   if (!('id' in tech)) {
-    throw new ValidationError("Falta el campo obligatorio 'technique.id' en el archivo JSON.");
+    throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', { field: 'technique.id' });
   }
   if (!('params' in tech)) {
-    throw new ValidationError("Falta el campo obligatorio 'technique.params' en el archivo JSON.");
+    throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', { field: 'technique.params' });
   }
   for (const k of Object.keys(tech)) {
     if (k !== 'id' && k !== 'params') {
-      throw new ValidationError(`Campo no reconocido '${k}' en 'technique'.`);
+      throw new ValidationError('PROJECT_UNRECOGNIZED_SECTION_FIELD', {
+        field: k,
+        section: 'technique',
+      });
     }
   }
 
   const techId = String(tech.id);
   if (techId !== 'stacked' && techId !== 'waffle') {
-    throw new ValidationError(`Técnica desconocida: '${techId}'.`);
+    throw new ValidationError('BUILD_UNKNOWN_TECHNIQUE', { id: techId });
   }
 
   let parsedWaffleParams: WaffleParams | undefined;
@@ -335,58 +337,67 @@ export function parseProjectJson(
 
   // Joint
   if (!obj.joint || typeof obj.joint !== 'object' || Array.isArray(obj.joint)) {
-    throw new ValidationError("El campo 'joint' debe ser un objeto.");
+    throw new ValidationError('PROJECT_FIELD_MUST_BE_OBJECT', { field: 'joint' });
   }
   const joint = obj.joint as Record<string, unknown>;
   if (!('id' in joint)) {
-    throw new ValidationError("Falta el campo obligatorio 'joint.id' en el archivo JSON.");
+    throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', { field: 'joint.id' });
   }
   if (!('params' in joint)) {
-    throw new ValidationError("Falta el campo obligatorio 'joint.params' en el archivo JSON.");
+    throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', { field: 'joint.params' });
   }
 
   const jointId = String(joint.id);
   if (techId === 'waffle') {
     if (jointId !== 'slots') {
-      throw new ValidationError("La técnica «Waffle» solo admite la unión «Encaje por ranuras» ('slots').");
+      throw new ValidationError('BUILD_WAFFLE_REQUIRES_SLOTS_JOINT', {});
     }
   } else {
     if (jointId === 'slots') {
-      throw new ValidationError("La unión «Encaje por ranuras» es exclusiva de la técnica «Waffle».");
+      throw new ValidationError('BUILD_SLOTS_EXCLUSIVE_TO_WAFFLE', {});
     }
     if (jointId !== 'none' && jointId !== 'discs' && jointId !== 'rod') {
-      throw new ValidationError(`Unión desconocida: '${jointId}'.`);
+      throw new ValidationError('BUILD_UNKNOWN_JOINT', { id: jointId });
     }
     if (jointId === 'rod') {
-      throw new ValidationError('La unión «Con varilla» aún no está disponible.');
+      throw new ValidationError('BUILD_ROD_JOINT_UNAVAILABLE', {});
     }
   }
 
   if (jointId === 'slots') {
     if ('discs' in joint) {
-      throw new ValidationError('La unión «Encaje por ranuras» no admite discos.');
+      throw new ValidationError('PROJECT_SLOTS_NO_DISCS_ALLOWED', {});
     }
     for (const k of Object.keys(joint)) {
       if (k !== 'id' && k !== 'params') {
-        throw new ValidationError(`Campo no reconocido '${k}' en 'joint'.`);
+        throw new ValidationError('PROJECT_UNRECOGNIZED_SECTION_FIELD', {
+          field: k,
+          section: 'joint',
+        });
       }
     }
   } else if (jointId === 'none') {
     if ('discs' in joint) {
-      throw new ValidationError('La unión «Sin separación» no admite discos.');
+      throw new ValidationError('PROJECT_NONE_JOINT_NO_DISCS_ALLOWED', {});
     }
     for (const k of Object.keys(joint)) {
       if (k !== 'id' && k !== 'params') {
-        throw new ValidationError(`Campo no reconocido '${k}' en 'joint'.`);
+        throw new ValidationError('PROJECT_UNRECOGNIZED_SECTION_FIELD', {
+          field: k,
+          section: 'joint',
+        });
       }
     }
   } else if (jointId === 'discs') {
     if (!('discs' in joint)) {
-      throw new ValidationError("Falta el campo obligatorio 'joint.discs' en el archivo JSON.");
+      throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', { field: 'joint.discs' });
     }
     for (const k of Object.keys(joint)) {
       if (k !== 'id' && k !== 'params' && k !== 'discs') {
-        throw new ValidationError(`Campo no reconocido '${k}' en 'joint'.`);
+        throw new ValidationError('PROJECT_UNRECOGNIZED_SECTION_FIELD', {
+          field: k,
+          section: 'joint',
+        });
       }
     }
   }
@@ -397,11 +408,14 @@ export function parseProjectJson(
 
   if (jointId === 'slots' || jointId === 'none') {
     if (!joint.params || typeof joint.params !== 'object' || Array.isArray(joint.params)) {
-      throw new ValidationError("El campo 'joint.params' debe ser un objeto.");
+      throw new ValidationError('PROJECT_FIELD_MUST_BE_OBJECT', { field: 'joint.params' });
     }
     const keys = Object.keys(joint.params as Record<string, unknown>);
     if (keys.length > 0) {
-      throw new ValidationError(`Campo no reconocido '${keys[0]}' en 'joint.params'.`);
+      throw new ValidationError('PROJECT_UNRECOGNIZED_SECTION_FIELD', {
+        field: keys[0],
+        section: 'joint.params',
+      });
     }
   } else if (jointId === 'discs') {
     const validatedDiscsParams = validateDiscsJointParams(joint.params);
@@ -492,4 +506,4 @@ export function checkParamsCompatibility(
 }
 
 export const INCOMPATIBLE_PROJECT_CONFIRM_MESSAGE =
-  'Los parámetros del archivo difieren de los actuales. Adaptar el proyecto implica volver a rebanar el modelo 3D. ¿Deseas rebanar y adaptar el proyecto, o cancelar?';
+  UI_TEXTS_ES.incompatibleProjectConfirm;
