@@ -11,6 +11,7 @@ import {
   validateFileExtension,
   normalizeAndValidateGeometry,
   ValidationError,
+  formatCoreWarning,
 } from './validator';
 import type { MeshMetadata } from '../types/sculpture';
 
@@ -76,17 +77,17 @@ function extractMergedGeometryFromObject3D(
 
   if (geometries.length === 0) {
     if (ignoredLinesOrPoints > 0) {
-      throw new ValidationError(
-        'El archivo contiene únicamente líneas o puntos sueltos y ninguna malla triangular 3D.'
-      );
+      throw new ValidationError('MESH_ONLY_LINES_OR_POINTS', {});
     }
-    throw new ValidationError('No se encontraron mallas triangulares en el archivo.');
+    throw new ValidationError('MESH_NO_TRIANGLES_FOUND', {});
   }
 
   const warnings: string[] = [];
   if (ignoredLinesOrPoints > 0) {
     warnings.push(
-      `Se omitieron ${ignoredLinesOrPoints} objeto(s) de líneas/puntos que no forman parte de la malla triangular.`
+      formatCoreWarning('WARN_LOADER_IGNORED_LINES_OR_POINTS', {
+        count: ignoredLinesOrPoints,
+      })
     );
   }
 
@@ -96,7 +97,7 @@ function extractMergedGeometryFromObject3D(
       : mergeBufferGeometries(geometries, false);
 
   if (!merged) {
-    throw new ValidationError('No fue posible fusionar los sub-objetos de la malla 3D.');
+    throw new ValidationError('MESH_MERGE_FAILED', {});
   }
 
   return { geometry: merged, warnings };
@@ -107,9 +108,7 @@ function checkPLYHasFaces(buffer: ArrayBuffer): void {
   const headText = new TextDecoder('utf-8', { fatal: false }).decode(headBytes);
   const faceMatch = headText.match(/element\s+face\s+(\d+)/i);
   if (!faceMatch || Number.parseInt(faceMatch[1], 10) === 0) {
-    throw new ValidationError(
-      'El archivo PLY es una nube de puntos (0 caras declaradas) y no contiene triángulos.'
-    );
+    throw new ValidationError('PLY_POINT_CLOUD_NO_FACES', {});
   }
 }
 
@@ -135,7 +134,7 @@ export function loadMeshFromBuffer(
     const loader = new PLYLoader();
     const parsed = loader.parse(buffer);
     if (!parsed.index && parsed.getAttribute('position')?.count < 12) {
-      throw new ValidationError('El archivo PLY no contiene caras triangulares válidas.');
+      throw new ValidationError('PLY_NO_VALID_TRIANGLES', {});
     }
     rawGeometry = parsed.index ? parsed.toNonIndexed() : parsed;
   } else if (ext === '.obj') {
@@ -150,7 +149,7 @@ export function loadMeshFromBuffer(
     if (options?.upOrientation === 'y-up') {
       // Rotación +90° alrededor del eje X: (x, y, z) -> (x, -z, y)
       rawGeometry.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI * 0.5));
-      loaderWarnings.push('Se ajustó la orientación del modelo de Y-up a Z-up.');
+      loaderWarnings.push(formatCoreWarning('WARN_LOADER_Y_UP_TO_Z_UP', {}));
     }
   } else if (ext === '.3mf') {
     unitScaleApplied = extract3MFUnitScale(buffer);
@@ -161,11 +160,11 @@ export function loadMeshFromBuffer(
     loaderWarnings = extracted.warnings;
     if (Math.abs(unitScaleApplied - 1.0) > 1e-6) {
       loaderWarnings.push(
-        `Se aplicó factor de conversión de unidades 3MF (x${unitScaleApplied}).`
+        formatCoreWarning('WARN_LOADER_3MF_UNIT_SCALE', { scale: unitScaleApplied })
       );
     }
   } else {
-    throw new ValidationError(`Extensión no soportada: ${ext}`);
+    throw new ValidationError('FILE_EXTENSION_UNSUPPORTED', { ext });
   }
 
   return normalizeAndValidateGeometry(

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeVertices } from 'three-stdlib';
-import { ValidationError } from './errors';
+import { ValidationError, formatCoreWarning } from './errors';
 import type { MeshMetadata } from '../types/sculpture';
 
 export const MAX_TRIANGLES = 1_000_000;
@@ -63,13 +63,13 @@ export function normalizeAndValidateGeometry(
 ): { geometry: THREE.BufferGeometry; metadata: MeshMetadata } {
   const posAttr = rawGeometry.getAttribute('position');
   if (!posAttr || posAttr.count < 3) {
-    throw new ValidationError('La malla cargada está vacía (no contiene triángulos).');
+    throw new ValidationError('MESH_EMPTY', {});
   }
 
   rawGeometry.computeBoundingBox();
   const bb = rawGeometry.boundingBox;
   if (!bb) {
-    throw new ValidationError('No se pudo calcular el bounding box de la malla.');
+    throw new ValidationError('MESH_BBOX_FAILED', {});
   }
 
   const extents: [number, number, number] = [
@@ -80,7 +80,11 @@ export function normalizeAndValidateGeometry(
   const diag = Math.hypot(extents[0], extents[1], extents[2]);
   if (extents[0] < 1e-6 || extents[1] < 1e-6 || extents[2] < 1e-6) {
     throw new ValidationError(
-      `La malla es plana o degenerada (dimensiones: ${extents[0].toFixed(4)} x ${extents[1].toFixed(4)} x ${extents[2].toFixed(4)}). Se requiere un modelo 3D con volumen.`
+      'MESH_FLAT_OR_DEGENERATE', {
+        x: extents[0].toFixed(4),
+        y: extents[1].toFixed(4),
+        z: extents[2].toFixed(4),
+      }
     );
   }
 
@@ -97,18 +101,24 @@ export function normalizeAndValidateGeometry(
   const indexAttr = indexedGeom.getIndex();
   const weldedPos = indexedGeom.getAttribute('position');
   if (!indexAttr || !weldedPos) {
-    throw new ValidationError('Error al indexar los vértices de la malla.');
+    throw new ValidationError('MESH_INDEXING_FAILED', {});
   }
 
   const faceCount = Math.floor(indexAttr.count / 3);
   if (faceCount < 4) {
     throw new ValidationError(
-      `La malla tiene muy pocas caras (${faceCount}). Se requiere un modelo 3D con al menos 4 caras.`
+      'MESH_TOO_FEW_FACES', {
+        faceCount,
+        minFaces: 4,
+      }
     );
   }
   if (faceCount > MAX_TRIANGLES) {
     throw new ValidationError(
-      `La malla tiene ${faceCount.toLocaleString()} triángulos, excediendo el máximo permitido (${MAX_TRIANGLES.toLocaleString()}). Simplifica la malla antes de cargarla.`
+      'MESH_TOO_MANY_TRIANGLES', {
+        faceCount: faceCount.toLocaleString(),
+        maxTriangles: MAX_TRIANGLES.toLocaleString(),
+      }
     );
   }
 
@@ -360,23 +370,23 @@ export function normalizeAndValidateGeometry(
   if (!isWatertight) {
     if (openEdgeCount > 0) {
       warnings.push(
-        `La malla no es cerrada (${openEdgeCount} aristas abiertas). Algunos cortes podrían quedar incompletos.`
+        formatCoreWarning('WARN_MESH_OPEN_EDGES', { count: openEdgeCount })
       );
     }
     if (nonManifoldEdgeCount > 0) {
       warnings.push(
-        `La malla contiene ${nonManifoldEdgeCount} aristas no-manifold (más de 2 caras compartidas).`
+        formatCoreWarning('WARN_MESH_NON_MANIFOLD_EDGES', { count: nonManifoldEdgeCount })
       );
     }
   }
   if (openComponentCount > 0) {
     warnings.push(
-      `Se detectaron ${openComponentCount} componente(s) conexa(s) abierta(s); no se modificó la orientación de sus caras.`
+      formatCoreWarning('WARN_MESH_OPEN_COMPONENTS', { count: openComponentCount })
     );
   }
   if (invertedComponentCount > 0) {
     warnings.push(
-      `Se normalizó automáticamente la orientación de normales en ${invertedComponentCount} componente(s) cerrada(s) con caras invertidas.`
+      formatCoreWarning('WARN_MESH_INVERTED_NORMALS_FIXED', { count: invertedComponentCount })
     );
   }
 
