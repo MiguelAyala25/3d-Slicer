@@ -103,14 +103,16 @@ export function sliceWaffleFromCaches(
     const p2Dist = distance2 ?? pitch;
 
     if (p1Dist < minPitch - 1e-9) {
-      throw new ValidationError(
-        `La separación del 1.er eje (${p1Dist} mm) debe ser al menos 2 veces el grosor de placa (${minPitch.toFixed(2)} mm).`
-      );
+      throw new ValidationError('WAFFLE_AXIS1_DIST_TOO_SMALL', {
+        dist: p1Dist,
+        minPitch: minPitch.toFixed(2),
+      });
     }
     if (p2Dist < minPitch - 1e-9) {
-      throw new ValidationError(
-        `La separación del 2.º eje (${p2Dist} mm) debe ser al menos 2 veces el grosor de placa (${minPitch.toFixed(2)} mm).`
-      );
+      throw new ValidationError('WAFFLE_AXIS2_DIST_TOO_SMALL', {
+        dist: p2Dist,
+        minPitch: minPitch.toFixed(2),
+      });
     }
     p1Positions = computeFamilyGridPositions(hMin1, hMax1, p1Dist, gridOffset);
     p2Positions = computeFamilyGridPositions(hMin2, hMax2, p2Dist, gridOffset);
@@ -120,25 +122,28 @@ export function sliceWaffleFromCaches(
   // Validación de desfase de rejilla (CA-C3)
   const maxOffset = Math.max(1.0, effectivePitch * 0.5);
   if (Math.abs(gridOffset) > maxOffset + 1e-9) {
-    throw new ValidationError(
-      `El desfase de rejilla (${gridOffset} mm) debe estar entre -${maxOffset.toFixed(2)} y +${maxOffset.toFixed(2)} mm.`
-    );
+    throw new ValidationError('WAFFLE_GRID_OFFSET_OUT_OF_RANGE', {
+      gridOffset,
+      maxOffset: maxOffset.toFixed(2),
+    });
   }
 
   // Validación de ancho dibujado de ranura (CA-E1)
   const drawnSlotWidth = thickness + slotClearance - kerf;
   if (drawnSlotWidth < WAFFLE_CONSTANTS.MIN_DRAWN_SLOT_WIDTH_MM) {
-    throw new ValidationError(
-      `El ancho dibujado de ranura (t + holgura - kerf = ${drawnSlotWidth.toFixed(3)} mm) debe ser mayor a 0.05 mm. Reduce el kerf (${kerf} mm) o aumenta el grosor/holgura.`
-    );
+    throw new ValidationError('WAFFLE_DRAWN_SLOT_TOO_NARROW', {
+      drawnSlotWidth: drawnSlotWidth.toFixed(3),
+      kerf,
+    });
   }
 
   // Cota superior de secciones totales
   const totalSections = p1Positions.length + p2Positions.length;
   if (totalSections > WAFFLE_CONSTANTS.MAX_SECTIONS_TOTAL) {
-    throw new ValidationError(
-      `El total de secciones de la rejilla (${totalSections}) excede el máximo permitido de 400. Aumenta la separación entre secciones o reduce la cantidad de cortes.`
-    );
+    throw new ValidationError('WAFFLE_TOO_MANY_SECTIONS', {
+      totalSections,
+      maxSections: WAFFLE_CONSTANTS.MAX_SECTIONS_TOTAL,
+    });
   }
 
   const omittedGridPositions: Array<{

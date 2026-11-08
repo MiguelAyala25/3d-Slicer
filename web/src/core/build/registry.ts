@@ -1,6 +1,7 @@
 import { ValidationError } from '../validator';
 import { DISCS_JOINT } from '../joints/discs';
 import { NONE_JOINT } from '../joints/none';
+import { UI_TEXTS_ES } from '../../i18n/es';
 import type {
   JointDefinition,
   JointId,
@@ -11,14 +12,14 @@ import type {
 export const TECHNIQUES: TechniqueDefinition[] = [
   {
     id: 'stacked',
-    label: 'Planos apilados',
+    label: UI_TEXTS_ES.techniqueStackedLabel,
     available: true,
     allowedJointIds: ['none', 'discs', 'rod'],
     defaultJointId: 'discs',
   },
   {
     id: 'waffle',
-    label: 'Waffle',
+    label: UI_TEXTS_ES.techniqueWaffleLabel,
     available: true,
     allowedJointIds: ['slots'],
     defaultJointId: 'slots',
@@ -27,7 +28,7 @@ export const TECHNIQUES: TechniqueDefinition[] = [
 
 export const SLOTS_JOINT: JointDefinition = {
   id: 'slots',
-  label: 'Encaje por ranuras',
+  label: UI_TEXTS_ES.jointSlotsLabel,
   available: true,
   gapPolicy: { kind: 'fixed', value: 0 },
   validateParams(): void {},
@@ -35,12 +36,12 @@ export const SLOTS_JOINT: JointDefinition = {
 
 export const ROD_PLACEHOLDER: JointDefinition = {
   id: 'rod',
-  label: 'Con varilla',
+  label: UI_TEXTS_ES.jointRodLabel,
   available: false,
-  unavailableReason: 'Próximamente',
+  unavailableReason: UI_TEXTS_ES.jointRodUnavailableReason,
   gapPolicy: { kind: 'fixed', value: 0 },
   validateParams(): void {
-    throw new ValidationError('La unión «Con varilla» aún no está disponible.');
+    throw new ValidationError('BUILD_ROD_JOINT_UNAVAILABLE', {});
   },
 };
 
@@ -54,7 +55,7 @@ export const JOINTS: JointDefinition[] = [
 export function getJoint(id: JointId): JointDefinition {
   const joint = JOINTS.find((j) => j.id === id);
   if (!joint) {
-    throw new ValidationError(`Unión desconocida: '${id}'.`);
+    throw new ValidationError('BUILD_UNKNOWN_JOINT', { id });
   }
   return joint;
 }
@@ -62,7 +63,7 @@ export function getJoint(id: JointId): JointDefinition {
 export function getTechnique(id: TechniqueId): TechniqueDefinition {
   const tech = TECHNIQUES.find((t) => t.id === id);
   if (!tech) {
-    throw new ValidationError(`Técnica desconocida: '${id}'.`);
+    throw new ValidationError('BUILD_UNKNOWN_TECHNIQUE', { id });
   }
   return tech;
 }

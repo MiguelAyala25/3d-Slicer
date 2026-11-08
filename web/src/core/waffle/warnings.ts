@@ -1,3 +1,4 @@
+import { formatCoreWarning } from '../errors';
 import {
   ClipperOffset,
   EndType,
@@ -83,7 +84,10 @@ export function evaluateWaffleWarnings(
       code: 'W1',
       severity: 'info',
       pieceId: null,
-      message: `Sección omitida en familia ${omitted.prefix} (posición ${omitted.coord.toFixed(2)} mm): el plano no intersecta volumen útil.`,
+      message: formatCoreWarning('WARN_WAFFLE_W1_OMITTED_SECTION', {
+        prefix: omitted.prefix,
+        coord: omitted.coord.toFixed(2),
+      }),
     });
   }
 
@@ -128,7 +132,10 @@ export function evaluateWaffleWarnings(
           severity: 'warning',
           pieceId: sec.id,
           islandIndex: k,
-          message: `Pieza ${sec.id} (isla #${k + 1}): no tiene ningún cruce con la otra familia y quedará suelta al armar.`,
+          message: formatCoreWarning('WARN_WAFFLE_W2_ISLAND_NO_CROSSING', {
+            pieceId: sec.id,
+            islandIndex: k + 1,
+          }),
         });
       }
     }
@@ -146,7 +153,11 @@ export function evaluateWaffleWarnings(
         severity: 'warning',
         pieceId: cr.p1PieceId,
         partnerPieceIds: [cr.p2PieceId],
-        message: `Cruce ${cr.p1PieceId}–${cr.p2PieceId}: altura de encaje débil (${cr.engageHeightMm.toFixed(2)} mm < 4.0 mm).`,
+        message: formatCoreWarning('WARN_WAFFLE_W3_WEAK_ENGAGE', {
+          p1PieceId: cr.p1PieceId,
+          p2PieceId: cr.p2PieceId,
+          engageHeight: cr.engageHeightMm.toFixed(2),
+        }),
       });
     }
   }
@@ -176,7 +187,10 @@ export function evaluateWaffleWarnings(
         severity: 'warning',
         pieceId: sec.id,
         partnerPieceIds: partners,
-        message: `Pieza ${sec.id}: la ranura del cruce con ${partners.join(', ')} parte la pieza en múltiples fragmentos. Sugerencia: ajusta el desfase de rejilla (δ) o la separación (p).`,
+        message: formatCoreWarning('WARN_WAFFLE_W4_SLOT_SPLITS_PIECE', {
+          pieceId: sec.id,
+          partners: partners.join(', '),
+        }),
       });
     }
 
@@ -218,7 +232,9 @@ export function evaluateWaffleWarnings(
         code: 'W5',
         severity: 'warning',
         pieceId: sec.id,
-        message: `Pieza ${sec.id}: cuello delgado (< 2.0 mm) junto a ranura. Riesgo de fractura en acrílico; considera ajustar δ o p.`,
+        message: formatCoreWarning('WARN_WAFFLE_W5_THIN_WEB', {
+          pieceId: sec.id,
+        }),
       });
     }
   }

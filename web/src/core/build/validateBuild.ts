@@ -10,21 +10,19 @@ export function validateBuildParams(
   waffleParams?: WaffleParams
 ): void {
   if (!build.techniqueId) {
-    throw new ValidationError('Selecciona una técnica de construcción.');
+    throw new ValidationError('BUILD_TECHNIQUE_REQUIRED', {});
   }
   if (build.techniqueId !== 'stacked' && build.techniqueId !== 'waffle') {
-    throw new ValidationError(`Técnica desconocida: '${build.techniqueId}'.`);
+    throw new ValidationError('BUILD_UNKNOWN_TECHNIQUE', { id: build.techniqueId });
   }
 
   if (!build.jointId) {
-    throw new ValidationError('Selecciona un tipo de unión.');
+    throw new ValidationError('BUILD_JOINT_REQUIRED', {});
   }
 
   if (build.techniqueId === 'waffle') {
     if (build.jointId !== 'slots') {
-      throw new ValidationError(
-        "La técnica «Waffle» solo admite la unión «Encaje por ranuras» ('slots')."
-      );
+      throw new ValidationError('BUILD_WAFFLE_REQUIRES_SLOTS_JOINT', {});
     }
 
     validateParams(params);
@@ -32,27 +30,30 @@ export function validateBuildParams(
     if (waffleParams) {
       const minPitch = 2 * params.thickness;
       if (waffleParams.pitch < minPitch - 1e-9) {
-        throw new ValidationError(
-          `La separación entre secciones (${waffleParams.pitch} mm) debe ser al menos 2 veces el grosor de placa (${minPitch.toFixed(2)} mm).`
-        );
+        throw new ValidationError('WAFFLE_PITCH_TOO_SMALL', {
+          pitch: waffleParams.pitch,
+          minPitch: minPitch.toFixed(2),
+        });
       }
 
       const maxOffset = waffleParams.pitch * 0.5;
       if (Math.abs(waffleParams.gridOffset) > maxOffset + 1e-9) {
-        throw new ValidationError(
-          `El desfase de rejilla (${waffleParams.gridOffset} mm) debe estar entre -${maxOffset.toFixed(2)} y +${maxOffset.toFixed(2)} mm.`
-        );
+        throw new ValidationError('WAFFLE_GRID_OFFSET_OUT_OF_RANGE', {
+          gridOffset: waffleParams.gridOffset,
+          maxOffset: maxOffset.toFixed(2),
+        });
       }
 
       const drawnSlotWidth = params.thickness + waffleParams.slotClearance - params.kerf;
       if (drawnSlotWidth < 0.05) {
-        throw new ValidationError(
-          `El ancho dibujado de ranura (t + holgura - kerf = ${drawnSlotWidth.toFixed(3)} mm) debe ser mayor a 0.05 mm. Reduce el kerf (${params.kerf} mm) o aumenta el grosor/holgura.`
-        );
+        throw new ValidationError('WAFFLE_DRAWN_SLOT_TOO_NARROW', {
+          drawnSlotWidth: drawnSlotWidth.toFixed(3),
+          kerf: params.kerf,
+        });
       }
 
       if (waffleParams.targetScale <= 0) {
-        throw new ValidationError('El factor de escala debe ser mayor a 0.');
+        throw new ValidationError('WAFFLE_TARGET_SCALE_INVALID', {});
       }
     }
     return;
@@ -60,16 +61,14 @@ export function validateBuildParams(
 
   // techniqueId === 'stacked'
   if (build.jointId === 'slots') {
-    throw new ValidationError(
-      'La unión «Encaje por ranuras» es exclusiva de la técnica «Waffle».'
-    );
+    throw new ValidationError('BUILD_SLOTS_EXCLUSIVE_TO_WAFFLE', {});
   }
 
   validateParams(params);
 
   const joint = getJoint(build.jointId);
   if (!joint.available) {
-    throw new ValidationError(`La unión «${joint.label}» aún no está disponible.`);
+    throw new ValidationError('BUILD_JOINT_UNAVAILABLE', { label: joint.label });
   }
 
   joint.validateParams(params);

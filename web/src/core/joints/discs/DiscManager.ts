@@ -68,9 +68,10 @@ export class DiscManager {
       diameter < PARAM_BOUNDS.discDiameter.min ||
       diameter > PARAM_BOUNDS.discDiameter.max
     ) {
-      throw new ValidationError(
-        `El diámetro por defecto debe estar entre ${PARAM_BOUNDS.discDiameter.min} y ${PARAM_BOUNDS.discDiameter.max} mm.`
-      );
+      throw new ValidationError('DISC_DEFAULT_DIAMETER_OUT_OF_RANGE', {
+        min: PARAM_BOUNDS.discDiameter.min,
+        max: PARAM_BOUNDS.discDiameter.max,
+      });
     }
     this.defaultDiameter = diameter;
   }
@@ -99,14 +100,13 @@ export class DiscManager {
   ): AddDiscOutcome {
     const d = diameter ?? this.defaultDiameter;
     if (gapIndex < 0 || gapIndex >= plates.length - 1) {
-      throw new ValidationError(
-        `El índice de hueco ${gapIndex} está fuera de rango (0 a ${plates.length - 2}).`
-      );
+      throw new ValidationError('DISC_GAP_INDEX_OUT_OF_RANGE', {
+        gapIndex,
+        maxRange: plates.length - 2,
+      });
     }
     if (!isPointOnPlate(x, y, plates[gapIndex])) {
-      throw new ValidationError(
-        `El punto seleccionado está fuera de la placa activa P${gapIndex}.`
-      );
+      throw new ValidationError('DISC_POINT_OUTSIDE_PLATE', { gapIndex });
     }
 
     this.saveSnapshot();
@@ -178,9 +178,10 @@ export class DiscManager {
       newDiameter < PARAM_BOUNDS.discDiameter.min ||
       newDiameter > PARAM_BOUNDS.discDiameter.max
     ) {
-      throw new ValidationError(
-        `El diámetro debe estar entre ${PARAM_BOUNDS.discDiameter.min} y ${PARAM_BOUNDS.discDiameter.max} mm.`
-      );
+      throw new ValidationError('DISC_DIAMETER_OUT_OF_RANGE', {
+        min: PARAM_BOUNDS.discDiameter.min,
+        max: PARAM_BOUNDS.discDiameter.max,
+      });
     }
     const target = this.discs.find((d) => d.id === discId);
     if (!target) return false;
@@ -188,9 +189,11 @@ export class DiscManager {
       newDiameter > target.diameter &&
       !isDiscValidForGap(target.x, target.y, newDiameter, target.gapIndex, plates)
     ) {
-      throw new ValidationError(
-        `El diámetro Ø${newDiameter} mm excede el borde de las placas P${target.gapIndex}/P${target.gapIndex + 1} en la posición actual.`
-      );
+      throw new ValidationError('DISC_DIAMETER_EXCEEDS_PLATE_BORDER', {
+        diameter: newDiameter,
+        gapIndex: target.gapIndex,
+        nextGapIndex: target.gapIndex + 1,
+      });
     }
     if (Math.abs(target.diameter - newDiameter) < 1e-6) return true;
     this.saveSnapshot();

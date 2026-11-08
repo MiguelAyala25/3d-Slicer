@@ -1,5 +1,6 @@
 import { PARAM_BOUNDS } from '../../params';
 import { ValidationError } from '../../validator';
+import { UI_TEXTS_ES } from '../../../i18n/es';
 import type { SculptureParams } from '../../../types/sculpture';
 
 export function getDiscThickness(params: Pick<SculptureParams, 'gap'>): number {
@@ -16,9 +17,9 @@ export function getDiscSheetNotice(
   params: Pick<SculptureParams, 'gap' | 'thickness'>
 ): string {
   if (!isDiscsSeparateSheet(params)) {
-    return 'Discos: misma lámina que placas';
+    return UI_TEXTS_ES.discSheetSameNotice;
   }
-  return `Discos: lámina aparte de ${params.gap.toFixed(1)} mm`;
+  return UI_TEXTS_ES.discSheetSeparateNotice(params.gap);
 }
 
 export function validateDiscsParams(params: SculptureParams): void {
@@ -27,26 +28,32 @@ export function validateDiscsParams(params: SculptureParams): void {
     params.gap < PARAM_BOUNDS.gap.min ||
     params.gap > PARAM_BOUNDS.gap.max
   ) {
-    throw new ValidationError(
-      `La separación debe ser mayor o igual a ${PARAM_BOUNDS.gap.min} mm y menor o igual a ${PARAM_BOUNDS.gap.max} mm (recibido: ${params.gap}).`
-    );
+    throw new ValidationError('PARAM_GAP_OUT_OF_RANGE', {
+      min: PARAM_BOUNDS.gap.min,
+      max: PARAM_BOUNDS.gap.max,
+      received: params.gap,
+    });
   }
   if (
     !Number.isFinite(params.discDiameter) ||
     params.discDiameter < PARAM_BOUNDS.discDiameter.min ||
     params.discDiameter > PARAM_BOUNDS.discDiameter.max
   ) {
-    throw new ValidationError(
-      `El diámetro del disco debe estar entre ${PARAM_BOUNDS.discDiameter.min} y ${PARAM_BOUNDS.discDiameter.max} mm (recibido: ${params.discDiameter}).`
-    );
+    throw new ValidationError('DISC_PARAM_DIAMETER_OUT_OF_RANGE', {
+      min: PARAM_BOUNDS.discDiameter.min,
+      max: PARAM_BOUNDS.discDiameter.max,
+      received: params.discDiameter,
+    });
   }
   if (
     !Number.isFinite(params.engraveClearance) ||
     params.engraveClearance < PARAM_BOUNDS.engraveClearance.min ||
     params.engraveClearance > PARAM_BOUNDS.engraveClearance.max
   ) {
-    throw new ValidationError(
-      `La holgura de grabado debe estar entre ${PARAM_BOUNDS.engraveClearance.min} y ${PARAM_BOUNDS.engraveClearance.max} mm (recibido: ${params.engraveClearance}).`
-    );
+    throw new ValidationError('DISC_PARAM_CLEARANCE_OUT_OF_RANGE', {
+      min: PARAM_BOUNDS.engraveClearance.min,
+      max: PARAM_BOUNDS.engraveClearance.max,
+      received: params.engraveClearance,
+    });
   }
 }
