@@ -151,7 +151,7 @@ Por qué este orden:
 | C7 | ✅ PASSED | `5fa807f` | `1417242` | ✅ Aprobado |
 | C8 | ✅ PASSED | `8da6005` | `647023b` | ✅ Aprobado |
 | C9 | ✅ PASSED | `733520f` | `978834e` | ✅ Aprobado |
-| C10 | ✅ PASSED | `cb1c422` | `4a4b3b5` | Pendiente de revisión |
+| C10 | ✅ PASSED | `cb1c422` | `4a4b3b5` | ✅ Aprobado |
 | C11 | ⬜ Pendiente | | | |
 
 ### 2.2 Flujo de trabajo por chunk (plan → revisión → ejecución → commit y push)
@@ -1142,6 +1142,70 @@ Además de G1-G9 (**excepción a G5 solo para D5**, y solo con mi aprobación pr
 - **C11-3 (D5):** existe una única constante `GLYPH_WIDTH_RATIO` y `estimateTextWidth` en `core/`; `layout.ts`, `dxfExporter.ts` y (si aplica) `svgExporter.ts` la usan; ya no quedan factores sueltos `0.65` / `0.3` / `0.6` para ancho de texto (`Select-String` de revisión incluida en el informe).
 - **C11-4 (goldens de D5):** si el nuevo factor mueve etiquetas y cambia goldens de layout (`labelX`, `labelY`, `labelOutside`), **STOP**: informe con el diff por golden y espera mi aprobación; la actualización va en un commit `test(golden): ...` separado. Sin aprobación el chunk **no** está PASSED.
 - **C11-5:** se comprobó visualmente (o con test) que la etiqueta no excede el área de la pieza.
+
+#### Plan de ejecución — C11
+
+Hash de inicio (`<START>`): `ee70918` (`git status` limpio verificado).
+Se ejecutarán **3 commits separados** (1 de caracterización previa de `D4` y `D5` según regla 8, 1 para `D5` con `core/labelMetrics.ts` según `C11-3`/`C11-4`/`C11-5`, y 1 para `D4` de optimización opt-in de layout con FFD y rotación de 90° según `C11-1`/`C11-2`), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C11-1..C11-5`) al cerrar el chunk:
+
+1. **Paso 1 — Commit de caracterización previo (`test(layout): add characterization tests for sheet occupancy and label positions`)**
+   - **Objetivo (regla 8 + paso 1 de `D4` y tests previos de `D5`):** fijar antes de tocar producción el comportamiento actual del motor de layout y posicionamiento de etiquetas:
+     - **Ocupación y hojas actuales (`D4`):** caracterizar en `web/src/__tests__/layout.test.ts` el número de hojas (`sheets.length`), `usedWidth`, `usedHeight`, `usedAreaMm2` y `occupancyPct` para:
+       1. Los fixtures reales (`test_l_block.obj` en ejes Z e Y, y `Hand.OBJ`).
+       2. Un conjunto sintético determinista de **30 placas de tamaños mixtos** (combinando placas apaisadas y verticales de distintas dimensiones, con discos y huecos) empaquetadas con el algoritmo actual (`optimizeLayout = false`), fijando su `sheets.length` y `occupancyPct` por hoja como línea base de comparación para `C11-2(a)`.
+     - **Posiciones de etiquetas (`D5`):** caracterizar `labelText`, `labelX`, `labelY`, `labelSize` y `labelOutside` de todas las placas en `generateSheetLayouts` y `generateWaffleSheetLayouts`, así como las coordenadas `insertX` de entidades `TEXT` en `generateSheetDxf` y el tamaño de fuente de etiquetas de bandeja en `generateSheetDxf` / `generateSheetSvg`.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run src/__tests__/layout.test.ts` (pasa sobre el código actual sin tocar producción).
+
+2. **Paso 2 — Commit de D5 (`refactor(labels): centralize GLYPH_WIDTH_RATIO and estimateTextWidth in labelMetrics.ts`)**
+   - **Objetivo (`C11-3`, `C11-4`, `C11-5`, DEC-6 = A):** unificar todas las estimaciones de ancho de texto en una única fuente de verdad en `web/src/core/labelMetrics.ts`.
+   - **Elección del factor único (`GLYPH_WIDTH_RATIO = 0.6`):**
+     - `dxfExporter.ts:65` (`approxHalfW = text.length * height * 0.3`, que equivale a `0.6 * 0.5`), `dxfExporter.ts:167` (`grp.label.length * 0.6`) y `svgExporter.ts:140` (`grp.label.length * 0.6`) ya utilizan `0.6`. Adoptar `GLYPH_WIDTH_RATIO = 0.6` unifica `layout.ts`, `dxfExporter.ts` y `svgExporter.ts` sin alterar ningún archivo `.dxf`/`.svg` de `__baseline__/case1..5` ni mover ninguna etiqueta en `layout.json` de los casos base (`G5` vacío). Si al ejecutar la suite algún golden o baseline cambiara, me detendré de inmediato conforme a la regla 4 y `C11-4`.
+   - **Archivos a crear/modificar:**
+     - **Nuevo:** `web/src/core/labelMetrics.ts` (100 % headless):
+       - Exporta `export const GLYPH_WIDTH_RATIO = 0.6;`
+       - Exporta `export function estimateTextWidth(text: string, fontSize: number): number { return text.length * fontSize * GLYPH_WIDTH_RATIO; }`
+     - **Modificar:** `web/src/core/layout.ts`:
+       - Línea 102 (`computePlateLabel`): sustituir `labelText.length * textSize * 0.65` por `estimateTextWidth(labelText, textSize)`.
+       - Línea 411 (`computeWaffleSectionLabel`): sustituir `labelText.length * textSize * 0.65` por `estimateTextWidth(labelText, textSize)`.
+       - Línea 433 (`computeWaffleSectionLabel`, colisión con `slotLabels`): sustituir `s.text.length * s.fontSize * 0.65 * 0.5` por `estimateTextWidth(s.text, s.fontSize) * 0.5`.
+     - **Modificar:** `web/src/core/dxfExporter.ts`:
+       - Línea 65 (`addDxfCenteredText`): sustituir `text.length * height * 0.3` por `estimateTextWidth(text, height) * 0.5`.
+       - Línea 167 (`generateSheetDxf`, etiqueta de bandeja): sustituir `grp.label.length * 0.6` por `estimateTextWidth(grp.label, 1)`.
+     - **Modificar:** `web/src/core/svgExporter.ts`:
+       - Línea 140 (`generateSheetSvg`, etiqueta de bandeja): sustituir `grp.label.length * 0.6` por `estimateTextWidth(grp.label, 1)`.
+     - **Modificar:** `web/src/__tests__/layout.test.ts`:
+       - Añadir tests unitarios de `GLYPH_WIDTH_RATIO` y `estimateTextWidth`, y comprobar (`C11-5`) que para toda placa con `labelOutside === false` la caja estimada de texto `[labelX - w/2, labelX + w/2] × [labelY - h/2, labelY + h/2]` queda íntegramente contenida dentro del polígono y dentro del AABB `[xOffset, xOffset + width] × [yOffset, yOffset + height]` de la pieza.
+   - **Verificación:** `Select-String` en `src/core` confirma que no quedan factores literales `0.65` / `0.3` / `0.6` para ancho de texto (`C11-3`); `npx tsc --noEmit` y `npx vitest run`.
+
+3. **Paso 3 — Commit de D4 (`feat(layout): add opt-in FFD shelf ordering and 90-degree rotation with coherent mark transforms`)**
+   - **Objetivo (`C11-1`, `C11-2`, DEC-5 = B):** añadir reordenamiento por altura descendente (First-Fit Decreasing Height / Shelf FFD) y rotación de 90° de forma **opt-in** (`optimizeLayout?: boolean`, por defecto `false`), transformando coherentemente polígonos, discos grabados (`PlateEngraveDisc`) y etiquetas de ranura (`SlotLabel`).
+   - **Transformación geométrica coherente al rotar 90° (`C11-2(d)`):**
+     - Una placa local en `[0, w] × [0, h]` rotada 90° en sentido antihorario (isometría rígida con determinante `+1`, que preserva la orientación CCW de exteriores y CW de agujeros) se transforma a `[0, h] × [0, w]` (`w' = h, h' = w`) mediante `(x, y) ↦ (h - y, x)`:
+       - Polígonos locales (`exterior` y `holes`): cada vértice `[x, y]` pasa a `[h - y, x]`.
+       - Discos grabados (`localDiscs` de `hooks.plateEngraveMarks`): cada centro `(d.x, d.y)` pasa a `(h - d.y, d.x)` conservando `id`, `diameter`, `nominalDiameter`, `gapIndex` e `isDashed`.
+       - Etiquetas de ranura (`localSlotLabels` en waffle): cada posición `(lbl.x, lbl.y)` pasa a `(h - lbl.y, lbl.x)` conservando `crossingId`, `text` y `fontSize`.
+       - `computePlateLabel` / `computeWaffleSectionLabel` se invoca sobre la geometría y marcas ya rotadas con dimensiones `(w', h') = (h, w)`, preservando intacto el índice `plateIndex` y el texto `P{plateIndex}` / `section.id`.
+   - **Criterio de rotación de 90° y ordenamiento (`orderPlatesForPacking`):**
+     - Exportar la función pura `orderPlatesForPacking<T extends { plateIndex: number; width: number; height: number }>(items: readonly T[]): T[]` en `web/src/core/layout.ts`, que ordena las piezas por altura descendente (con desempate por ancho descendente e índice original `plateIndex` ascendente), manteniendo intacto `plateIndex`.
+     - Cuando `optimizeLayout === true`:
+       1. Si una pieza no cabe en el área útil en orientación original (`!isWithinUsableArea(w, h, params)`), se comprueba si cabe rotada 90° (`isWithinUsableArea(h, w, params)`). Si cabe rotada, se rota 90°; si tampoco cabe, se lanza el mismo `ValidationError`.
+       2. Antes de ordenar las piezas con `orderPlatesForPacking`, si una pieza tiene `h > w` y cabe rotada en el ancho útil (`isWithinUsableArea(h, w, params)`), se orienta con `h' = w < h` para reducir la altura de estante.
+       3. Durante la colocación en estantes, para cada pieza se evalúa si rotarla 90° (siempre que quepa en `usableW × usableH`) permite encajarla en el espacio restante de la fila actual cuando sin rotar saltaría de fila, o si reduce el incremento de `rowHeight` de la fila actual.
+   - **Archivos a modificar:**
+     - `web/src/types/sculpture.ts`: añadir `optimizeLayout?: boolean` como propiedad opcional en `CoreParams` (por defecto `false`, sin añadirla a `DEFAULT_PARAMS` ni a `project.ts` para no alterar la serialización JSON ni proyectos existentes).
+     - `web/src/core/layout.ts`:
+       - Exportar `orderPlatesForPacking` y el helper puro `rotatePlateLocal90(localPolys, localDiscs, localSlotLabels, w, h)`.
+       - Soportar `options?: { optimizeLayout?: boolean }` (o `params.optimizeLayout`) en `generateSheetLayouts` y `generateWaffleSheetLayouts`, manteniendo con `optimizeLayout = false` el flujo original sin cambios.
+     - `web/src/core/joints/discs/discLayout.ts`:
+       - Pasar `options?: { optimizeLayout?: boolean }` en `generateDiscsLayouts` hacia `generateSheetLayouts`.
+     - `web/src/__tests__/layout.test.ts`:
+       - Verificar con `optimizeLayout = false` (y por omisión) que la salida es idéntica a la actual (`C11-1`).
+       - Verificar con `optimizeLayout = true` en el caso sintético de 30 placas mixtas y en mallas reales (`C11-2`):
+         - `(a)` `sheets.length` es menor o igual al valor sin optimizar y `occupancyPct` por hoja es mayor o igual al valor sin optimizar.
+         - `(b)` Ninguna placa solapa a otra en la misma hoja (intersección de AABBs `[xOffset, xOffset + width] × [yOffset, yOffset + height]` vacía, respetando `partGap`).
+         - `(c)` Todas las placas quedan dentro del área útil `[margin, width - margin] × [margin, height - margin]`.
+         - `(d)` Se conservan todos los `plateIndex` (`0..N-1`) y sus etiquetas `P{n}` / `section.id`, y cuando una placa con discos o `slotLabels` rota 90°, las distancias relativas entre los discos/`slotLabels` y el contorno del polígono permanecen invariantes (isometría exacta).
+   - **Verificación final del chunk:** ejecutar G1-G9 (`npx tsc --noEmit`, `npx vitest run`, `npm run build`, `npx playwright test`, `git diff` de goldens vacío) y comprobar todos los criterios `C11-1` a `C11-5`.
 
 ---
 
