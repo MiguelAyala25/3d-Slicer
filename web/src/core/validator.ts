@@ -1,4 +1,4 @@
-export { ValidationError } from './errors';
+export { ValidationError, createValidationError, formatCoreWarning } from './errors';
 export {
   SUPPORTED_EXTENSIONS,
   MAX_FILE_SIZE_BYTES,

@@ -1,4 +1,4 @@
-import { validateParams, ValidationError } from './validator';
+import { validateParams, ValidationError, formatCoreWarning } from './validator';
 import {
   stitchAndUnionSegments,
   computeRepairGapMm,
@@ -72,7 +72,7 @@ export class AxisSliceCache {
     this.axis = axis;
     this.triCount = Math.floor(rawPositions.length / 9);
     if (this.triCount < 4) {
-      throw new ValidationError('La malla tiene menos de 4 triángulos.');
+      throw new ValidationError('MESH_TOO_FEW_TRIANGLES_FOR_SLICE', {});
     }
     this.numBuckets = numBucketsOverride ?? computeNumZBuckets(this.triCount);
 
@@ -130,7 +130,7 @@ export class AxisSliceCache {
     this.origHeight = this.boundsMax[2] - this.boundsMin[2];
     if (this.origHeight < 1e-6) {
       throw new ValidationError(
-        `La malla tiene altura 0 en el eje '${axis.toUpperCase()}'.`
+        'MESH_ZERO_HEIGHT_ON_AXIS', { axis: axis.toUpperCase() }
       );
     }
 
@@ -361,7 +361,11 @@ export function sliceMeshFromCache(
         floorIndex: i,
         openChainsDiscarded: stitched.openChainsDiscarded,
         openChainsRepaired: stitched.openChainsRepaired,
-        message: `Piso ${i}: ${stitched.openChainsDiscarded} cadena(s) abierta(s) descartada(s), ${stitched.openChainsRepaired} micro-brecha(s) cerrada(s).`,
+        message: formatCoreWarning('SLICE_FLOOR_OPEN_CHAINS', {
+          floorIndex: i,
+          openChainsDiscarded: stitched.openChainsDiscarded,
+          openChainsRepaired: stitched.openChainsRepaired,
+        }),
       });
     }
   }

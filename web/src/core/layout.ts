@@ -347,7 +347,11 @@ export function generateSheetLayouts(
   const usableH = params.sheetH - 2.0 * params.sheetMargin;
   if (usableW <= 0 || usableH <= 0) {
     throw new ValidationError(
-      `El margen (${params.sheetMargin} mm) es demasiado grande para la hoja de ${params.sheetW} x ${params.sheetH} mm.`
+      'SHEET_MARGIN_TOO_LARGE', {
+        sheetMargin: params.sheetMargin,
+        sheetW: params.sheetW,
+        sheetH: params.sheetH,
+      }
     );
   }
 
@@ -391,7 +395,13 @@ export function generateSheetLayouts(
         h = rot.height;
       } else {
         throw new ValidationError(
-          `La placa ${i} (${w.toFixed(1)} x ${h.toFixed(1)} mm) excede el área útil de la hoja (${usableW.toFixed(1)} x ${usableH.toFixed(1)} mm). Ajusta el tamaño de la hoja o escala el modelo 3D.`
+          'PLATE_EXCEEDS_USABLE_AREA', {
+        plateIndex: i,
+        widthMm: w.toFixed(1),
+        heightMm: h.toFixed(1),
+        usableWMm: usableW.toFixed(1),
+        usableHMm: usableH.toFixed(1),
+      }
         );
       }
     } else if (shouldOptimize && fitsRotated && h > w) {
@@ -661,7 +671,11 @@ export function generateWaffleSheetLayouts(
   const usableH = params.sheetH - 2.0 * params.sheetMargin;
   if (usableW <= 0 || usableH <= 0) {
     throw new ValidationError(
-      `El margen (${params.sheetMargin} mm) es demasiado grande para la hoja de ${params.sheetW} x ${params.sheetH} mm.`
+      'SHEET_MARGIN_TOO_LARGE', {
+        sheetMargin: params.sheetMargin,
+        sheetW: params.sheetW,
+        sheetH: params.sheetH,
+      }
     );
   }
 
@@ -708,7 +722,13 @@ export function generateWaffleSheetLayouts(
         h = rot.height;
       } else {
         throw new ValidationError(
-          `La pieza ${section.id} (${w.toFixed(1)} x ${h.toFixed(1)} mm) excede el área útil de la hoja (${usableW.toFixed(1)} x ${usableH.toFixed(1)} mm). Ajusta el tamaño de la hoja o reduce la escala del modelo.`
+          'WAFFLE_PIECE_EXCEEDS_USABLE_AREA', {
+        sectionId: section.id,
+        widthMm: w.toFixed(1),
+        heightMm: h.toFixed(1),
+        usableWMm: usableW.toFixed(1),
+        usableHMm: usableH.toFixed(1),
+      }
         );
       }
     } else if (shouldOptimize && fitsRotated && h > w) {
