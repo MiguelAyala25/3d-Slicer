@@ -152,7 +152,7 @@ Por qué este orden:
 | C8 | ✅ PASSED | `8da6005` | `647023b` | ✅ Aprobado |
 | C9 | ✅ PASSED | `733520f` | `978834e` | ✅ Aprobado |
 | C10 | ✅ PASSED | `cb1c422` | `4a4b3b5` | ✅ Aprobado |
-| C11 | ⬜ Pendiente | | | |
+| C11 | ✅ PASSED | `ee70918` | `94536b0` | Pendiente de revisión |
 
 ### 2.2 Flujo de trabajo por chunk (plan → revisión → ejecución → commit y push)
 
