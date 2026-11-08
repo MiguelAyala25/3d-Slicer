@@ -152,7 +152,8 @@ Por qué este orden:
 | C8 | ✅ PASSED | `8da6005` | `647023b` | ✅ Aprobado |
 | C9 | ✅ PASSED | `733520f` | `978834e` | ✅ Aprobado |
 | C10 | ✅ PASSED | `cb1c422` | `4a4b3b5` | ✅ Aprobado |
-| C11 | ✅ PASSED | `ee70918` | `94536b0` | Pendiente de revisión |
+| C11 | ✅ PASSED | `ee70918` | `94536b0` | ✅ Aprobado |
+| C12 | 📋 PLANIFICADO | `63d8529` | — | Pendiente de visto bueno del plan |
 
 ### 2.2 Flujo de trabajo por chunk (plan → revisión → ejecución → commit y push)
 
@@ -1225,6 +1226,93 @@ Se ejecutarán **3 commits separados** (1 de caracterización previa de `D4` y `
 - **Verificar:** gate estándar y e2e.
 - **Riesgo/rollback:** mensajes que pierden parámetros; `git revert` por módulo.
 - **Esfuerzo:** L · **Hecho:** el núcleo no contiene prosa en español y los mensajes mostrados son idénticos.
+
+#### ✅ Criterio de CHUNK PASSED — C12
+Además de G1-G9:
+- **C12-1 (tipos e infraestructura i18n):** existe `web/src/core/errors.ts` con `ErrorCode` (unión tipada), `ErrorParamsMap` (mapa tipado de parámetros por código) y `ValidationError<C extends ErrorCode = ErrorCode>` con propiedades `readonly code: C` y `readonly params: ErrorParamsMap[C]`; existe `web/src/i18n/es.ts` (100 % headless, sin React ni DOM) que traduce todos los `ErrorCode` y `WarningCode` al español.
+- **C12-2 (mensajes idénticos):** `err.message` en cada `ValidationError` y `.message` en `SliceWarning`, `WaffleWarning` y `MeshMetadata.warnings` producen **exactamente el mismo string en español** que antes del refactor (todos los tests de caracterización de `M4` en `validator.test.ts`, `M5` en `project.test.ts`, `slicer.test.ts`, `layout.test.ts`, `discs.test.ts`, `joints.test.ts` y `waffleSlicer.test.ts` pasan sin debilitar ninguna aserción de texto).
+- **C12-3 (cero prosa en español en `core/`):** un test de guardia en `architecture.test.ts` verifica que ningún archivo de `web/src/core/**/*.ts` instancia `new ValidationError(` con un literal de texto libre (todos usan un `ErrorCode` tipado) y que ninguna cadena de error o advertencia de usuario en español reside en `web/src/core/` (salvo identificadores de manufactura CAD en lámina como `CORTE`, `GRABADO`, `SOBRANTE`, `CALIBRACION WAFFLE`).
+- **C12-4 (migración modular por commits):** un commit por bloque/módulo según el plan, manteniendo `npx tsc --noEmit` y `npx vitest run` en verde tras cada commit.
+- **C12-5:** `G5` vacío (ningún archivo en `web/golden/*` ni `web/src/__tests__/__baseline__/*` cambia).
+
+#### Plan de ejecución — C12
+
+Hash de inicio (`<START>`): `63d8529` (`git status` limpio verificado).
+Se ejecutarán **6 commits separados** (1 de infraestructura + caracterización de códigos, 4 de migración modular de `core/` y 1 de guardia arquitectónica final), corriendo `npx tsc --noEmit` y `npx vitest run` tras cada uno, y el gate completo (`G1`-`G9` + `C12-1..C12-5`) al cerrar el chunk:
+
+1. **Paso 1 — Infraestructura tipada de errores/avisos y diccionario `es` (`refactor(i18n): add typed ErrorCode, WarningCode and Spanish message catalog in src/i18n/es.ts`)**
+   - **Objetivo (`C12-1`, `C12-2`):** definir el catálogo completo de códigos tipados y sus parámetros sin romper ningún consumidor actual.
+   - **Archivos a crear/modificar:**
+     - **Nuevo:** `web/src/i18n/es.ts`:
+       - Define el mapa exhaustivo `ERROR_MESSAGES_ES: { [K in ErrorCode]: (params: ErrorParamsMap[K]) => string }`, `WARNING_MESSAGES_ES: { [K in WarningCode]: (params: WarningParamsMap[K]) => string }` y constantes/helpers de texto de interfaz (`UI_TEXTS_ES`, como `INCOMPATIBLE_PROJECT_CONFIRM_MESSAGE`, `getDiscSheetNoticeEs`, y etiquetas de técnicas/uniones).
+       - Exporta `formatErrorMessageEs<K extends ErrorCode>(code: K, params: ErrorParamsMap[K]): string` y `formatWarningMessageEs<K extends WarningCode>(code: K, params: WarningParamsMap[K]): string`.
+     - **Modificar:** `web/src/core/errors.ts`:
+       - Define `ErrorCode` (unión de todos los códigos de error del núcleo), `ErrorParamsMap`, `WarningCode` y `WarningParamsMap`.
+       - Amplía `ValidationError<K extends ErrorCode = ErrorCode>` con `readonly code: K` y `readonly params: ErrorParamsMap[K]`.
+       - Constructor sobrecargado durante la transición: acepta `(code: K, params: ErrorParamsMap[K])` (calculando `super(formatErrorMessageEs(code, params))`) y mantiene temporalmente la sobrecarga `(legacyMessage: string)` hasta completar el Paso 6, para que cada módulo pueda migrarse en su propio commit sin romper los demás.
+       - Exporta helper `createValidationError<K extends ErrorCode>(code: K, params: ErrorParamsMap[K]): ValidationError<K>` y `formatCoreWarning<K extends WarningCode>(code: K, params: WarningParamsMap[K]): string`.
+   - **Tests:** nuevo `web/src/__tests__/i18nErrors.test.ts` que recorre todos los `ErrorCode` y `WarningCode` verificando que `ValidationError` expone `.code`, `.params` y `.message` exacto en español.
+
+2. **Paso 2 — Migración de `slicer.ts` y `layout.ts` (`refactor(core): use typed error and warning codes in slicer and layout`)**
+   - **Objetivo (`C12-2`, `C12-4`):** eliminar toda prosa en español de `web/src/core/slicer.ts` y `web/src/core/layout.ts`.
+   - **Sitios exactos verificados con `Select-String`:**
+     - `web/src/core/slicer.ts`:
+       - `:75` → código `'MESH_TOO_FEW_TRIANGLES_FOR_SLICE'` (`{ minTriangles: 4 }`)
+       - `:132` → código `'MESH_ZERO_HEIGHT_ON_AXIS'` (`{ axis: axis.toUpperCase() }`)
+       - `:364` (`SliceWarning.message`) → `WarningCode` `'SLICE_FLOOR_OPEN_CHAINS'` (`{ floorIndex: i, openChainsDiscarded: stitched.openChainsDiscarded, openChainsRepaired: stitched.openChainsRepaired }`), añadiendo opcionalmente `code?: 'SLICE_FLOOR_OPEN_CHAINS'` en `SliceWarning` sin alterar los campos existentes.
+     - `web/src/core/layout.ts`:
+       - `:349` y `:663` → código `'SHEET_MARGIN_TOO_LARGE'` (`{ sheetMargin: params.sheetMargin, sheetW: params.sheetW, sheetH: params.sheetH }`)
+       - `:393` → código `'PLATE_EXCEEDS_USABLE_AREA'` (`{ plateIndex: i, widthMm: w.toFixed(1), heightMm: h.toFixed(1), usableWMm: usableW.toFixed(1), usableHMm: usableH.toFixed(1) }`)
+       - `:710` → código `'WAFFLE_PIECE_EXCEEDS_USABLE_AREA'` (`{ sectionId: section.id, widthMm: w.toFixed(1), heightMm: h.toFixed(1), usableWMm: usableW.toFixed(1), usableHMm: usableH.toFixed(1) }`)
+       - *(Nota: `'SOBRANTE'` en `:308, 319` se conserva intacto por ser texto de grabado láser CAD en la lámina física y parte de los baselines DXF/SVG/layout).*
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run`.
+
+3. **Paso 3 — Migración de `paramValidation.ts`, `meshRepair.ts` y `meshLoader.ts` (`refactor(core): use typed error and warning codes in paramValidation, meshRepair and meshLoader`)**
+   - **Objetivo (`C12-2`, `C12-4`):** eliminar toda prosa en español de la validación de parámetros, carga de archivos y reparación topológica.
+   - **Sitios exactos verificados con `Select-String`:**
+     - `web/src/core/paramValidation.ts`:
+       - `:11` (`'FILE_PATH_EMPTY'`), `:16` (`'FILE_FORMAT_UNSUPPORTED'`), `:22` (`'FILE_EMPTY'`), `:25` (`'FILE_TOO_LARGE'`), `:39` (`'PARAM_PLATES_OUT_OF_RANGE'`), `:48` (`'PARAM_THICKNESS_OUT_OF_RANGE'`), `:57` (`'PARAM_GAP_OUT_OF_RANGE'`), `:62` (`'PARAM_AXIS_INVALID'`), `:74` (`'PARAM_SHEET_DIM_OUT_OF_RANGE'`), `:83` (`'PARAM_SHEET_MARGIN_OUT_OF_RANGE'`), `:88` (`'SHEET_MARGIN_TOO_LARGE'`), `:97` (`'PARAM_PART_GAP_OUT_OF_RANGE'`), `:106` (`'PARAM_KERF_OUT_OF_RANGE'`), `:111` (`'PARAM_SCRAP_TAG_NOT_BOOLEAN'`).
+     - `web/src/core/meshRepair.ts`:
+       - Errores: `:66` (`'MESH_EMPTY'`), `:72` (`'MESH_BBOX_FAILED'`), `:82` (`'MESH_FLAT_OR_DEGENERATE'`), `:100` (`'MESH_INDEXING_FAILED'`), `:105` (`'MESH_TOO_FEW_FACES'`), `:110` (`'MESH_TOO_MANY_TRIANGLES'`).
+       - Warnings (`MeshMetadata.warnings`): `:362` (`'WARN_MESH_OPEN_EDGES'`), `:367` (`'WARN_MESH_NON_MANIFOLD_EDGES'`), `:373` (`'WARN_MESH_OPEN_COMPONENTS'`), `:378` (`'WARN_MESH_INVERTED_NORMALS_FIXED'`).
+     - `web/src/core/meshLoader.ts`:
+       - Errores: `:79` (`'MESH_ONLY_LINES_OR_POINTS'`), `:83` (`'MESH_NO_TRIANGLES_FOUND'`), `:99` (`'MESH_MERGE_FAILED'`), `:110` (`'PLY_POINT_CLOUD_NO_FACES'`), `:138` (`'PLY_NO_VALID_TRIANGLES'`), `:168` (`'FILE_EXTENSION_UNSUPPORTED'`).
+       - Warnings: `:88` (`'WARN_LOADER_IGNORED_LINES_OR_POINTS'`), `:153` (`'WARN_LOADER_Y_UP_TO_Z_UP'`), `:163` (`'WARN_LOADER_3MF_UNIT_SCALE'`).
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run` (incluyendo los tests de caracterización de `M4` en `validator.test.ts`).
+
+4. **Paso 4 — Migración de `project.ts`, `projectSchema.ts` y `discProject.ts` (`refactor(project): use typed error codes in project, projectSchema and discProject`)**
+   - **Objetivo (`C12-2`, `C12-4`):** eliminar toda prosa en español del parseo y validación de proyectos v1.0 y v2.0.
+   - **Sitios exactos verificados con `Select-String`:**
+     - `web/src/core/project.ts`:
+       - `:227` (`'PROJECT_INVALID_JSON'`), `:231` (`'PROJECT_INVALID_FORMAT'`), `:237` (`'PROJECT_UNSUPPORTED_VERSION'`), `:246` y `:273` (`'PROJECT_MISSING_REQUIRED_FIELD'`), `:278` (`'PROJECT_UNRECOGNIZED_ROOT_FIELD'`), `:287`, `:338`, `:400` (`'PROJECT_FIELD_MUST_BE_OBJECT'`), `:291`, `:294`, `:342`, `:345`, `:385` (`'PROJECT_MISSING_REQUIRED_FIELD'`), `:298`, `:371`, `:380`, `:389`, `:404` (`'PROJECT_UNRECOGNIZED_SECTION_FIELD'`), `:304` (`'BUILD_UNKNOWN_TECHNIQUE'`), `:351` (`'BUILD_WAFFLE_REQUIRES_SLOTS_JOINT'`), `:355` (`'BUILD_SLOTS_EXCLUSIVE_TO_WAFFLE'`), `:358` (`'BUILD_UNKNOWN_JOINT'`), `:361` (`'BUILD_ROD_JOINT_UNAVAILABLE'`), `:367` (`'PROJECT_SLOTS_NO_DISCS_ALLOWED'`), `:376` (`'PROJECT_NONE_JOINT_NO_DISCS_ALLOWED'`).
+       - `:494`: `INCOMPATIBLE_PROJECT_CONFIRM_MESSAGE` se importa y reexporta desde `src/i18n/es.ts`.
+     - `web/src/core/projectSchema.ts`:
+       - `:12` (`'PROJECT_DISCS_LIST_INVALID'`), `:21` (`'PROJECT_DISC_ITEM_INVALID'`), `:32` (`'PROJECT_DISC_ID_INVALID'`), `:35` (`'PROJECT_DISC_ID_DUPLICATE'`), `:40` (`'PROJECT_DISC_COORDS_NON_NUMERIC'`), `:47` (`'PROJECT_DISC_DIAMETER_INVALID'`), `:52` (`'PROJECT_DISC_GAP_OUT_OF_RANGE'`), y todas las validaciones de `material`, `technique.params` y `joint.params` (`'PROJECT_FIELD_MUST_BE_OBJECT'`, `'PROJECT_MISSING_REQUIRED_FIELD'`, `'PROJECT_UNRECOGNIZED_SECTION_FIELD'`, `'PROJECT_FIELD_MUST_BE_NUMERIC'`, `'PROJECT_FIELD_MUST_BE_BOOLEAN'`, `'PROJECT_WAFFLE_UP_AXIS_INVALID'`).
+     - `web/src/core/joints/discs/discProject.ts`:
+       - `parseDiscsHueco` (`:28-77`) delega directamente en `validateAndParseDiscs(rawDiscs, plates)` de `../../projectSchema`, eliminando el código duplicado y sus literales en español.
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run` (incluyendo todo el corpus de caracterización de `M5` en `project.test.ts`).
+
+5. **Paso 5 — Migración de `build/`, `joints/` y `waffle/` (`refactor(core): use typed error and warning codes in build, joints and waffle modules`)**
+   - **Objetivo (`C12-2`, `C12-4`):** eliminar toda prosa en español restante en `core/build/*`, `core/joints/*` y `core/waffle/*`.
+   - **Sitios exactos verificados con `Select-String`:**
+     - `web/src/core/build/registry.ts`: `:43` (`'BUILD_ROD_JOINT_UNAVAILABLE'`), `:57` (`'BUILD_UNKNOWN_JOINT'`), `:65` (`'BUILD_UNKNOWN_TECHNIQUE'`), y etiquetas `label` / `unavailableReason` obtenidas desde `src/i18n/es.ts`.
+     - `web/src/core/build/validateBuild.ts`: `:13` (`'BUILD_TECHNIQUE_REQUIRED'`), `:16` (`'BUILD_UNKNOWN_TECHNIQUE'`), `:20` (`'BUILD_JOINT_REQUIRED'`), `:25` (`'BUILD_WAFFLE_REQUIRES_SLOTS_JOINT'`), `:35` (`'WAFFLE_PITCH_TOO_SMALL'`), `:42` (`'WAFFLE_GRID_OFFSET_OUT_OF_RANGE'`), `:49` (`'WAFFLE_DRAWN_SLOT_TOO_NARROW'`), `:55` (`'WAFFLE_TARGET_SCALE_INVALID'`), `:63` (`'BUILD_SLOTS_EXCLUSIVE_TO_WAFFLE'`), `:72` (`'BUILD_JOINT_UNAVAILABLE'`).
+     - `web/src/core/joints/none.ts`: `:12` (`'NONE_JOINT_REQUIRES_ZERO_GAP'`), etiqueta `label` desde `src/i18n/es.ts`.
+     - `web/src/core/joints/discs/index.ts`, `DiscManager.ts` y `discParams.ts`:
+       - `DiscManager.ts`: `:71` (`'DISC_DEFAULT_DIAMETER_OUT_OF_RANGE'`), `:102` (`'DISC_GAP_INDEX_OUT_OF_RANGE'`), `:107` (`'DISC_POINT_OUTSIDE_PLATE'`), `:181` (`'DISC_DIAMETER_OUT_OF_RANGE'`), `:191` (`'DISC_DIAMETER_EXCEEDS_PLATE_BORDER'`).
+       - `discParams.ts`: `:15-22` (`getDiscSheetNotice` delega formato en `src/i18n/es.ts`), `:30` (`'PARAM_GAP_OUT_OF_RANGE'`), `:39` (`'DISC_PARAM_DIAMETER_OUT_OF_RANGE'`), `:48` (`'DISC_PARAM_CLEARANCE_OUT_OF_RANGE'`).
+     - `web/src/core/waffle/waffleSlicer.ts` y `web/src/core/waffle/warnings.ts`:
+       - `waffleSlicer.ts`: `:106` (`'WAFFLE_AXIS1_DIST_TOO_SMALL'`), `:111` (`'WAFFLE_AXIS2_DIST_TOO_SMALL'`), `:123` (`'WAFFLE_GRID_OFFSET_OUT_OF_RANGE'`), `:131` (`'WAFFLE_DRAWN_SLOT_TOO_NARROW'`), `:139` (`'WAFFLE_TOO_MANY_SECTIONS'`).
+       - `warnings.ts`: `:86` (`'WARN_WAFFLE_W1_OMITTED_SECTION'`), `:131` (`'WARN_WAFFLE_W2_ISLAND_NO_CROSSING'`), `:149` (`'WARN_WAFFLE_W3_WEAK_ENGAGE'`), `:179` (`'WARN_WAFFLE_W4_SLOT_SPLITS_PIECE'`), `:221` (`'WARN_WAFFLE_W5_THIN_WEB'`).
+   - **Verificación:** `npx tsc --noEmit` y `npx vitest run`.
+
+6. **Paso 6 — Cierre del constructor tipado y guardia arquitectónica en `architecture.test.ts` (`test(architecture): enforce typed ErrorCode and zero Spanish prose in core`)**
+   - **Objetivo (`C12-3`, `C12-5`):**
+     - Retirar la sobrecarga temporal `constructor(legacyMessage: string)` de `ValidationError` en `web/src/core/errors.ts` para que el compilador TypeScript obligue siempre a pasar un `code: ErrorCode` válido y sus `params: ErrorParamsMap[K]`.
+     - Añadir en `web/src/__tests__/architecture.test.ts` un test que escanee todos los archivos `web/src/core/**/*.ts` y verifique:
+       1. Que toda llamada a `new ValidationError(` o `createValidationError(` utiliza un código de error tipado y que no existen literales de prosa en español fuera de comentarios en `web/src/core/`.
+       2. Que `web/src/i18n/es.ts` no importa React, Three ni módulos de UI.
+   - **Verificación final del chunk:** ejecutar G1-G9 (`npx tsc --noEmit`, `npx vitest run`, `npm run build`, `npx playwright test`, `git diff` de goldens vacío) y comprobar todos los criterios `C12-1` a `C12-5`.
 
 ---
 
