@@ -18,17 +18,17 @@ export function Viewport3D() {
 
   return (
     <div className="relative w-full h-full bg-[#09090B]">
-      {/* Indicador flotante estilizado y centrado en el espacio 3D visible */}
+      {/* Indicador flotante estilizado y centrado en el mero centro del espacio 3D visible */}
       {(isLoadingMesh || isSlicing) && (
         <div
           role="status"
           aria-live="polite"
           data-testid="viewport-loading-overlay"
-          className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none select-none transition-all animate-in fade-in zoom-in-95 duration-150"
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-30 pointer-events-none select-none transition-all animate-in fade-in zoom-in-95 duration-150"
         >
-          <div className="bg-[#1b1b1d]/95 backdrop-blur-xl border border-white/[0.08] rounded-full px-4 py-2 flex items-center gap-2.5 shadow-2xl">
-            <Loader2 className="w-4 h-4 text-[#2997ff] animate-spin shrink-0" />
-            <span className="text-xs font-semibold text-[#f4f4f5] tracking-wide">
+          <div className="bg-[#1b1b1d]/95 backdrop-blur-xl border border-white/[0.12] rounded-full px-6 py-3.5 flex items-center gap-3.5 shadow-2xl">
+            <Loader2 className="w-5 h-5 text-[#2997ff] animate-spin shrink-0" />
+            <span className="text-sm font-semibold text-[#f4f4f5] tracking-wide">
               {isLoadingMesh ? 'Cargando modelo 3D...' : 'Calculando corte...'}
             </span>
           </div>
