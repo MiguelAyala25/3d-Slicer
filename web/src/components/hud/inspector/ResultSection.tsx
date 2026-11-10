@@ -69,98 +69,102 @@ export function ResultSection() {
   const hasResult = isWaffle ? Boolean(waffleResult) : Boolean(sliceResult);
 
   return (
-    <section className="border-t border-white/[0.08] pt-2.5 flex flex-col gap-2 hud-text-selectable">
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA] select-none">
+    <section className="bg-white/[0.02] p-2.5 rounded-2xl border border-white/[0.05] flex flex-col gap-2.5 hud-text-selectable">
+      <h2 className="text-[13px] font-semibold text-[#cccccc] select-none">
         Resultado
       </h2>
 
       {isSlicing ? (
-        <div className="flex items-center gap-2 p-2.5 rounded-md bg-[#1C1C21] border border-white/[0.08] text-xs text-[#A1A1AA]">
-          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0A84FF]" />
-          <span>{isWaffle ? 'Rebanando Waffle...' : 'Rebanando modelo...'}</span>
+        <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#131315] border border-white/[0.06] text-xs text-[#cccccc]">
+          <Loader2 className="w-3.5 h-3.5 animate-spin text-[#2997ff]" />
+          <span>Calculando corte...</span>
         </div>
       ) : isWaffle && waffleResult ? (
-        <div className="flex flex-col gap-1 text-xs font-mono-tabular text-[#F4F4F5] bg-[#1C1C21] p-2.5 rounded-md border border-white/[0.08]">
+        <div className="flex flex-col gap-1.5 text-xs font-mono-tabular text-white bg-[#131315] p-3 rounded-xl border border-white/[0.06]">
           <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Secciones familia {axesConfig?.p1Prefix}:</span>
+            <span className="text-[#8b919e]">Secciones familia {axesConfig?.p1Prefix}:</span>
             <span>{waffleResult.p1Sections.length}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Secciones familia {axesConfig?.p2Prefix}:</span>
+            <span className="text-[#8b919e]">Secciones familia {axesConfig?.p2Prefix}:</span>
             <span>{waffleResult.p2Sections.length}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Total de piezas:</span>
-            <span data-testid="waffle-total-pieces">
+            <span className="text-[#8b919e]">Total de piezas:</span>
+            <span data-testid="waffle-total-pieces" className="font-semibold">
               {waffleResult.p1Sections.length + waffleResult.p2Sections.length}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Cruces activos:</span>
+            <span className="text-[#8b919e]">Cruces activos:</span>
             <span>{waffleResult.crossings.length}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Ancho ranura (w):</span>
+            <span className="text-[#8b919e]">Ancho ranura (w):</span>
             <span>{waffleResult.drawnSlotWidth.toFixed(2)} mm</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Escala uniforme:</span>
+            <span className="text-[#8b919e]">Escala uniforme:</span>
             <span>{waffleParams.targetScale.toFixed(3)}x</span>
           </div>
           {waffle3dDims && (
             <div className="flex justify-between">
-              <span className="text-[#A1A1AA]">Dimensiones 3D:</span>
+              <span className="text-[#8b919e]">Dimensiones 3D:</span>
               <span>
                 {waffle3dDims.dx} × {waffle3dDims.dy} × {waffle3dDims.dz} mm
               </span>
             </div>
           )}
-          <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Número de hojas:</span>
+          <div className="flex justify-between border-t border-white/[0.05] pt-1.5">
+            <span className="text-[#8b919e]">Número de hojas:</span>
             <span
               data-testid="waffle-sheet-count"
-              className={waffleSheetCount === 'Excede hoja' ? 'text-amber-400 font-semibold' : ''}
+              className={waffleSheetCount === 'Excede hoja' ? 'text-amber-400 font-semibold' : 'font-semibold'}
             >
               {waffleSheetCount ?? '—'}
             </span>
           </div>
         </div>
       ) : !isWaffle && sliceResult ? (
-        <div className="flex flex-col gap-1 text-xs font-mono-tabular text-[#F4F4F5] bg-[#1C1C21] p-2.5 rounded-md border border-white/[0.08]">
+        <div className="flex flex-col gap-1.5 text-xs font-mono-tabular text-white bg-[#131315] p-3 rounded-xl border border-white/[0.06]">
           <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Placas válidas:</span>
-            <span>
+            <span className="text-[#8b919e]">Placas válidas:</span>
+            <span className="font-semibold">
               {validPlatesCount} / {sliceResult.plates.length}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Escala auto:</span>
+            <span className="text-[#8b919e]">Escala auto:</span>
             <span>{sliceResult.scaleFactor.toFixed(3)}x</span>
           </div>
           {scaledDims && (
             <div className="flex justify-between">
-              <span className="text-[#A1A1AA]">Dimensiones:</span>
+              <span className="text-[#8b919e]">Dimensiones:</span>
               <span>
                 {scaledDims.w} × {scaledDims.d} × {scaledDims.h} mm
               </span>
             </div>
           )}
           <div className="flex justify-between">
-            <span className="text-[#A1A1AA]">Altura ensamblada:</span>
-            <span>{sliceResult.scaledHeight.toFixed(1)} mm</span>
+            <span className="text-[#8b919e]">Altura ensamblada:</span>
+            <span className="text-[#2997ff] font-semibold">
+              {sliceResult.scaledHeight.toFixed(1)} mm
+            </span>
           </div>
           {build.jointId === 'discs' && (
             <div
-              className="flex justify-between"
+              className="flex justify-between border-t border-white/[0.05] pt-1.5"
               data-testid="stat-discs-total"
             >
-              <span className="text-[#A1A1AA]">Discos totales:</span>
-              <span data-testid="total-discs-count">{discs.length}</span>
+              <span className="text-[#8b919e]">Discos totales:</span>
+              <span data-testid="total-discs-count" className="font-semibold">
+                {discs.length}
+              </span>
             </div>
           )}
         </div>
       ) : (
-        <p className="text-xs text-[#9CA3AF]">
+        <p className="text-xs text-[#8b919e]">
           Sin corte activo. Carga un modelo 3D para comenzar.
         </p>
       )}
@@ -170,7 +174,7 @@ export function ResultSection() {
         <WaffleWarningsPanel />
       ) : (
         (meshMetadata?.warnings.length || sliceResult?.warnings.length) ? (
-          <div className="flex flex-col gap-1 p-2 rounded-md bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300">
+          <div className="flex flex-col gap-1 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-300">
             {meshMetadata?.warnings.map((w, idx) => (
               <div key={`mw-${idx}`} className="flex items-start gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -195,9 +199,9 @@ export function ResultSection() {
           type="button"
           data-testid="btn-slot-calibration-sheet"
           onClick={openCalibrationSheetPreview}
-          className="w-full h-8 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium text-[#F4F4F5] flex items-center justify-center gap-1.5 border border-white/[0.08] select-none"
+          className="w-full bg-[#252527] text-[#2997ff] border border-[#2997ff]/40 hover:bg-[#2997ff]/10 rounded-2xl py-2.5 text-[12px] font-medium transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm select-none cursor-pointer"
         >
-          <Sliders className="w-3.5 h-3.5 text-[#0A84FF]" />
+          <Sliders className="w-3.5 h-3.5 text-[#2997ff]" />
           <span>Hoja de prueba de ranuras</span>
         </button>
       )}
@@ -205,7 +209,7 @@ export function ResultSection() {
       {!isWaffle && discardedSummary.totalDiscarded > 0 && (
         <div
           data-testid="discarded-chains-notice"
-          className="flex items-center gap-1.5 p-2 rounded-md bg-amber-500/15 border border-amber-500/40 text-[11px] text-amber-200"
+          className="flex items-center gap-1.5 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-[11px] text-amber-200"
         >
           <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
           <span>
@@ -218,9 +222,9 @@ export function ResultSection() {
         type="button"
         disabled={!hasResult || isSlicing}
         onClick={openSheetPreviewModal}
-        className="mt-1 w-full h-9 coarse:min-h-10 rounded-md bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-xs font-semibold text-white flex items-center justify-center gap-1.5 shadow select-none"
+        className="mt-1 w-full bg-[#0066cc] hover:bg-[#0052a3] disabled:opacity-40 text-white rounded-2xl py-2.5 text-[13px] font-semibold transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-md select-none cursor-pointer disabled:cursor-not-allowed"
       >
-        <FileOutput className="w-3.5 h-3.5" />
+        <FileOutput className="w-4 h-4" />
         <span>Vista previa y exportar</span>
       </button>
     </section>

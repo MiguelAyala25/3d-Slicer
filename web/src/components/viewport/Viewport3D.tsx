@@ -14,8 +14,6 @@ export function Viewport3D() {
   const viewMode = useSculptureStore((s) => s.viewMode);
   const isLoadingMesh = useSculptureStore((s) => s.isLoadingMesh);
   const isSlicing = useSculptureStore((s) => s.isSlicing);
-  const meshMetadata = useSculptureStore((s) => s.meshMetadata);
-  const statusMessage = useSculptureStore((s) => s.statusMessage);
   const build = useSculptureStore((s) => s.build);
   const JointViewportLayer = build.jointId ? JOINT_UI[build.jointId]?.ViewportLayer : undefined;
 
@@ -31,29 +29,19 @@ export function Viewport3D() {
 
   return (
     <div className="relative w-full h-full bg-[#09090B]">
-      {/* Overlay con spinner para modelos pesados y proceso de corte */}
+      {/* Indicador flotante estilizado y coherente con el HUD para carga y corte */}
       {(isLoadingMesh || isSlicing) && (
         <div
           role="status"
           aria-live="polite"
           data-testid="viewport-loading-overlay"
-          className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none bg-black/45 backdrop-blur-[3px] transition-opacity duration-300"
+          className="fixed top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none select-none transition-all animate-in fade-in zoom-in-95 duration-150"
         >
-          <div className="hud-surface rounded-2xl px-6 py-5 flex flex-col items-center gap-3.5 shadow-2xl border border-white/[0.12] bg-[#121216]/95 max-w-sm text-center">
-            <div className="relative flex items-center justify-center w-12 h-12">
-              <span className="w-10 h-10 rounded-full border-2 border-[#0A84FF]/25 animate-ping absolute" />
-              <Loader2 className="w-8 h-8 text-[#0A84FF] animate-spin" />
-            </div>
-            <div className="flex flex-col gap-1 items-center">
-              <h3 className="text-sm font-semibold text-[#F4F4F5] tracking-tight">
-                {isLoadingMesh ? 'Cargando modelo 3D...' : 'Calculando corte...'}
-              </h3>
-              <p className="text-xs text-[#A1A1AA] max-w-[260px] truncate">
-                {isLoadingMesh
-                  ? (meshMetadata?.fileName ?? 'Analizando y validando geometría...')
-                  : statusMessage}
-              </p>
-            </div>
+          <div className="bg-[#1b1b1d]/95 backdrop-blur-xl border border-white/[0.08] rounded-full px-4 py-2 flex items-center gap-2.5 shadow-2xl">
+            <Loader2 className="w-4 h-4 text-[#2997ff] animate-spin shrink-0" />
+            <span className="text-xs font-semibold text-[#f4f4f5] tracking-wide">
+              {isLoadingMesh ? 'Cargando modelo 3D...' : 'Calculando corte...'}
+            </span>
           </div>
         </div>
       )}
@@ -103,7 +91,7 @@ export function Viewport3D() {
 
         <GizmoHelper
           alignment="top-right"
-          margin={isCompact ? [72, 72] : [360, 60]}
+          margin={isCompact ? [80, 75] : [410, 75]}
         >
           <GizmoViewport
             axisColors={['#EF4444', '#22C55E', '#3B82F6']}
