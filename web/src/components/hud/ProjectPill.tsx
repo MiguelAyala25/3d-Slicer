@@ -51,7 +51,9 @@ export function ProjectPill({ className = '' }: ProjectPillProps) {
   return (
     <div
       ref={menuContainerRef}
-      className={`absolute top-3 left-3 z-30 flex flex-col gap-1.5 select-none ${className}`}
+      className={`absolute top-3 left-3 select-none ${
+        menuOpen ? 'z-50' : 'z-40'
+      } ${className}`}
     >
       <input
         ref={meshInputRef}
@@ -95,12 +97,12 @@ export function ProjectPill({ className = '' }: ProjectPillProps) {
         </button>
       </div>
 
-      {/* Menú desplegable */}
+      {/* Menú desplegable a la derecha de la pastilla para no sobreponerse al navegador de pisos */}
       {menuOpen && (
         <div
           role="menu"
           aria-orientation="vertical"
-          className="w-52 bg-[#1b1b1d]/98 backdrop-blur-xl border border-white/[0.08] rounded-2xl p-1.5 shadow-2xl flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-100"
+          className="absolute top-0 left-[calc(100%+8px)] z-50 w-52 bg-[#1b1b1d]/98 backdrop-blur-xl border border-white/[0.12] rounded-2xl p-1.5 shadow-2xl flex flex-col gap-1 animate-in fade-in zoom-in-95 duration-100 max-sm:top-full max-sm:left-0 max-sm:mt-2"
         >
           <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[#8b919e]">
             Proyecto

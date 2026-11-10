@@ -40,7 +40,7 @@ export function WaffleNavigatorHUD({ className = '' }: WaffleNavigatorHUDProps) 
     <aside
       data-testid="waffle-navigator-hud"
       aria-label="Navegador Waffle"
-      className={`absolute left-3 top-1/2 -translate-y-1/2 z-30 hud-surface rounded-xl p-3 flex flex-col items-center gap-3 w-48 max-[1100px]:w-14 max-[1100px]:p-2 shadow-xl ${className}`}
+      className={`absolute left-3 top-1/2 -translate-y-1/2 z-20 hud-surface rounded-xl p-3 flex flex-col items-center gap-3 w-48 max-[1100px]:w-14 max-[1100px]:p-2 shadow-xl ${className}`}
     >
       <div className="flex items-center gap-1.5 text-xs font-semibold text-[#F4F4F5] select-none max-[1100px]:hidden">
         <Grid3X3 className="w-3.5 h-3.5 text-[#2997ff]" />

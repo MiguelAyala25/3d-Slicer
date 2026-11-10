@@ -295,16 +295,6 @@ export default function App() {
       <div className="absolute inset-y-0 left-0 right-0 min-[1100px]:right-[342px] overflow-hidden">
         <Viewport3D />
 
-        {/* Menú superior dinámico (Opción A): EmptyStateCard sin modelo vs ProjectPill + ViewToggles con modelo */}
-        {meshGeometry ? (
-          <>
-            <ProjectPill />
-            <ViewToggles />
-          </>
-        ) : (
-          <EmptyStateCard />
-        )}
-
         {/* Navegadores de piso / waffle */}
         {build.techniqueId === 'waffle' ? (
           <WaffleNavigatorHUD />
@@ -317,6 +307,16 @@ export default function App() {
 
         {/* Notificaciones y errores */}
         <StatusBarPill />
+
+        {/* Menú superior dinámico (Opción A): EmptyStateCard sin modelo vs ProjectPill + ViewToggles con modelo */}
+        {meshGeometry ? (
+          <>
+            <ProjectPill />
+            <ViewToggles />
+          </>
+        ) : (
+          <EmptyStateCard />
+        )}
       </div>
 
       {/* Inspector de parámetros CAD (fijo a la derecha) */}
