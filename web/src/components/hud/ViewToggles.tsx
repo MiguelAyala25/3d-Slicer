@@ -23,7 +23,7 @@ export function ViewToggles({ className = '' }: ViewTogglesProps) {
   return (
     <div
       aria-label="Controles de vista 3D"
-      className={`fixed top-3 right-[350px] max-[1100px]:right-auto max-[1100px]:left-1/2 max-[1100px]:-translate-x-1/2 z-30 bg-[#1b1b1d]/95 backdrop-blur-xl border border-white/[0.08] rounded-xl p-1 flex items-center gap-1 shadow-2xl transition-all ${className}`}
+      className={`fixed top-3 left-1/2 -translate-x-1/2 z-30 bg-[#1b1b1d]/95 backdrop-blur-xl border border-white/[0.08] rounded-xl p-1 flex items-center gap-1 shadow-2xl transition-all ${className}`}
     >
       {/* Botón de alternar placas / modelo original (sólo visible si hay resultado de corte) */}
       {hasResult && (
