@@ -29,13 +29,13 @@ export function Viewport3D() {
 
   return (
     <div className="relative w-full h-full bg-[#09090B]">
-      {/* Indicador flotante estilizado y coherente con el HUD para carga y corte */}
+      {/* Indicador flotante estilizado y centrado en el espacio 3D disponible */}
       {(isLoadingMesh || isSlicing) && (
         <div
           role="status"
           aria-live="polite"
           data-testid="viewport-loading-overlay"
-          className="fixed top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none select-none transition-all animate-in fade-in zoom-in-95 duration-150"
+          className="fixed top-14 inset-x-0 z-30 pointer-events-none select-none flex justify-center min-[1100px]:pr-[342px] transition-all animate-in fade-in zoom-in-95 duration-150"
         >
           <div className="bg-[#1b1b1d]/95 backdrop-blur-xl border border-white/[0.08] rounded-full px-4 py-2 flex items-center gap-2.5 shadow-2xl">
             <Loader2 className="w-4 h-4 text-[#2997ff] animate-spin shrink-0" />
