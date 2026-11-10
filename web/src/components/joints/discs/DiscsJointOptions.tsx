@@ -20,8 +20,8 @@ export function DiscsJointOptions() {
         onChange={(v) => setParam('gap', v)}
       />
 
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#1C1C21] border border-white/[0.08] text-[11px] text-[#A1A1AA]">
-        <Layers className="w-3.5 h-3.5 text-[#0A84FF] shrink-0" />
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#131315] border border-white/[0.06] text-[11px] text-[#cccccc]">
+        <Layers className="w-3.5 h-3.5 text-[#2997ff] shrink-0" />
         <span>{getDiscSheetNotice(params)}</span>
       </div>
 

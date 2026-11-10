@@ -81,9 +81,12 @@ export function TechniqueSection() {
   const notchAngle = waffleParams.notchAngle ?? 45.0;
 
   return (
-    <section data-testid="section-technique" className="flex flex-col gap-2.5">
+    <section
+      data-testid="section-technique"
+      className="flex flex-col gap-2.5 bg-white/[0.02] p-2.5 rounded-2xl border border-white/[0.05]"
+    >
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA] select-none">
+        <h2 className="text-[13px] font-semibold text-[#cccccc] select-none">
           Técnica de construcción
         </h2>
       </div>
@@ -233,14 +236,14 @@ export function TechniqueSection() {
             onChange={(v) => setWaffleParam('slotClearance', v)}
           />
 
-          <details className="group border border-white/[0.08] rounded-md bg-[#1C1C21] text-xs">
-            <summary className="p-2 cursor-pointer font-medium text-[#A1A1AA] hover:text-[#F4F4F5] flex items-center justify-between select-none">
+          <details className="group border border-white/[0.06] rounded-xl bg-[#131315] text-xs">
+            <summary className="p-2.5 cursor-pointer font-medium text-[#8b919e] hover:text-white flex items-center justify-between select-none">
               <span>Avanzado</span>
-              <span className="text-[10px] text-[#71717A] font-normal">
+              <span className="text-[10px] text-[#7a7a7a] font-normal">
                 Desfase {waffleParams.gridOffset.toFixed(1)} mm · Etiquetas {waffleParams.slotLabelsEnabled ? 'Sí' : 'No'}
               </span>
             </summary>
-            <div className="p-2 pt-2 flex flex-col gap-2.5 border-t border-white/[0.04]">
+            <div className="p-2.5 pt-2 flex flex-col gap-2.5 border-t border-white/[0.05]">
               <NumericInput
                 label="Desfase de rejilla"
                 value={waffleParams.gridOffset}
@@ -252,13 +255,13 @@ export function TechniqueSection() {
                 onChange={(v) => setWaffleParam('gridOffset', v)}
               />
 
-              <label className="flex items-center gap-2 cursor-pointer text-xs text-[#F4F4F5] select-none pt-0.5">
+              <label className="flex items-center gap-2 cursor-pointer text-[11px] text-[#cccccc] select-none pt-0.5">
                 <input
                   type="checkbox"
                   data-testid="checkbox-waffle-slot-labels"
                   checked={waffleParams.slotLabelsEnabled}
                   onChange={(e) => setWaffleParam('slotLabelsEnabled', e.target.checked)}
-                  className="rounded accent-[#0A84FF] w-4 h-4 cursor-pointer"
+                  className="rounded border-white/20 bg-[#252527] accent-[#0066cc] w-3.5 h-3.5 cursor-pointer"
                 />
                 <span>Grabar etiquetas en ranuras</span>
               </label>
@@ -270,19 +273,19 @@ export function TechniqueSection() {
       {build.techniqueId === 'stacked' && (
         <>
           <div className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-[#A1A1AA] select-none">
+            <span className="text-[11px] font-medium text-[#8b919e] select-none">
               Eje de corte
             </span>
-            <div className="grid grid-cols-3 gap-1 p-0.5 rounded-md bg-[#1C1C21] border border-white/[0.08]">
+            <div className="grid grid-cols-3 gap-1 p-0.5 rounded-full bg-[#131315] border border-white/[0.06]">
               {AXES.map((ax) => (
                 <button
                   key={ax}
                   type="button"
                   onClick={() => setParam('axis', ax)}
-                  className={`h-7 rounded text-xs font-semibold uppercase transition-colors select-none ${
+                  className={`h-7 rounded-full text-[11px] font-semibold uppercase transition-colors select-none cursor-pointer ${
                     params.axis === ax
-                      ? 'bg-[#0A84FF] text-white'
-                      : 'text-[#A1A1AA] hover:text-white'
+                      ? 'bg-[#0066cc] text-white shadow-sm'
+                      : 'text-[#8b919e] hover:text-white'
                   }`}
                 >
                   Eje {ax.toUpperCase()}
@@ -310,7 +313,7 @@ export function TechniqueSection() {
           />
 
           {build.jointId === 'none' && (
-            <p className="text-xs text-[#9CA3AF] pl-1">
+            <p className="text-[11px] text-[#8b919e] pl-1">
               Las placas se apilan pegadas (separación 0 mm).
             </p>
           )}

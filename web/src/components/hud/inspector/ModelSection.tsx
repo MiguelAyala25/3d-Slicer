@@ -74,27 +74,32 @@ export function ModelSection() {
   const isExtremeAssumed = assumedDims ? hasExtremeAssumedDimensions(assumedDims) : false;
 
   return (
-    <section data-testid="section-model" className="flex flex-col gap-2.5">
+    <section
+      data-testid="section-model"
+      className="flex flex-col gap-2.5 bg-white/[0.02] p-2.5 rounded-2xl border border-white/[0.05]"
+    >
       <div className="flex items-center justify-between">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-[#A1A1AA] select-none">
-          Modelo
-        </h2>
-      </div>
-
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-[#A1A1AA] select-none">
-          <Ruler className="w-3.5 h-3.5 text-[#0A84FF]" />
-          <span>Tamaño</span>
+        <div className="flex items-center gap-1.5 select-none">
+          <Ruler className="w-3.5 h-3.5 text-[#2997ff]" />
+          <h2 className="text-[13px] font-semibold text-[#cccccc]">
+            Modelo
+          </h2>
         </div>
         <button
           type="button"
           disabled
           aria-pressed="true"
           title="Escala no uniforme: no disponible"
-          className="p-1 rounded text-[#9CA3AF] opacity-50 cursor-not-allowed"
+          className="p-1 rounded-full text-[#8b919e] opacity-50 cursor-not-allowed"
         >
           <Lock className="w-3.5 h-3.5" />
         </button>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-[#8b919e] select-none">
+          Tamaño
+        </span>
       </div>
 
       {!modelExtents ? (

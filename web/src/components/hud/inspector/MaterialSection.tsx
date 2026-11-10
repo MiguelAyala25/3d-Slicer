@@ -11,39 +11,44 @@ export function MaterialSection() {
   const setParam = useSculptureStore((s) => s.setParam);
 
   return (
-    <section data-testid="section-material" className="flex flex-col gap-2">
+    <section
+      data-testid="section-material"
+      className="flex flex-col gap-2 bg-white/[0.02] p-2.5 rounded-2xl border border-white/[0.05]"
+    >
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
         aria-expanded={isOpen}
         data-testid="toggle-material-collapse"
-        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg bg-[#18181B] hover:bg-[#202025] border transition-all cursor-pointer group ${
+        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl bg-[#131315] hover:bg-[#1f1f21] border transition-all cursor-pointer group ${
           isOpen
-            ? 'border-white/20 bg-[#1C1C21] shadow-sm'
-            : 'border-white/10 hover:border-white/20'
+            ? 'border-[#0071e3]/40 bg-[#131315]'
+            : 'border-white/[0.08] hover:border-white/15'
         }`}
       >
         <div className="flex items-center gap-2 min-w-0">
           {isOpen ? (
-            <ChevronDown className="w-3.5 h-3.5 text-[#0A84FF] shrink-0 transition-transform" />
+            <ChevronDown className="w-3.5 h-3.5 text-[#2997ff] shrink-0 transition-transform" />
           ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-[#A1A1AA] group-hover:text-white shrink-0 transition-transform" />
+            <ChevronRight className="w-3.5 h-3.5 text-[#8b919e] group-hover:text-white shrink-0 transition-transform" />
           )}
-          <Layers className="w-3.5 h-3.5 text-[#0A84FF] shrink-0" />
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-[#F4F4F5]">
+          <Layers className="w-3.5 h-3.5 text-[#2997ff] shrink-0" />
+          <h2 className="text-[13px] font-semibold text-[#cccccc] group-hover:text-white">
             Material
           </h2>
         </div>
 
-        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-white/[0.05] border border-white/[0.08] text-[11px] font-mono-tabular text-[#A1A1AA] group-hover:text-[#F4F4F5] group-hover:border-white/15 transition-colors shrink-0">
+        <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-mono-tabular text-[#8b919e] group-hover:text-white transition-colors shrink-0">
           <span>{params.thickness} mm</span>
           <span className="text-white/20">·</span>
-          <span>{params.sheetW}×{params.sheetH}</span>
+          <span>
+            {params.sheetW}×{params.sheetH}
+          </span>
         </div>
       </button>
 
       {isOpen && (
-        <div className="p-3 rounded-lg bg-[#141417]/80 border border-white/[0.08] flex flex-col gap-2.5">
+        <div className="pt-1 flex flex-col gap-2.5">
           <NumericInput
             label="Grosor de placa"
             value={params.thickness}
@@ -75,13 +80,13 @@ export function MaterialSection() {
             />
           </div>
 
-          <label className="flex items-center justify-between gap-2 text-xs text-[#A1A1AA] cursor-pointer select-none">
+          <label className="flex items-center justify-between gap-2 text-[11px] text-[#cccccc] cursor-pointer select-none pt-0.5">
             <span>Etiquetar sobrante aprovechable</span>
             <input
               type="checkbox"
               checked={params.scrapTagEnabled}
               onChange={(e) => setParam('scrapTagEnabled', e.target.checked)}
-              className="rounded accent-[#0A84FF] w-4 h-4 cursor-pointer"
+              className="rounded border-white/20 bg-[#252527] accent-[#0066cc] w-3.5 h-3.5 cursor-pointer"
             />
           </label>
 

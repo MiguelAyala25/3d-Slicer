@@ -117,7 +117,7 @@ export function NumericInput({
       <div className="flex items-center justify-between">
         <label
           htmlFor={inputId}
-          className="text-xs font-medium text-[#A1A1AA] select-none"
+          className="text-[11px] font-medium text-[#8b919e] select-none"
         >
           {label}
         </label>
@@ -153,10 +153,10 @@ export function NumericInput({
               e.currentTarget.blur();
             }
           }}
-          className="w-full h-8 coarse:min-h-10 px-2.5 pr-8 rounded-md bg-[#1C1C21] border border-white/[0.08] text-xs font-mono-tabular text-[#F4F4F5] focus:outline-none focus:border-[#0A84FF] disabled:opacity-50"
+          className="w-full h-8 coarse:min-h-10 px-3 pr-8 rounded-xl bg-[#131315] border border-white/[0.08] text-[13px] font-mono-tabular text-white focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/50 disabled:opacity-50 transition-colors"
         />
         {unit && (
-          <span className="absolute right-2 text-[11px] text-[#9CA3AF] pointer-events-none select-none">
+          <span className="absolute right-2.5 text-[11px] text-[#7a7a7a] pointer-events-none select-none">
             {unit}
           </span>
         )}

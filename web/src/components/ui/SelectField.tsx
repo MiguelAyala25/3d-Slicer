@@ -32,7 +32,7 @@ export function SelectField<T extends string>({
     <div className="flex flex-col gap-1">
       <label
         htmlFor={selectId}
-        className="text-xs font-medium text-[#A1A1AA] select-none"
+        className="text-[11px] font-medium text-[#8b919e] select-none"
       >
         {label}
       </label>
@@ -42,10 +42,10 @@ export function SelectField<T extends string>({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value as T)}
-        className="w-full h-8 coarse:min-h-10 px-2.5 rounded-md bg-[#1C1C21] border border-white/[0.08] text-xs font-sans text-[#F4F4F5] focus:outline-none focus:border-[#0A84FF] disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+        className="w-full h-9 coarse:min-h-10 px-3 rounded-xl bg-[#131315] border border-white/[0.08] text-[13px] font-sans text-white focus:outline-none focus:border-[#0071e3] focus:ring-1 focus:ring-[#0071e3]/50 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed transition-colors"
       >
         {placeholder && (
-          <option value="" disabled={value !== ''} className="bg-[#1C1C21] text-[#9CA3AF]">
+          <option value="" disabled={value !== ''} className="bg-[#131315] text-[#8b919e]">
             {placeholder}
           </option>
         )}
@@ -58,7 +58,7 @@ export function SelectField<T extends string>({
               key={opt.value}
               value={opt.value}
               disabled={opt.disabled}
-              className="bg-[#1C1C21] text-[#F4F4F5]"
+              className="bg-[#131315] text-white"
             >
               {labelText}
             </option>
