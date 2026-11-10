@@ -51,7 +51,7 @@ export function ProjectPill({ className = '' }: ProjectPillProps) {
   return (
     <div
       ref={menuContainerRef}
-      className={`fixed top-3 left-3 z-30 flex flex-col gap-1.5 select-none ${className}`}
+      className={`absolute top-3 left-3 z-30 flex flex-col gap-1.5 select-none ${className}`}
     >
       <input
         ref={meshInputRef}

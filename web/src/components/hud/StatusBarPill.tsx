@@ -17,7 +17,7 @@ export function StatusBarPill({ className = '' }: StatusBarPillProps) {
 
   return (
     <div
-      className={`fixed bottom-3 left-3 z-30 flex flex-col gap-1.5 max-w-md select-none ${className}`}
+      className={`absolute bottom-3 left-3 z-30 flex flex-col gap-1.5 max-w-md select-none ${className}`}
     >
       <div
         role="alert"

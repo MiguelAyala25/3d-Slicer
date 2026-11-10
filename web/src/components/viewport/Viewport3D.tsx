@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { GizmoHelper, GizmoViewport, Grid } from '@react-three/drei';
 import { Loader2 } from 'lucide-react';
@@ -17,25 +16,15 @@ export function Viewport3D() {
   const build = useSculptureStore((s) => s.build);
   const JointViewportLayer = build.jointId ? JOINT_UI[build.jointId]?.ViewportLayer : undefined;
 
-  const [isCompact, setIsCompact] = useState(
-    typeof window !== 'undefined' ? window.innerWidth < 1100 : false
-  );
-
-  useEffect(() => {
-    const handleResize = () => setIsCompact(window.innerWidth < 1100);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
   return (
     <div className="relative w-full h-full bg-[#09090B]">
-      {/* Indicador flotante estilizado y centrado en el espacio 3D disponible */}
+      {/* Indicador flotante estilizado y centrado en el espacio 3D visible */}
       {(isLoadingMesh || isSlicing) && (
         <div
           role="status"
           aria-live="polite"
           data-testid="viewport-loading-overlay"
-          className="fixed top-14 inset-x-0 z-30 pointer-events-none select-none flex justify-center min-[1100px]:pr-[342px] transition-all animate-in fade-in zoom-in-95 duration-150"
+          className="absolute top-14 left-1/2 -translate-x-1/2 z-30 pointer-events-none select-none transition-all animate-in fade-in zoom-in-95 duration-150"
         >
           <div className="bg-[#1b1b1d]/95 backdrop-blur-xl border border-white/[0.08] rounded-full px-4 py-2 flex items-center gap-2.5 shadow-2xl">
             <Loader2 className="w-4 h-4 text-[#2997ff] animate-spin shrink-0" />
@@ -91,7 +80,7 @@ export function Viewport3D() {
 
         <GizmoHelper
           alignment="top-right"
-          margin={isCompact ? [80, 75] : [410, 75]}
+          margin={[80, 75]}
         >
           <GizmoViewport
             axisColors={['#EF4444', '#22C55E', '#3B82F6']}

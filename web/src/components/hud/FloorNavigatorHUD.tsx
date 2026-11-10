@@ -45,10 +45,10 @@ export function FloorNavigatorHUD({ className = '' }: FloorNavigatorHUDProps) {
   return (
     <aside
       aria-label="Navegador de pisos"
-      className={`fixed left-3 top-1/2 -translate-y-1/2 z-30 hud-surface rounded-xl p-3 flex flex-col items-center gap-3 w-44 max-[1100px]:w-12 max-[1100px]:p-2 shadow-xl ${className}`}
+      className={`absolute left-3 top-1/2 -translate-y-1/2 z-30 hud-surface rounded-xl p-3 flex flex-col items-center gap-3 w-44 max-[1100px]:w-12 max-[1100px]:p-2 shadow-xl ${className}`}
     >
       <div className="flex items-center gap-1.5 text-xs font-semibold text-[#F4F4F5] select-none max-[1100px]:hidden">
-        <Layers className="w-3.5 h-3.5 text-[#0A84FF]" />
+        <Layers className="w-3.5 h-3.5 text-[#2997ff]" />
         <span>
           Piso {activeFloor} ({validCount} de {totalPlates})
         </span>

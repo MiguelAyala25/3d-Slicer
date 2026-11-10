@@ -59,7 +59,7 @@ export function EmptyStateCard({ className = '' }: EmptyStateCardProps) {
 
   return (
     <div
-      className={`fixed inset-0 pointer-events-none flex items-center justify-center p-4 z-20 min-[1100px]:pr-[350px] ${className}`}
+      className={`absolute inset-0 pointer-events-none flex items-center justify-center p-4 z-20 ${className}`}
     >
       <input
         ref={meshInputRef}

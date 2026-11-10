@@ -57,7 +57,7 @@ export function DiscsDockHUD({ className = '' }: DiscsDockHUDProps) {
     <div
       role="toolbar"
       aria-label="Herramientas de discos de unión"
-      className={`fixed bottom-3 left-1/2 -translate-x-1/2 z-30 hud-surface rounded-xl px-3 py-2 flex flex-wrap items-center gap-2 shadow-2xl ${className}`}
+      className={`absolute bottom-3 left-1/2 -translate-x-1/2 z-30 bg-[#1b1b1d]/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl px-3 py-2 flex flex-wrap items-center gap-2 shadow-2xl ${className}`}
     >
       {/* Selector explícito de modo: Seleccionar vs Poner discos (Corrección #1) */}
       <div className="flex items-center rounded-lg bg-[#1C1C21] p-0.5 border border-white/[0.08]">

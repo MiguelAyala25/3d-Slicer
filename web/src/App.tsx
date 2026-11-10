@@ -291,26 +291,38 @@ export default function App() {
 
   return (
     <main className="relative w-screen h-screen overflow-hidden bg-[#09090B]">
-      <Viewport3D />
+      {/* Área de trabajo / pantalla visible (a la izquierda del panel de parámetros en desktop) */}
+      <div className="absolute inset-y-0 left-0 right-0 min-[1100px]:right-[342px] overflow-hidden">
+        <Viewport3D />
 
-      {/* Menú superior dinámico (Opción A): EmptyStateCard sin modelo vs ProjectPill + ViewToggles con modelo */}
-      {meshGeometry ? (
-        <>
-          <ProjectPill />
-          <ViewToggles />
-        </>
-      ) : (
-        <EmptyStateCard />
-      )}
+        {/* Menú superior dinámico (Opción A): EmptyStateCard sin modelo vs ProjectPill + ViewToggles con modelo */}
+        {meshGeometry ? (
+          <>
+            <ProjectPill />
+            <ViewToggles />
+          </>
+        ) : (
+          <EmptyStateCard />
+        )}
 
-      {build.techniqueId === 'waffle' ? (
-        <WaffleNavigatorHUD />
-      ) : (
-        <FloorNavigatorHUD />
-      )}
-      {JointDock && <JointDock />}
+        {/* Navegadores de piso / waffle */}
+        {build.techniqueId === 'waffle' ? (
+          <WaffleNavigatorHUD />
+        ) : (
+          <FloorNavigatorHUD />
+        )}
+
+        {/* Dock inferior de discos (uniones) */}
+        {JointDock && <JointDock />}
+
+        {/* Notificaciones y errores */}
+        <StatusBarPill />
+      </div>
+
+      {/* Inspector de parámetros CAD (fijo a la derecha) */}
       <RightInspector />
-      <StatusBarPill />
+
+      {/* Modales globales de pantalla completa */}
       <SheetPreviewModal />
 
       {/* Overlay al arrastrar archivo sobre la ventana */}
