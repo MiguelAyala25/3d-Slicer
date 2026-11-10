@@ -1,5 +1,5 @@
 import { useState, type DragEvent } from 'react';
-import { Box, FolderOpen, Loader2, RotateCcw, Upload, X } from 'lucide-react';
+import { Box, FolderOpen, RotateCcw, Upload, X } from 'lucide-react';
 import { useProjectFileActions } from './useProjectFileActions';
 
 export interface EmptyStateCardProps {
@@ -145,15 +145,11 @@ export function EmptyStateCard({ className = '' }: EmptyStateCardProps) {
           }`}
         >
           <div className="w-10 h-10 rounded-full bg-white/[0.05] border border-white/[0.08] flex items-center justify-center text-[#2997ff] mb-1">
-            {isLoadingMesh ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Upload className="w-5 h-5" />
-            )}
+            <Upload className="w-5 h-5" />
           </div>
 
           <p className="text-[13px] font-medium text-[#f4f4f5] text-center">
-            {isLoadingMesh ? 'Cargando modelo 3D...' : 'Arrastra tu modelo 3D aquí'}
+            Arrastra tu modelo 3D aquí
           </p>
 
           <p className="text-[11px] text-[#8b919e] font-mono-tabular">
