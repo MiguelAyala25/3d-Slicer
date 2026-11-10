@@ -94,7 +94,7 @@ export const createProjectSlice: StateCreator<
     if (!pendingAutosave || !pendingAutosave.snapshot) return;
 
     const { snapshot, meshRecord } = pendingAutosave;
-    set({ pendingAutosave: null });
+    set({ pendingAutosave: null, isLoadingMesh: true });
 
     try {
       set({ params: { ...snapshot.params }, gapManuallyEdited: true });
@@ -104,6 +104,8 @@ export const createProjectSlice: StateCreator<
           meshRecord.fileName,
           false
         );
+      } else {
+        set({ isLoadingMesh: false });
       }
       let healedWaffleParams = snapshot.waffleParams;
       const loadedExtents = get().modelExtents;
@@ -153,6 +155,7 @@ export const createProjectSlice: StateCreator<
       set({ statusMessage: 'Sesión anterior restaurada con éxito' });
     } catch (err) {
       set({
+        isLoadingMesh: false,
         errorMessage: err instanceof Error ? err.message : String(err),
         statusMessage: 'Error al restaurar la sesión anterior',
       });

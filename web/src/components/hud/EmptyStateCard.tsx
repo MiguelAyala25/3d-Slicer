@@ -24,6 +24,10 @@ export function EmptyStateCard({ className = '' }: EmptyStateCardProps) {
 
   const [isDraggingOverCard, setIsDraggingOverCard] = useState(false);
 
+  if (isLoadingMesh) {
+    return null;
+  }
+
   const handleCardDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();

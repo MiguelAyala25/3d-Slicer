@@ -18,6 +18,7 @@ import {
 
 export default function App() {
   const meshGeometry = useSculptureStore((s) => s.meshGeometry);
+  const isLoadingMesh = useSculptureStore((s) => s.isLoadingMesh);
   const viewMode = useSculptureStore((s) => s.viewMode);
   const setViewMode = useSculptureStore((s) => s.setViewMode);
   const toggleWireframe = useSculptureStore((s) => s.toggleWireframe);
@@ -314,9 +315,9 @@ export default function App() {
             <ProjectPill />
             <ViewToggles />
           </>
-        ) : (
+        ) : !isLoadingMesh ? (
           <EmptyStateCard />
-        )}
+        ) : null}
       </div>
 
       {/* Inspector de parámetros CAD (fijo a la derecha) */}
