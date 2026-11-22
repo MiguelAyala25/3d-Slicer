@@ -942,4 +942,81 @@ describe('slicer & polygon stitcher', () => {
       expect(largeRes.polygons.length).toBe(1);
     });
   });
+
+  describe('Resilient stitching for locally inverted segments & T-junction spurs', () => {
+    it('closes a CCW square when 1 edge has reversed orientation', () => {
+      const segments: DirectedSegment2D[] = [
+        { x0: -10, y0: -10, x1: 10, y1: -10 },
+        { x0: 10, y0: -10, x1: 10, y1: 10 },
+        // Top edge reversed: (-10, 10) -> (10, 10) instead of (10, 10) -> (-10, 10)
+        { x0: -10, y0: 10, x1: 10, y1: 10 },
+        { x0: -10, y0: 10, x1: -10, y1: -10 },
+      ];
+
+      const res = stitchAndUnionSegments(segments);
+      expect(res.openChainsDiscarded).toBe(0);
+      expect(res.polygons.length).toBe(1);
+      expect(res.polygons[0].area).toBeCloseTo(400, 1);
+    });
+
+    it('preserves CW inner hole winding via majority length when 1 hole edge is reversed', () => {
+      // Outer 40x40 CCW
+      const outer: DirectedSegment2D[] = [
+        { x0: -20, y0: -20, x1: 20, y1: -20 },
+        { x0: 20, y0: -20, x1: 20, y1: 20 },
+        { x0: 20, y0: 20, x1: -20, y1: 20 },
+        { x0: -20, y0: 20, x1: -20, y1: -20 },
+      ];
+      // Inner 20x20 CW hole with top edge reversed (CCW)
+      const hole: DirectedSegment2D[] = [
+        { x0: -10, y0: -10, x1: -10, y1: 10 },
+        { x0: -10, y0: 10, x1: 10, y1: 10 },
+        // Right edge reversed: (10, -10) -> (10, 10) instead of (10, 10) -> (10, -10)
+        { x0: 10, y0: -10, x1: 10, y1: 10 },
+        { x0: 10, y0: -10, x1: -10, y1: -10 },
+      ];
+
+      const res = stitchAndUnionSegments([...outer, ...hole]);
+      expect(res.openChainsDiscarded).toBe(0);
+      expect(res.polygons.length).toBe(1);
+      expect(res.polygons[0].holes.length).toBe(1);
+      expect(res.polygons[0].area).toBeCloseTo(1200, 1);
+    });
+
+    it('recovers closed contour when a dangling T-junction spur is attached', () => {
+      // Test both outgoing spur from corner and incoming spur listed first
+      const outgoingFirst: DirectedSegment2D[] = [
+        { x0: -10, y0: -10, x1: 10, y1: -10 },
+        { x0: 10, y0: -10, x1: 10, y1: 10 },
+        { x0: 10, y0: 10, x1: 15, y1: 15 }, // dangling spur at (10, 10)
+        { x0: 10, y0: 10, x1: -10, y1: 10 },
+        { x0: -10, y0: 10, x1: -10, y1: -10 },
+      ];
+      const resOut = stitchAndUnionSegments(outgoingFirst);
+      expect(resOut.polygons.length).toBe(1);
+      expect(resOut.polygons[0].area).toBeCloseTo(400, 1);
+
+      const incomingFirst: DirectedSegment2D[] = [
+        { x0: 15, y0: 15, x1: 10, y1: 10 }, // incoming spur into (10, 10) first
+        { x0: 10, y0: 10, x1: -10, y1: 10 },
+        { x0: -10, y0: 10, x1: -10, y1: -10 },
+        { x0: -10, y0: -10, x1: 10, y1: -10 },
+        { x0: 10, y0: -10, x1: 10, y1: 10 },
+      ];
+      const resIn = stitchAndUnionSegments(incomingFirst);
+      expect(resIn.polygons.length).toBe(1);
+      expect(resIn.polygons[0].area).toBeCloseTo(400, 1);
+    });
+
+    it('still discards genuine 3-sided open square without closing missing edge', () => {
+      const openThreeSides: DirectedSegment2D[] = [
+        { x0: -10, y0: -10, x1: 10, y1: -10 },
+        { x0: 10, y0: -10, x1: 10, y1: 10 },
+        { x0: 10, y0: 10, x1: -10, y1: 10 },
+      ];
+      const res = stitchAndUnionSegments(openThreeSides);
+      expect(res.polygons.length).toBe(0);
+      expect(res.openChainsDiscarded).toBe(1);
+    });
+  });
 });

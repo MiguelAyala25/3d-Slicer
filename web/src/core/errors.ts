@@ -186,6 +186,8 @@ export type WarningCode =
   | 'WARN_MESH_NON_MANIFOLD_EDGES'
   | 'WARN_MESH_OPEN_COMPONENTS'
   | 'WARN_MESH_INVERTED_NORMALS_FIXED'
+  | 'WARN_MESH_FLAPS_PRUNED'
+  | 'WARN_MESH_WINDING_HARMONIZED'
   | 'WARN_LOADER_IGNORED_LINES_OR_POINTS'
   | 'WARN_LOADER_Y_UP_TO_Z_UP'
   | 'WARN_LOADER_3MF_UNIT_SCALE'
@@ -205,6 +207,8 @@ export interface WarningParamsMap {
   WARN_MESH_NON_MANIFOLD_EDGES: { count: number };
   WARN_MESH_OPEN_COMPONENTS: { count: number };
   WARN_MESH_INVERTED_NORMALS_FIXED: { count: number };
+  WARN_MESH_FLAPS_PRUNED: { count: number };
+  WARN_MESH_WINDING_HARMONIZED: { count: number };
   WARN_LOADER_IGNORED_LINES_OR_POINTS: { count: number };
   WARN_LOADER_Y_UP_TO_Z_UP: Record<string, never>;
   WARN_LOADER_3MF_UNIT_SCALE: { scale: number };

@@ -188,15 +188,35 @@ export function stitchAndUnionSegments(
     vertices[u].outEdges.push(edgeIdx);
   }
 
-  // Elegir la siguiente arista saliente no usada de forma determinista (giro más a la derecha)
-  function pickNextEdge(currVertex: number, inDx: number, inDy: number): number {
+  function hasContinuation(vIdx: number, startVertex: number): boolean {
+    if (vIdx === startVertex) return true;
+    const outs = vertices[vIdx].outEdges;
+    for (let i = 0; i < outs.length; i++) {
+      if (!edges[outs[i]].used) return true;
+    }
+    return false;
+  }
+
+  // Elegir la siguiente arista saliente no usada de forma determinista (giro más a la derecha),
+  // evitando callejones sin salida cuando existe al menos una arista con continuación.
+  function pickNextEdge(
+    currVertex: number,
+    inDx: number,
+    inDy: number,
+    startVertex: number
+  ): number {
     const outList = vertices[currVertex].outEdges;
     let availableCount = 0;
     let singleCandidate = -1;
+    let hasContinuingCandidate = false;
     for (const eIdx of outList) {
-      if (!edges[eIdx].used) {
+      const e = edges[eIdx];
+      if (!e.used) {
         availableCount++;
         singleCandidate = eIdx;
+        if (!hasContinuingCandidate && hasContinuation(e.to, startVertex)) {
+          hasContinuingCandidate = true;
+        }
       }
     }
     if (availableCount === 0) return -1;
@@ -209,6 +229,7 @@ export function stitchAndUnionSegments(
     for (const eIdx of outList) {
       const e = edges[eIdx];
       if (e.used) continue;
+      if (hasContinuingCandidate && !hasContinuation(e.to, startVertex)) continue;
       let delta = Math.atan2(e.dy, e.dx) - baseAngle;
       while (delta <= 0) delta += Math.PI * 2;
       if (delta < bestDelta) {
@@ -238,7 +259,7 @@ export function stitchAndUnionSegments(
     const chainVertices: number[] = [startVertex, currVertex];
 
     while (currVertex !== startVertex) {
-      const nextEdgeIdx = pickNextEdge(currVertex, prevDx, prevDy);
+      const nextEdgeIdx = pickNextEdge(currVertex, prevDx, prevDy, startVertex);
       if (nextEdgeIdx === -1) break;
       const nextEdge = edges[nextEdgeIdx];
       nextEdge.used = true;
@@ -363,21 +384,244 @@ export function stitchAndUnionSegments(
       }
     }
 
-    // 3. Evaluar cierre o descarte para las cadenas abiertas restantes
+    // 2.5. Reconexión agnóstica a orientación para cadenas abiertas remanentes
+    //      (p. ej., parches locales con normales invertidas que generan head-head o tail-tail).
+    interface OrientedChain {
+      verts: number[];
+      forwardLen: number;
+      reversedLen: number;
+      alive: boolean;
+    }
+
+    let remainingActive = 0;
     for (let i = 0; i < openChains.length; i++) {
-      if (!active[i]) continue;
-      const chain = openChains[i];
-      const firstV = vertices[chain[0]];
-      const lastV = vertices[chain[chain.length - 1]];
+      if (active[i]) remainingActive++;
+    }
+
+    function orientLoopVerts(verts: number[], shouldReverse: boolean): Point2D[] {
+      const ring = verts.map((vi): Point2D => [vertices[vi].x, vertices[vi].y]);
+      if (shouldReverse) {
+        ring.reverse();
+      }
+      return ring;
+    }
+
+    let chains25: OrientedChain[] | null = null;
+    if (remainingActive >= 2) {
+      chains25 = [];
+      for (let i = 0; i < openChains.length; i++) {
+        if (!active[i]) continue;
+        const verts = openChains[i];
+        let forwardLen = 0;
+        for (let k = 1; k < verts.length; k++) {
+          const pA = vertices[verts[k - 1]];
+          const pB = vertices[verts[k]];
+          forwardLen += Math.hypot(pB.x - pA.x, pB.y - pA.y);
+        }
+        chains25.push({
+          verts: verts.slice(),
+          forwardLen,
+          reversedLen: 0,
+          alive: true,
+        });
+      }
+
+      const endpointGrid = new Map<number, number[]>();
+
+      function addEndpoint(chainIdx: number, isHead: boolean): void {
+        const c = chains25![chainIdx];
+        const v = vertices[isHead ? c.verts[0] : c.verts[c.verts.length - 1]];
+        const cx = Math.floor(v.x * invRepairCell);
+        const cy = Math.floor(v.y * invRepairCell);
+        const key = cellKey(cx, cy);
+        const packed = chainIdx * 2 + (isHead ? 0 : 1);
+        const bucket = endpointGrid.get(key);
+        if (bucket) bucket.push(packed);
+        else endpointGrid.set(key, [packed]);
+      }
+
+      function removeEndpoint(chainIdx: number, isHead: boolean): void {
+        const c = chains25![chainIdx];
+        const v = vertices[isHead ? c.verts[0] : c.verts[c.verts.length - 1]];
+        const cx = Math.floor(v.x * invRepairCell);
+        const cy = Math.floor(v.y * invRepairCell);
+        const key = cellKey(cx, cy);
+        const bucket = endpointGrid.get(key);
+        if (!bucket) return;
+        const packed = chainIdx * 2 + (isHead ? 0 : 1);
+        const idx = bucket.indexOf(packed);
+        if (idx !== -1) {
+          bucket.splice(idx, 1);
+          if (bucket.length === 0) {
+            endpointGrid.delete(key);
+          }
+        }
+      }
+
+      for (let i = 0; i < chains25.length; i++) {
+        addEndpoint(i, true);
+        addEndpoint(i, false);
+      }
+
+      function findNearestEndpointMatch(
+        chainIdx: number,
+        vIdx: number
+      ): { otherIdx: number; otherIsHead: boolean } | null {
+        const v = vertices[vIdx];
+        const vx = Math.floor(v.x * invRepairCell);
+        const vy = Math.floor(v.y * invRepairCell);
+        let bestOther = -1;
+        let bestOtherIsHead = false;
+        let bestDistSq = maxGapSq;
+
+        for (let dx = -1; dx <= 1; dx++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            const bucket = endpointGrid.get(cellKey(vx + dx, vy + dy));
+            if (!bucket) continue;
+            for (let b = 0; b < bucket.length; b++) {
+              const packed = bucket[b];
+              const otherIdx = Math.floor(packed / 2);
+              if (otherIdx === chainIdx || !chains25![otherIdx].alive) continue;
+              const otherIsHead = (packed & 1) === 0;
+              const oVerts = chains25![otherIdx].verts;
+              const ov = vertices[otherIsHead ? oVerts[0] : oVerts[oVerts.length - 1]];
+              const dSq = (v.x - ov.x) * (v.x - ov.x) + (v.y - ov.y) * (v.y - ov.y);
+              if (dSq <= bestDistSq) {
+                bestDistSq = dSq;
+                bestOther = otherIdx;
+                bestOtherIsHead = otherIsHead;
+              }
+            }
+          }
+        }
+
+        return bestOther !== -1
+          ? { otherIdx: bestOther, otherIsHead: bestOtherIsHead }
+          : null;
+      }
+
+      for (let i = 0; i < chains25.length; i++) {
+        const chainA = chains25[i];
+        while (chainA.alive) {
+          const tailMatch = findNearestEndpointMatch(i, chainA.verts[chainA.verts.length - 1]);
+          let aIsHead = false;
+          let match = tailMatch;
+          if (!match) {
+            match = findNearestEndpointMatch(i, chainA.verts[0]);
+            aIsHead = true;
+          }
+          if (!match) break;
+
+          const chainB = chains25[match.otherIdx];
+          removeEndpoint(i, true);
+          removeEndpoint(i, false);
+          removeEndpoint(match.otherIdx, true);
+          removeEndpoint(match.otherIdx, false);
+
+          let bFwd = chainB.forwardLen;
+          let bRev = chainB.reversedLen;
+          const bVerts = chainB.verts;
+
+          if (!aIsHead) {
+            if (!match.otherIsHead) {
+              bVerts.reverse();
+              const tmp = bFwd;
+              bFwd = bRev;
+              bRev = tmp;
+            }
+            const skipFirst = bVerts[0] === chainA.verts[chainA.verts.length - 1] ? 1 : 0;
+            for (let k = skipFirst; k < bVerts.length; k++) {
+              chainA.verts.push(bVerts[k]);
+            }
+          } else {
+            if (match.otherIsHead) {
+              bVerts.reverse();
+              const tmp = bFwd;
+              bFwd = bRev;
+              bRev = tmp;
+            }
+            const skipLast = bVerts[bVerts.length - 1] === chainA.verts[0] ? 1 : 0;
+            const merged: number[] = [];
+            for (let k = 0; k < bVerts.length - skipLast; k++) {
+              merged.push(bVerts[k]);
+            }
+            for (let k = 0; k < chainA.verts.length; k++) {
+              merged.push(chainA.verts[k]);
+            }
+            chainA.verts = merged;
+          }
+
+          chainA.forwardLen += bFwd;
+          chainA.reversedLen += bRev;
+          chainB.alive = false;
+          openChainsRepaired++;
+
+          if (chainA.verts[0] === chainA.verts[chainA.verts.length - 1]) {
+            chainA.verts.pop();
+            if (chainA.verts.length >= 3) {
+              closedLoops.push(
+                orientLoopVerts(chainA.verts, chainA.reversedLen > chainA.forwardLen)
+              );
+            }
+            chainA.alive = false;
+            break;
+          }
+
+          addEndpoint(i, true);
+          addEndpoint(i, false);
+        }
+      }
+    }
+
+    // 3. Evaluar cierre, recuperación de sub-ciclos embebidos o descarte para cadenas abiertas restantes
+    const finalizeOpenChain = (verts: number[], shouldReverse: boolean): void => {
+      const firstV = vertices[verts[0]];
+      const lastV = vertices[verts[verts.length - 1]];
       const gapDist = Math.hypot(lastV.x - firstV.x, lastV.y - firstV.y);
 
-      if (chain.length >= 3 && gapDist <= maxRepairGapMm) {
+      if (verts.length >= 3 && gapDist <= maxRepairGapMm) {
         if (gapDist > SNAP_TOLERANCE) {
           openChainsRepaired++;
         }
-        closedLoops.push(chain.map((vi) => [vertices[vi].x, vertices[vi].y]));
-      } else {
-        openChainsDiscarded++;
+        closedLoops.push(orientLoopVerts(verts, shouldReverse));
+        return;
+      }
+
+      if (verts.length >= 4) {
+        const firstPos = new Map<number, number>();
+        let bestStart = -1;
+        let bestEnd = -1;
+        for (let k = 0; k < verts.length; k++) {
+          const v = verts[k];
+          const prev = firstPos.get(v);
+          if (prev !== undefined) {
+            if (k - prev >= 3 && k - prev > bestEnd - bestStart) {
+              bestStart = prev;
+              bestEnd = k;
+            }
+          } else {
+            firstPos.set(v, k);
+          }
+        }
+        if (bestStart !== -1) {
+          const subVerts = verts.slice(bestStart, bestEnd);
+          closedLoops.push(orientLoopVerts(subVerts, shouldReverse));
+        }
+      }
+
+      openChainsDiscarded++;
+    };
+
+    if (chains25 !== null) {
+      for (let i = 0; i < chains25.length; i++) {
+        const c = chains25[i];
+        if (!c.alive) continue;
+        finalizeOpenChain(c.verts, c.reversedLen > c.forwardLen);
+      }
+    } else {
+      for (let i = 0; i < openChains.length; i++) {
+        if (!active[i]) continue;
+        finalizeOpenChain(openChains[i], false);
       }
     }
   }

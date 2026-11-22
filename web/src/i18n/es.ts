@@ -146,6 +146,10 @@ export const WARNING_MESSAGES_ES: { [K in WarningCode]: (p: WarningParamsMap[K])
     `Se detectaron ${p.count} componente(s) conexa(s) abierta(s); no se modificó la orientación de sus caras.`,
   WARN_MESH_INVERTED_NORMALS_FIXED: (p) =>
     `Se normalizó automáticamente la orientación de normales en ${p.count} componente(s) cerrada(s) con caras invertidas.`,
+  WARN_MESH_FLAPS_PRUNED: (p) =>
+    `Se eliminaron automáticamente ${p.count} triángulo(s) rebaba coplanar(es) no-manifold.`,
+  WARN_MESH_WINDING_HARMONIZED: (p) =>
+    `Se armonizó automáticamente la orientación de ${p.count} cara(s) con normales invertidas.`,
   WARN_LOADER_IGNORED_LINES_OR_POINTS: (p) =>
     `Se omitieron ${p.count} objeto(s) de líneas/puntos que no forman parte de la malla triangular.`,
   WARN_LOADER_Y_UP_TO_Z_UP: () => 'Se ajustó la orientación del modelo de Y-up a Z-up.',

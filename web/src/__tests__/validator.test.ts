@@ -23,6 +23,7 @@ import {
   ValidationError,
 } from '../core/validator';
 import { loadMeshFromBuffer } from '../core/meshLoader';
+import { sliceMesh } from '../core/slicer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -487,6 +488,99 @@ l 1 2
       expect(transferPositions.buffer.byteLength).toBe(0); // detached
       expect(rawPositions.buffer.byteLength).toBeGreaterThan(0); // intact in worker
       expect(rawPositions.length).toBe(180);
+    });
+  });
+
+  describe('meshRepair automatic winding harmonization & coplanar flap pruning', () => {
+    function flipTriangleInBuffer(arr: Float32Array, faceIndex: number): void {
+      const b = faceIndex * 9;
+      for (let k = 0; k < 3; k++) {
+        const tmp = arr[b + 3 + k];
+        arr[b + 3 + k] = arr[b + 6 + k];
+        arr[b + 6 + k] = tmp;
+      }
+    }
+
+    it('harmonizes locally inverted triangles on a closed box and slices cleanly on X, Y, Z', () => {
+      const box = createBoxGeometryWithWinding([-10, -10, -10], [10, 10, 10], false);
+      const pos = new Float32Array(box.getAttribute('position').array as Float32Array);
+      flipTriangleInBuffer(pos, 2);
+      flipTriangleInBuffer(pos, 7);
+
+      const brokenGeom = new THREE.BufferGeometry();
+      brokenGeom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+      const { geometry, metadata } = normalizeAndValidateGeometry(brokenGeom, 'local_inverted.stl');
+      expect(metadata.harmonizedFaceCount).toBe(2);
+      expect(metadata.isWatertight).toBe(true);
+      expect(metadata.invertedComponentCount).toBe(0);
+      expect(metadata.warnings.some((w) => w.includes('armonizó'))).toBe(true);
+
+      const repairedPos = geometry.getAttribute('position').array as Float32Array;
+      for (const axis of ['x', 'y', 'z'] as const) {
+        const slice = sliceMesh(repairedPos, { ...DEFAULT_PARAMS, axis, plates: 8 });
+        expect(slice.warnings.length).toBe(0);
+        for (const plate of slice.plates) {
+          expect(plate.length).toBe(1);
+          expect(plate[0].area).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it('aligns minority outward patches then flips majority-inward closed box outward', () => {
+      const inwardBox = createBoxGeometryWithWinding([-10, -10, -10], [10, 10, 10], true);
+      const pos = new Float32Array(inwardBox.getAttribute('position').array as Float32Array);
+      // 10 faces inward + 2 faces outward
+      flipTriangleInBuffer(pos, 0);
+      flipTriangleInBuffer(pos, 5);
+
+      const mixedGeom = new THREE.BufferGeometry();
+      mixedGeom.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+
+      const { geometry, metadata } = normalizeAndValidateGeometry(mixedGeom, 'mostly_inward.stl');
+      expect(metadata.harmonizedFaceCount).toBe(2);
+      expect(metadata.invertedComponentCount).toBe(1);
+      expect(metadata.isWatertight).toBe(true);
+
+      const repairedPos = geometry.getAttribute('position').array as Float32Array;
+      const slice = sliceMesh(repairedPos, { ...DEFAULT_PARAMS, axis: 'z', plates: 5 });
+      expect(slice.warnings.length).toBe(0);
+      for (const plate of slice.plates) {
+        expect(plate.length).toBe(1);
+        expect(plate[0].area).toBeGreaterThan(0);
+      }
+    });
+
+    it('harmonizes locally inverted triangle on an open mesh without flipping the open component', () => {
+      const box = createBoxGeometryWithWinding([-10, -10, -10], [10, 10, 10], false);
+      const fullPos = box.getAttribute('position').array as Float32Array;
+      const openPos = new Float32Array(fullPos.slice(0, 10 * 9)); // 5 faces = 10 triangles
+      flipTriangleInBuffer(openPos, 3);
+
+      const openGeom = new THREE.BufferGeometry();
+      openGeom.setAttribute('position', new THREE.BufferAttribute(openPos, 3));
+
+      const { metadata } = normalizeAndValidateGeometry(openGeom, 'open_local_inverted.stl');
+      expect(metadata.harmonizedFaceCount).toBe(1);
+      expect(metadata.openComponentCount).toBe(1);
+      expect(metadata.invertedComponentCount).toBe(0);
+    });
+
+    it('prunes coplanar non-manifold dangling flap triangles to restore watertightness', () => {
+      const box = createBoxGeometryWithWinding([0, 0, 0], [10, 10, 10], false);
+      const boxPos = box.getAttribute('position').array as Float32Array;
+      // Flap sharing edge (0,0,0)-(10,0,0) and strictly coplanar with bottom face z = 0
+      const withFlap = new Float32Array([...boxPos, 0, 0, 0, 10, 0, 0, 5, -1, 0]);
+      const flapGeom = new THREE.BufferGeometry();
+      flapGeom.setAttribute('position', new THREE.BufferAttribute(withFlap, 3));
+
+      const { metadata } = normalizeAndValidateGeometry(flapGeom, 'box_with_coplanar_flap.stl');
+      expect(metadata.prunedFlapCount).toBe(1);
+      expect(metadata.isWatertight).toBe(true);
+      expect(metadata.openEdgeCount).toBe(0);
+      expect(metadata.nonManifoldEdgeCount).toBe(0);
+      expect(metadata.faceCount).toBe(12);
+      expect(metadata.warnings.some((w) => w.includes('rebaba'))).toBe(true);
     });
   });
 });

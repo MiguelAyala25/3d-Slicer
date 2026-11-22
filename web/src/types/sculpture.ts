@@ -76,6 +76,8 @@ export interface MeshMetadata {
   nonManifoldEdgeCount: number;
   invertedComponentCount: number;
   openComponentCount: number;
+  prunedFlapCount?: number;
+  harmonizedFaceCount?: number;
   unitScaleApplied: number;
   warnings: string[];
 }

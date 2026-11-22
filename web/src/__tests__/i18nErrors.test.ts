@@ -138,6 +138,8 @@ describe('i18n and typed errors (C12 / M6)', () => {
       WARN_MESH_NON_MANIFOLD_EDGES: { count: 2 },
       WARN_MESH_OPEN_COMPONENTS: { count: 1 },
       WARN_MESH_INVERTED_NORMALS_FIXED: { count: 2 },
+      WARN_MESH_FLAPS_PRUNED: { count: 4 },
+      WARN_MESH_WINDING_HARMONIZED: { count: 12 },
       WARN_LOADER_IGNORED_LINES_OR_POINTS: { count: 3 },
       WARN_LOADER_Y_UP_TO_Z_UP: {},
       WARN_LOADER_3MF_UNIT_SCALE: { scale: 10 },
