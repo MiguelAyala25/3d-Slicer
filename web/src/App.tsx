@@ -10,6 +10,7 @@ import { WaffleNavigatorHUD } from './components/hud/WaffleNavigatorHUD';
 import { JOINT_UI } from './components/joints/registry';
 import { RightInspector } from './components/hud/RightInspector';
 import { StatusBarPill } from './components/hud/StatusBarPill';
+import { MeshRepairModal } from './components/modal/MeshRepairModal';
 import { SheetPreviewModal } from './components/modal/SheetPreviewModal';
 import {
   INCOMPATIBLE_PROJECT_CONFIRM_MESSAGE,
@@ -32,7 +33,12 @@ export default function App() {
 
   const stepFloor = useSculptureStore((s) => s.stepFloor);
   const setCameraPreset = useSculptureStore((s) => s.setCameraPreset);
+  const selectedDiscId = useSculptureStore((s) => s.selectedDiscId);
   const deleteSelectedDisc = useSculptureStore((s) => s.deleteSelectedDisc);
+  const selectedDecalId = useSculptureStore((s) => s.selectedDecalId);
+  const removeDecal = useSculptureStore((s) => s.removeDecal);
+  const selectDecal = useSculptureStore((s) => s.selectDecal);
+  const addDecalFromFile = useSculptureStore((s) => s.addDecalFromFile);
   const undoDiscs = useSculptureStore((s) => s.undoDiscs);
   const redoDiscs = useSculptureStore((s) => s.redoDiscs);
   const stepWafflePiece = useSculptureStore((s) => s.stepWafflePiece);
@@ -40,6 +46,10 @@ export default function App() {
     (s) => s.closeSheetPreviewModal
   );
   const isPreviewModalOpen = useSculptureStore((s) => s.isPreviewModalOpen);
+  const pendingMeshRepair = useSculptureStore((s) => s.pendingMeshRepair);
+  const cancelPendingMeshRepair = useSculptureStore(
+    (s) => s.cancelPendingMeshRepair
+  );
   const checkAutosaveOnStartup = useSculptureStore(
     (s) => s.checkAutosaveOnStartup
   );
@@ -138,6 +148,24 @@ export default function App() {
         } finally {
           useSculptureStore.getState().setIsLoadingMesh(false);
         }
+      } else if (
+        lower.endsWith('.png') ||
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.webp')
+      ) {
+        try {
+          const files = Array.from(e.dataTransfer?.files ?? []).filter((f) =>
+            /\.(png|jpe?g|webp)$/i.test(f.name)
+          );
+          for (const imgFile of files) {
+            await addDecalFromFile(imgFile);
+          }
+        } catch (err) {
+          useSculptureStore.setState({
+            errorMessage: err instanceof Error ? err.message : String(err),
+          });
+        }
       }
     };
 
@@ -152,7 +180,7 @@ export default function App() {
       window.removeEventListener('dragleave', handleDragLeave);
       window.removeEventListener('drop', handleDrop);
     };
-  }, [params, importProjectFromParsed, loadMeshArrayBuffer]);
+  }, [params, importProjectFromParsed, loadMeshArrayBuffer, addDecalFromFile]);
 
   // Atajos de teclado seguros alineados con §1.3 y Corrección #5a + B6
   useEffect(() => {
@@ -165,9 +193,25 @@ export default function App() {
         Boolean(el?.isContentEditable);
       if (isEditable) return;
 
+      if (e.key === 'Escape' && pendingMeshRepair) {
+        e.preventDefault();
+        cancelPendingMeshRepair();
+        return;
+      }
+
+      if (pendingMeshRepair !== null) {
+        return;
+      }
+
       if (e.key === 'Escape' && isPreviewModalOpen) {
         e.preventDefault();
         closeSheetPreviewModal();
+        return;
+      }
+
+      if (e.key === 'Escape' && selectedDecalId !== null) {
+        e.preventDefault();
+        selectDecal(null);
         return;
       }
 
@@ -237,7 +281,11 @@ export default function App() {
         case 'Delete':
         case 'Backspace':
           e.preventDefault();
-          deleteSelectedDisc();
+          if (selectedDiscId !== null) {
+            deleteSelectedDisc();
+          } else if (selectedDecalId !== null) {
+            removeDecal(selectedDecalId);
+          }
           break;
         case '7':
         case 't':
@@ -278,11 +326,17 @@ export default function App() {
     stepWafflePiece,
     build.techniqueId,
     setCameraPreset,
+    selectedDiscId,
     deleteSelectedDisc,
+    selectedDecalId,
+    removeDecal,
+    selectDecal,
     undoDiscs,
     redoDiscs,
     closeSheetPreviewModal,
     isPreviewModalOpen,
+    pendingMeshRepair,
+    cancelPendingMeshRepair,
     toggleWireframe,
     sliceResult,
     waffleResult,
@@ -324,6 +378,7 @@ export default function App() {
       <RightInspector />
 
       {/* Modales globales de pantalla completa */}
+      <MeshRepairModal />
       <SheetPreviewModal />
 
       {/* Overlay al arrastrar archivo sobre la ventana */}
@@ -336,7 +391,7 @@ export default function App() {
             Suelta el archivo aquí para abrirlo
           </p>
           <p className="text-xs text-[#8b919e] font-mono-tabular">
-            .obj · .stl · .3mf · .ply · .json
+            .obj · .stl · .3mf · .ply · .json · .png · .jpg · .webp
           </p>
         </div>
       )}

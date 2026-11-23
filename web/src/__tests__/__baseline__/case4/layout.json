@@ -54,7 +54,15 @@
         "labelX": 44.5,
         "labelY": 27.25,
         "labelSize": 4.14,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          44.5,
+          27.25
+        ]
       }
     ],
     "discs": [],
@@ -133,7 +141,15 @@
         "labelX": 44.5,
         "labelY": 27.25,
         "labelSize": 4.14,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          44.5,
+          27.25
+        ]
       }
     ],
     "discs": [],
@@ -203,7 +219,15 @@
         "labelX": 44.5,
         "labelY": 27.25,
         "labelSize": 4.14,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          44.5,
+          27.25
+        ]
       }
     ],
     "discs": [],
@@ -263,7 +287,15 @@
         "labelX": 44.5,
         "labelY": 27.25,
         "labelSize": 4.14,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          44.5,
+          27.25
+        ]
       },
       {
         "plateIndex": 4,
@@ -300,7 +332,15 @@
         "labelX": 95.5,
         "labelY": 27.25,
         "labelSize": 2.76,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          118.5,
+          27.25
+        ]
       }
     ],
     "discs": [],
@@ -360,7 +400,15 @@
         "labelX": 21.5,
         "labelY": 27.25,
         "labelSize": 2.76,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          44.5,
+          27.25
+        ]
       },
       {
         "plateIndex": 6,
@@ -397,7 +445,15 @@
         "labelX": 49.5,
         "labelY": 27.25,
         "labelSize": 2.76,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          72.5,
+          27.25
+        ]
       },
       {
         "plateIndex": 7,
@@ -434,7 +490,15 @@
         "labelX": 77.5,
         "labelY": 27.25,
         "labelSize": 2.76,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          100.5,
+          27.25
+        ]
       }
     ],
     "discs": [],
@@ -494,7 +558,15 @@
         "labelX": 21.5,
         "labelY": 27.25,
         "labelSize": 2.76,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          44.5,
+          27.25
+        ]
       },
       {
         "plateIndex": 9,
@@ -531,7 +603,15 @@
         "labelX": 49.5,
         "labelY": 27.25,
         "labelSize": 2.76,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          72.5,
+          27.25
+        ]
       },
       {
         "plateIndex": 10,
@@ -568,7 +648,15 @@
         "labelX": 77.5,
         "labelY": 27.25,
         "labelSize": 2.76,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          100.5,
+          27.25
+        ]
       }
     ],
     "discs": [],
@@ -628,7 +716,15 @@
         "labelX": 21.5,
         "labelY": 27.25,
         "labelSize": 2.76,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          44.5,
+          27.25
+        ]
       }
     ],
     "discs": [

@@ -55,6 +55,11 @@ export type ErrorCode =
   | 'PROJECT_SLOTS_NO_DISCS_ALLOWED'
   | 'PROJECT_NONE_JOINT_NO_DISCS_ALLOWED'
   | 'PROJECT_SCHEMA_ISSUE'
+  | 'PROJECT_DECALS_LIST_INVALID'
+  | 'PROJECT_DECAL_ITEM_INVALID'
+  | 'PROJECT_DECAL_FIELD_INVALID'
+  // Print / Tiling
+  | 'PRINT_TILE_PAPER_TOO_SMALL'
   // Build & Joints
   | 'BUILD_TECHNIQUE_REQUIRED'
   | 'BUILD_UNKNOWN_TECHNIQUE'
@@ -148,6 +153,11 @@ export interface ErrorParamsMap {
   PROJECT_SLOTS_NO_DISCS_ALLOWED: Record<string, never>;
   PROJECT_NONE_JOINT_NO_DISCS_ALLOWED: Record<string, never>;
   PROJECT_SCHEMA_ISSUE: { message: string };
+  PROJECT_DECALS_LIST_INVALID: Record<string, never>;
+  PROJECT_DECAL_ITEM_INVALID: { position: number };
+  PROJECT_DECAL_FIELD_INVALID: { id: string; field: string };
+
+  PRINT_TILE_PAPER_TOO_SMALL: { paperW: number; paperH: number; margin: number; overlap: number };
 
   BUILD_TECHNIQUE_REQUIRED: Record<string, never>;
   BUILD_UNKNOWN_TECHNIQUE: { id: string };
@@ -188,6 +198,7 @@ export type WarningCode =
   | 'WARN_MESH_INVERTED_NORMALS_FIXED'
   | 'WARN_MESH_FLAPS_PRUNED'
   | 'WARN_MESH_WINDING_HARMONIZED'
+  | 'WARN_MESH_HOLES_FILLED'
   | 'WARN_LOADER_IGNORED_LINES_OR_POINTS'
   | 'WARN_LOADER_Y_UP_TO_Z_UP'
   | 'WARN_LOADER_3MF_UNIT_SCALE'
@@ -209,6 +220,7 @@ export interface WarningParamsMap {
   WARN_MESH_INVERTED_NORMALS_FIXED: { count: number };
   WARN_MESH_FLAPS_PRUNED: { count: number };
   WARN_MESH_WINDING_HARMONIZED: { count: number };
+  WARN_MESH_HOLES_FILLED: { holes: number; triangles: number };
   WARN_LOADER_IGNORED_LINES_OR_POINTS: { count: number };
   WARN_LOADER_Y_UP_TO_Z_UP: Record<string, never>;
   WARN_LOADER_3MF_UNIT_SCALE: { scale: number };

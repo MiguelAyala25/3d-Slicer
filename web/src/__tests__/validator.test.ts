@@ -19,6 +19,7 @@ import { DEFAULT_BUILD } from '../core/build/types';
 import {
   validateFileExtension,
   validateParams,
+  diagnoseGeometry,
   normalizeAndValidateGeometry,
   ValidationError,
 } from '../core/validator';
@@ -581,6 +582,240 @@ l 1 2
       expect(metadata.nonManifoldEdgeCount).toBe(0);
       expect(metadata.faceCount).toBe(12);
       expect(metadata.warnings.some((w) => w.includes('rebaba'))).toBe(true);
+    });
+  });
+
+  describe('meshRepair automatic hole filling (fillHoles: true)', () => {
+    it('caps an open-bottom box (Polycam scan pattern) and slices cleanly across X, Y, Z', () => {
+      // First 2 triangles in createBoxGeometryWithWinding are Bottom (-Z)
+      const box = createBoxGeometryWithWinding([-10, -10, -10], [10, 10, 10], false);
+      const pos = box.getAttribute('position').array as Float32Array;
+      const openBottomPos = new Float32Array(pos.slice(2 * 9)); // 10 triangles (5 faces)
+      const openGeom = new THREE.BufferGeometry();
+      openGeom.setAttribute('position', new THREE.BufferAttribute(openBottomPos, 3));
+
+      const { geometry, metadata } = normalizeAndValidateGeometry(
+        openGeom,
+        'polycam_open_box.obj',
+        1.0,
+        [],
+        { fillHoles: true }
+      );
+
+      expect(metadata.isWatertight).toBe(true);
+      expect(metadata.openEdgeCount).toBe(0);
+      expect(metadata.nonManifoldEdgeCount).toBe(0);
+      expect(metadata.openComponentCount).toBe(0);
+      expect(metadata.filledHoleCount).toBe(1);
+      expect(metadata.addedCapTriangles).toBe(2);
+      expect(metadata.faceCount).toBe(12);
+      expect(metadata.warnings.some((w) => w.includes('hueco'))).toBe(true);
+
+      const repairedPos = geometry.getAttribute('position').array as Float32Array;
+      for (const axis of ['x', 'y', 'z'] as const) {
+        const slice = sliceMesh(repairedPos, { ...DEFAULT_PARAMS, axis, plates: 6 });
+        expect(slice.warnings.length).toBe(0);
+        for (const plate of slice.plates) {
+          expect(plate.length).toBe(1);
+          expect(plate[0].area).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it('triangulates concave L-shaped open bottom without convex overfill', () => {
+      const base2D: [number, number][] = [
+        [0, 0],
+        [20, 0],
+        [20, 10],
+        [10, 10],
+        [10, 20],
+        [0, 20],
+      ];
+      const bot = base2D.map(([x, y]) => [x, y, 0]);
+      const top = base2D.map(([x, y]) => [x, y, 10]);
+
+      const tris: number[] = [];
+      // Side walls (outward winding)
+      for (let i = 0; i < 6; i++) {
+        const nxt = (i + 1) % 6;
+        tris.push(...bot[i], ...bot[nxt], ...top[nxt]);
+        tris.push(...bot[i], ...top[nxt], ...top[i]);
+      }
+      // Top cap at z = 10 (outward +Z)
+      for (const [a, b, c] of [
+        [0, 1, 2],
+        [0, 2, 3],
+        [0, 3, 4],
+        [0, 4, 5],
+      ]) {
+        tris.push(...top[a], ...top[b], ...top[c]);
+      }
+
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(tris), 3));
+
+      const { geometry, metadata } = normalizeAndValidateGeometry(
+        geom,
+        'concave_l_open.obj',
+        1.0,
+        [],
+        { fillHoles: true }
+      );
+
+      expect(metadata.isWatertight).toBe(true);
+      expect(metadata.openEdgeCount).toBe(0);
+      expect(metadata.nonManifoldEdgeCount).toBe(0);
+      expect(metadata.filledHoleCount).toBe(1);
+      expect(metadata.addedCapTriangles).toBe(4);
+      expect(metadata.faceCount).toBe(20);
+
+      const pos = geometry.getAttribute('position').array as Float32Array;
+      const zSlice = sliceMesh(pos, { ...DEFAULT_PARAMS, axis: 'z', plates: 5 });
+      expect(zSlice.warnings.length).toBe(0);
+      // L-shape area = 300 mm^2 at origHeight 10; assembledHeight = 5*3 + 4*3 = 27 -> scaleFactor = 2.7
+      const expectedArea = 300 * 2.7 * 2.7;
+      for (const plate of zSlice.plates) {
+        expect(plate.length).toBe(1);
+        expect(plate[0].area).toBeCloseTo(expectedArea, 1);
+      }
+      for (const axis of ['x', 'y'] as const) {
+        const s = sliceMesh(pos, { ...DEFAULT_PARAMS, axis, plates: 6 });
+        expect(s.warnings.length).toBe(0);
+        for (const plate of s.plates) {
+          expect(plate.length).toBeGreaterThanOrEqual(1);
+        }
+      }
+    });
+
+    it('splits colliding internal cap diagonals with a Steiner vertex to stay manifold', () => {
+      // Hourglass rim (p0, p1a, p1b, p2, p3a, p3b) where (p0, p2) is an existing roof ridge edge
+      // and also a mandatory waist chord of the hourglass hole triangulation.
+      const p0: [number, number, number] = [4, 0, 4];
+      const p2: [number, number, number] = [6, 0, 4];
+      const p1a: [number, number, number] = [0, -5, 0];
+      const p1b: [number, number, number] = [10, -5, 0];
+      const p3a: [number, number, number] = [10, 5, 0];
+      const p3b: [number, number, number] = [0, 5, 0];
+
+      const positions = new Float32Array([
+        ...p0, ...p1b, ...p1a,
+        ...p0, ...p2, ...p1b,
+        ...p0, ...p3a, ...p2,
+        ...p0, ...p3b, ...p3a,
+      ]);
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+      const { metadata } = normalizeAndValidateGeometry(
+        geom,
+        'hourglass_colliding_diag.obj',
+        1.0,
+        [],
+        { fillHoles: true }
+      );
+
+      expect(metadata.isWatertight).toBe(true);
+      expect(metadata.openEdgeCount).toBe(0);
+      expect(metadata.nonManifoldEdgeCount).toBe(0);
+      expect(metadata.filledHoleCount).toBe(1);
+      expect(metadata.vertexCount).toBeGreaterThan(6); // Steiner midpoint added
+      expect(metadata.addedCapTriangles).toBeGreaterThan(4);
+    });
+
+    it('caps an inward-facing open-bottom box then flips the closed solid outward', () => {
+      const invertedBox = createBoxGeometryWithWinding([-10, -10, -10], [10, 10, 10], true);
+      const pos = invertedBox.getAttribute('position').array as Float32Array;
+      const openInwardPos = new Float32Array(pos.slice(2 * 9));
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(openInwardPos, 3));
+
+      const { geometry, metadata } = normalizeAndValidateGeometry(
+        geom,
+        'inverted_open_box.obj',
+        1.0,
+        [],
+        { fillHoles: true }
+      );
+
+      expect(metadata.isWatertight).toBe(true);
+      expect(metadata.openEdgeCount).toBe(0);
+      expect(metadata.nonManifoldEdgeCount).toBe(0);
+      expect(metadata.filledHoleCount).toBe(1);
+      expect(metadata.invertedComponentCount).toBe(1);
+
+      const repairedPos = geometry.getAttribute('position').array as Float32Array;
+      const slice = sliceMesh(repairedPos, { ...DEFAULT_PARAMS, axis: 'x', plates: 5 });
+      expect(slice.warnings.length).toBe(0);
+      for (const plate of slice.plates) {
+        expect(plate.length).toBe(1);
+        expect(plate[0].area).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe('diagnoseGeometry & selective repair options gating', () => {
+    it('reports no repairable issues on a clean closed box', () => {
+      const box = createBoxGeometryWithWinding([0, 0, 0], [10, 10, 10], false);
+      const diagnosis = diagnoseGeometry(box, 'clean_box.stl');
+
+      expect(diagnosis.hasRepairableIssues).toBe(false);
+      expect(diagnosis.openHoleLoopCount).toBe(0);
+      expect(diagnosis.estimatedCapTriangles).toBe(0);
+      expect(diagnosis.prunableFlapCount).toBe(0);
+      expect(diagnosis.invertedFaceEstimate).toBe(0);
+    });
+
+    it('detects open-bottom hole in diagnoseGeometry without mutating geometry', () => {
+      const box = createBoxGeometryWithWinding([-10, -10, -10], [10, 10, 10], false);
+      const pos = box.getAttribute('position').array as Float32Array;
+      const openBottomPos = new Float32Array(pos.slice(2 * 9));
+      const openGeom = new THREE.BufferGeometry();
+      openGeom.setAttribute('position', new THREE.BufferAttribute(openBottomPos, 3));
+
+      const diagnosis = diagnoseGeometry(openGeom, 'open_scan.obj');
+      expect(diagnosis.hasRepairableIssues).toBe(true);
+      expect(diagnosis.openHoleLoopCount).toBe(1);
+      expect(diagnosis.openEdgeCount).toBe(4);
+      expect(diagnosis.estimatedCapTriangles).toBe(2);
+      expect(diagnosis.prunableFlapCount).toBe(0);
+      expect(diagnosis.invertedFaceEstimate).toBe(0);
+    });
+
+    it('counts coplanar flaps and inverted faces accurately without misreporting flap edges as holes', () => {
+      const box = createBoxGeometryWithWinding([0, 0, 0], [10, 10, 10], false);
+      const boxPos = new Float32Array(box.getAttribute('position').array as Float32Array);
+      // Invert 2 manifold faces locally
+      for (const f of [3, 8]) {
+        const b = f * 9;
+        for (let k = 0; k < 3; k++) {
+          const tmp = boxPos[b + 3 + k];
+          boxPos[b + 3 + k] = boxPos[b + 6 + k];
+          boxPos[b + 6 + k] = tmp;
+        }
+      }
+      // Attach 1 coplanar flap on bottom face z = 0 (creates 2 open edges + 1 non-manifold edge)
+      const withDefects = new Float32Array([...boxPos, 0, 0, 0, 10, 0, 0, 5, -1, 0]);
+      const defectGeom = new THREE.BufferGeometry();
+      defectGeom.setAttribute('position', new THREE.BufferAttribute(withDefects, 3));
+
+      const diagnosis = diagnoseGeometry(defectGeom, 'flaps_and_inverted.stl');
+      expect(diagnosis.hasRepairableIssues).toBe(true);
+      expect(diagnosis.prunableFlapCount).toBe(1);
+      expect(diagnosis.invertedFaceEstimate).toBe(2);
+      expect(diagnosis.openHoleLoopCount).toBe(0);
+
+      // Verify disabling all repairs leaves defects untouched
+      const { metadata: rawMeta } = normalizeAndValidateGeometry(
+        defectGeom,
+        'flaps_and_inverted.stl',
+        1.0,
+        [],
+        { pruneFlaps: false, harmonizeWinding: false, fillHoles: false }
+      );
+      expect(rawMeta.prunedFlapCount).toBe(0);
+      expect(rawMeta.harmonizedFaceCount).toBe(0);
+      expect(rawMeta.filledHoleCount).toBe(0);
+      expect(rawMeta.isWatertight).toBe(false);
     });
   });
 });

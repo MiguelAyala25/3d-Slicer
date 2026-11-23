@@ -13,7 +13,7 @@ import {
   ValidationError,
   formatCoreWarning,
 } from './validator';
-import type { MeshMetadata } from '../types/sculpture';
+import type { MeshMetadata, MeshRepairOptions } from '../types/sculpture';
 
 const THREE_MF_UNIT_SCALE: Record<string, number> = {
   micron: 0.001,
@@ -112,15 +112,21 @@ function checkPLYHasFaces(buffer: ArrayBuffer): void {
   }
 }
 
-export interface LoadMeshOptions {
+export interface LoadMeshOptions extends MeshRepairOptions {
   upOrientation?: 'y-up' | 'z-up' | 'auto';
 }
 
-export function loadMeshFromBuffer(
+export interface ParsedRawMesh {
+  rawGeometry: THREE.BufferGeometry;
+  unitScaleApplied: number;
+  loaderWarnings: string[];
+}
+
+export function parseRawMeshFromBuffer(
   buffer: ArrayBuffer,
   fileName: string,
-  options?: LoadMeshOptions
-): { geometry: THREE.BufferGeometry; metadata: MeshMetadata } {
+  options?: Pick<LoadMeshOptions, 'upOrientation'>
+): ParsedRawMesh {
   const ext = validateFileExtension(fileName, buffer.byteLength);
   let rawGeometry: THREE.BufferGeometry;
   let unitScaleApplied = 1.0;
@@ -167,10 +173,29 @@ export function loadMeshFromBuffer(
     throw new ValidationError('FILE_EXTENSION_UNSUPPORTED', { ext });
   }
 
+  return { rawGeometry, unitScaleApplied, loaderWarnings };
+}
+
+export function loadMeshFromBuffer(
+  buffer: ArrayBuffer,
+  fileName: string,
+  options?: LoadMeshOptions
+): { geometry: THREE.BufferGeometry; metadata: MeshMetadata } {
+  const { rawGeometry, unitScaleApplied, loaderWarnings } = parseRawMeshFromBuffer(
+    buffer,
+    fileName,
+    options
+  );
+
   return normalizeAndValidateGeometry(
     rawGeometry,
     fileName,
     unitScaleApplied,
-    loaderWarnings
+    loaderWarnings,
+    {
+      fillHoles: options?.fillHoles,
+      pruneFlaps: options?.pruneFlaps,
+      harmonizeWinding: options?.harmonizeWinding,
+    }
   );
 }

@@ -212,7 +212,15 @@
         "labelX": 39.331950163920375,
         "labelY": 58.741447702118826,
         "labelSize": 6.13,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          29.03566,
+          52.56676
+        ]
       },
       {
         "plateIndex": 6,
@@ -467,7 +475,15 @@
         "labelX": 84.94818853584644,
         "labelY": 78.40808428461322,
         "labelSize": 5.01,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          77.17277,
+          68.47039
+        ]
       },
       {
         "plateIndex": 7,
@@ -648,7 +664,15 @@
         "labelX": 136.276,
         "labelY": 5,
         "labelSize": 4,
-        "labelOutside": true
+        "labelOutside": true,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          122.53343,
+          51.40397
+        ]
       },
       {
         "plateIndex": 8,
@@ -851,7 +875,15 @@
         "labelX": 171.60817600343216,
         "labelY": 59.728012215460716,
         "labelSize": 5.33,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          172.91016,
+          64.03747
+        ]
       },
       {
         "plateIndex": 9,
@@ -932,7 +964,15 @@
         "labelX": 219.20192867498852,
         "labelY": 22.27399519236966,
         "labelSize": 2,
-        "labelOutside": false
+        "labelOutside": false,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          220.06614,
+          41.35615
+        ]
       }
     ],
     "discs": [],

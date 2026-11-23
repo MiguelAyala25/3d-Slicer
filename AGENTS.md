@@ -13,4 +13,5 @@
 - Laser cutting export layers:
   - `CORTE` (Cut): Red (#FF0000), outer/inner slice contours and disc contours.
   - `GRABADO` (Engrave): Blue (#0000FF), alignment circles, disc trays, labels.
+  - `REGISTRO` (Registration): Green (#00AA00), optional corner alignment crosshairs for Print-then-Cut workflows (disabled for laser firing).
 - Slicing and geometry calculations should remain clean and headless in `web/src/core/slicer.ts` and `web/src/core/layout.ts`.

@@ -109,7 +109,13 @@ export const createViewSlice: StateCreator<
       if (!waffleResult) return;
       try {
         const layouts = generateWaffleSheetLayouts(waffleResult, params);
-        set({ sheetLayouts: layouts, isPreviewModalOpen: true, exportAnywayConfirmed: false, errorMessage: null });
+        set({
+          sheetLayouts: layouts,
+          isPreviewModalOpen: true,
+          isPrintCalibrationPreview: false,
+          exportAnywayConfirmed: false,
+          errorMessage: null,
+        });
       } catch (err) {
         set({
           errorMessage: err instanceof Error ? err.message : String(err),
@@ -125,7 +131,13 @@ export const createViewSlice: StateCreator<
         build.jointId === 'discs'
           ? generateDiscsLayouts(sliceResult, discs, params)
           : generateSheetLayouts(sliceResult, params);
-      set({ sheetLayouts: layouts, isPreviewModalOpen: true, exportAnywayConfirmed: false, errorMessage: null });
+      set({
+        sheetLayouts: layouts,
+        isPreviewModalOpen: true,
+        isPrintCalibrationPreview: false,
+        exportAnywayConfirmed: false,
+        errorMessage: null,
+      });
     } catch (err) {
       set({
         errorMessage: err instanceof Error ? err.message : String(err),
@@ -134,5 +146,10 @@ export const createViewSlice: StateCreator<
     }
   },
 
-  closeSheetPreviewModal: () => set({ isPreviewModalOpen: false, exportAnywayConfirmed: false }),
+  closeSheetPreviewModal: () =>
+    set({
+      isPreviewModalOpen: false,
+      isPrintCalibrationPreview: false,
+      exportAnywayConfirmed: false,
+    }),
 });

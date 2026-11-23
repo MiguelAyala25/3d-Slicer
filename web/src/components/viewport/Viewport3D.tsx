@@ -4,6 +4,8 @@ import { Loader2 } from 'lucide-react';
 import * as THREE from 'three';
 import { useSculptureStore } from '../../store/useSculptureStore';
 import { CameraRig } from './CameraRig';
+import { DecalEditorLayer } from './DecalEditorLayer';
+import { DecalPreviewLayer } from './DecalPreviewLayer';
 import { OriginalMeshView } from './OriginalMeshView';
 import { SlicedPlatesView } from './SlicedPlatesView';
 import { WafflePlatesView } from './WafflePlatesView';
@@ -72,6 +74,8 @@ export function Viewport3D() {
         ) : (
           <>
             <SlicedPlatesView />
+            <DecalPreviewLayer />
+            <DecalEditorLayer />
             {JointViewportLayer && <JointViewportLayer />}
           </>
         )}

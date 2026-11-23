@@ -1048,5 +1048,55 @@ describe('project serialization & autosave', () => {
         )
       ).toThrow("El campo 'joint.params.gap' debe ser numérico.");
     });
+
+    it('serializes and parses v2.0 projects with embedded decals', () => {
+      const decalParams: SculptureParams = {
+        ...DEFAULT_PARAMS,
+        axis: 'y',
+        plates: 6,
+      };
+      const build = { techniqueId: 'stacked' as const, jointId: 'discs' as const };
+      const decals = [
+        {
+          id: 'dec-1',
+          name: 'foto.png',
+          imageKey: 'abc123',
+          pxW: 400,
+          pxH: 300,
+          centerX: 1.5,
+          centerZ: -2.0,
+          widthMm: 40,
+          heightMm: 30,
+          rotationDeg: 15,
+          mode: 'plane' as const,
+          plateIndex: 2,
+          order: 1,
+          visible: true,
+          embeddedDataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+        },
+      ];
+
+      expect(projectFormatFor(build, decalParams, decals)).toBe('2.0');
+      const json = serializeProject(decalParams, build, [], undefined, decals);
+      const parsed = parseProjectJson(json);
+
+      expect(parsed.version).toBe('2.0');
+      expect(parsed.decals).toHaveLength(1);
+      expect(parsed.decals![0]).toEqual(decals[0]);
+
+      // Compatibility checks axis mismatch
+      expect(
+        checkParamsCompatibility(parsed.params, { ...decalParams, axis: 'z' })
+      ).toBe(false);
+
+      // Autosave preserves decals
+      window.localStorage.clear();
+      saveProjectToLocalStorage(decalParams, [], 'head.obj', build, undefined, [
+        { ...decals[0], embeddedDataUrl: undefined } as unknown as typeof decals[0],
+      ]);
+      const loaded = loadProjectFromLocalStorage();
+      expect(loaded?.decals).toHaveLength(1);
+      expect(loaded?.decals?.[0].imageKey).toBe('abc123');
+    });
   });
 });

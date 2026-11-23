@@ -6,17 +6,41 @@ import { getJoint } from '../core/build/registry';
 import { validateBuildParams } from '../core/build/validateBuild';
 import { ValidationError } from '../core/validator';
 import { platesForTargetDimension, scaleForTargetDimension, type ModelDimension, type ModelExtents, type SizeIntent } from '../core/sizing';
+import { createDecalSlice, type DecalSlice } from './decalSlice';
 import { createDiscsSlice, type DiscsSlice } from './discsSlice';
 import { computeUpdatedWaffleParamsForExtents, createWaffleSlice, type WaffleActions, type WaffleState } from './waffleSlice';
-import { AUTO_SLICE_DEBOUNCE_MS, clearAutoSliceTimer, loadMeshWithWorkerOrFallback, runSliceJob, scheduleAutoSlice } from './workerClient';
+import {
+  AUTO_SLICE_DEBOUNCE_MS,
+  cancelPendingMeshLoad,
+  clearAutoSliceTimer,
+  completePendingMeshLoad,
+  loadMeshWithCheckOrFallback,
+  runSliceJob,
+  scheduleAutoSlice,
+} from './workerClient';
 import type { WaffleSliceResult } from '../core/waffle/types';
 import { saveMeshBufferToIndexedDB } from '../core/autosave';
 import { createProjectSlice, persistAutosaveIfLoaded, type PendingAutosaveSession, type ProjectSlice } from './projectSlice';
 import { createViewSlice, getNextNonEmptyFloor, type CameraPreset, type ViewMode, type ViewSlice } from './viewSlice';
-import type { Axis, MeshMetadata, SculptureParams, SliceResult } from '../types/sculpture';
+import type {
+  Axis,
+  MeshMetadata,
+  MeshRepairDiagnosis,
+  MeshRepairOptions,
+  SculptureParams,
+  SliceResult,
+} from '../types/sculpture';
 
 export { AUTO_SLICE_DEBOUNCE_MS };
 export type { CameraPreset, PendingAutosaveSession, ViewMode };
+
+export interface PendingMeshRepair {
+  meshId: number;
+  buffer: ArrayBuffer;
+  fileName: string;
+  autoSlice: boolean;
+  diagnosis: MeshRepairDiagnosis;
+}
 
 export interface SculptureState {
   params: SculptureParams;
@@ -29,6 +53,7 @@ export interface SculptureState {
   meshGeometry: THREE.BufferGeometry | null;
   meshMetadata: MeshMetadata | null;
   meshFileName: string | null;
+  pendingMeshRepair: PendingMeshRepair | null;
   isLoadingMesh: boolean;
   isSlicing: boolean;
   sliceResult: SliceResult | null;
@@ -41,7 +66,14 @@ export interface SculptureState {
 export interface SculptureActions {
   setParam: <K extends keyof SculptureParams>(key: K, value: SculptureParams[K]) => void;
   setIsLoadingMesh: (loading: boolean) => void;
-  loadMeshArrayBuffer: (buffer: ArrayBuffer, fileName: string, autoSlice?: boolean) => Promise<void>;
+  loadMeshArrayBuffer: (
+    buffer: ArrayBuffer,
+    fileName: string,
+    autoSlice?: boolean,
+    options?: { promptIfNeedsRepair?: boolean; repairOptions?: MeshRepairOptions }
+  ) => Promise<void>;
+  resolvePendingMeshRepair: (repairOptions: MeshRepairOptions) => Promise<void>;
+  cancelPendingMeshRepair: () => void;
   runSlice: () => Promise<void>;
   setPlatesFromDimension: (dim: ModelDimension, mm: number) => void;
   setTechnique: (id: TechniqueId, opts?: { confirmed?: boolean }) => { needsConfirmation: boolean; discCount: number };
@@ -51,6 +83,7 @@ export interface SculptureActions {
 
 export type SculptureStore = SculptureState &
   SculptureActions &
+  DecalSlice &
   DiscsSlice &
   ProjectSlice &
   ViewSlice &
@@ -85,12 +118,63 @@ function recalcPlatesForSizeIntent(
 
 export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
   let lastSlicedAxis: Axis | null = null;
+  const decalSlice = createDecalSlice(set, get, api);
   const discsSlice = createDiscsSlice(set, get, api);
   const projectSlice = createProjectSlice(set, get, api);
   const viewSlice = createViewSlice(set, get, api);
   const waffleSlice = createWaffleSlice(set, get, api);
 
+  const applyLoadedMesh = async (
+    geometry: THREE.BufferGeometry,
+    metadata: MeshMetadata,
+    buffer: ArrayBuffer,
+    fileName: string,
+    autoSlice: boolean
+  ) => {
+    get().resetDiscs();
+    if (!geometry.boundingBox) geometry.computeBoundingBox();
+    const bbox = geometry.boundingBox!;
+    const extents: ModelExtents = {
+      x: bbox.max.x - bbox.min.x,
+      y: bbox.max.y - bbox.min.y,
+      z: bbox.max.z - bbox.min.z,
+    };
+
+    const initialSizeIntent: SizeIntent = { kind: 'plates' };
+    const nextWaffleParams = computeUpdatedWaffleParamsForExtents(
+      extents,
+      get().params,
+      get().waffleParams,
+      initialSizeIntent,
+      get().wafflePitchManuallyEdited
+    );
+
+    set({
+      meshGeometry: geometry,
+      meshMetadata: metadata,
+      meshFileName: fileName,
+      pendingMeshRepair: null,
+      modelExtents: extents,
+      sizeIntent: initialSizeIntent,
+      waffleParams: nextWaffleParams,
+      sliceResult: null,
+      waffleResult: null,
+      selectedWafflePieceId: null,
+      selectedDecalId: null,
+      isResultDirty: false,
+      activeFloor: 0,
+      isLoadingMesh: false,
+      statusMessage: `Modelo '${fileName}' cargado (${metadata.vertexCount} vértices, ${metadata.faceCount} triángulos)`,
+    });
+
+    saveMeshBufferToIndexedDB(fileName, buffer).catch(() => {});
+    if (autoSlice && (isStackedSliceReady(get().build) || get().build.techniqueId === 'waffle')) {
+      await get().runSlice();
+    }
+  };
+
   return {
+    ...decalSlice,
     ...discsSlice,
     ...projectSlice,
     ...viewSlice,
@@ -105,6 +189,7 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
     meshGeometry: null,
     meshMetadata: null,
     meshFileName: null,
+    pendingMeshRepair: null,
     sliceResult: null,
     isSlicing: false,
     isLoadingMesh: false,
@@ -182,9 +267,18 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
 
     setIsLoadingMesh: (loading) => set({ isLoadingMesh: loading }),
 
-    loadMeshArrayBuffer: async (buffer, fileName, autoSlice = true) => {
+    loadMeshArrayBuffer: async (buffer, fileName, autoSlice = true, options) => {
       clearAutoSliceTimer();
-      set({ isLoadingMesh: true, errorMessage: null, statusMessage: `Cargando ${fileName}...` });
+      const prevPending = get().pendingMeshRepair;
+      if (prevPending) {
+        cancelPendingMeshLoad(prevPending.meshId);
+      }
+      set({
+        isLoadingMesh: true,
+        pendingMeshRepair: null,
+        errorMessage: null,
+        statusMessage: `Cargando ${fileName}...`,
+      });
 
       await new Promise<void>((resolve) => {
         if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -197,46 +291,41 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
       try {
         const ext = fileName.toLowerCase().slice(fileName.lastIndexOf('.'));
         const upOrientation = ext === '.obj' ? 'y-up' : undefined;
-        const { geometry, metadata } = await loadMeshWithWorkerOrFallback(buffer, fileName, upOrientation);
-
-        get().resetDiscs();
-        if (!geometry.boundingBox) geometry.computeBoundingBox();
-        const bbox = geometry.boundingBox!;
-        const extents: ModelExtents = {
-          x: bbox.max.x - bbox.min.x,
-          y: bbox.max.y - bbox.min.y,
-          z: bbox.max.z - bbox.min.z,
+        const promptIfNeedsRepair = options?.promptIfNeedsRepair ?? true;
+        const repairOptions: MeshRepairOptions = options?.repairOptions ?? {
+          fillHoles: true,
+          pruneFlaps: true,
+          harmonizeWinding: true,
         };
 
-        const initialSizeIntent: SizeIntent = { kind: 'plates' };
-        const nextWaffleParams = computeUpdatedWaffleParamsForExtents(
-          extents,
-          get().params,
-          get().waffleParams,
-          initialSizeIntent,
-          get().wafflePitchManuallyEdited
-        );
-
-        set({
-          meshGeometry: geometry,
-          meshMetadata: metadata,
-          meshFileName: fileName,
-          modelExtents: extents,
-          sizeIntent: initialSizeIntent,
-          waffleParams: nextWaffleParams,
-          sliceResult: null,
-          waffleResult: null,
-          selectedWafflePieceId: null,
-          isResultDirty: false,
-          activeFloor: 0,
-          isLoadingMesh: false,
-          statusMessage: `Modelo '${fileName}' cargado (${metadata.vertexCount} vértices, ${metadata.faceCount} triángulos)`,
+        const outcome = await loadMeshWithCheckOrFallback(buffer, fileName, {
+          upOrientation,
+          checkBeforeRepair: promptIfNeedsRepair,
+          repairOptions,
         });
 
-        saveMeshBufferToIndexedDB(fileName, buffer).catch(() => {});
-        if (autoSlice && (isStackedSliceReady(get().build) || get().build.techniqueId === 'waffle')) {
-          await get().runSlice();
+        if (outcome.status === 'needs-repair') {
+          set({
+            isLoadingMesh: false,
+            pendingMeshRepair: {
+              meshId: outcome.meshId,
+              buffer,
+              fileName,
+              autoSlice,
+              diagnosis: outcome.diagnosis,
+            },
+            statusMessage: `Se detectaron problemas en '${fileName}'; confirma si deseas repararlos`,
+          });
+          return;
         }
+
+        await applyLoadedMesh(
+          outcome.geometry,
+          outcome.metadata,
+          buffer,
+          fileName,
+          autoSlice
+        );
       } catch (err) {
         set({
           isLoadingMesh: false,
@@ -244,6 +333,53 @@ export const useSculptureStore = create<SculptureStore>()((set, get, api) => {
           statusMessage: 'Error al cargar el modelo 3D',
         });
       }
+    },
+
+    resolvePendingMeshRepair: async (repairOptions) => {
+      const pending = get().pendingMeshRepair;
+      if (!pending) return;
+
+      set({
+        isLoadingMesh: true,
+        pendingMeshRepair: null,
+        errorMessage: null,
+        statusMessage: `Procesando ${pending.fileName}...`,
+      });
+
+      try {
+        const { geometry, metadata } = await completePendingMeshLoad(
+          pending.meshId,
+          repairOptions
+        );
+        await applyLoadedMesh(
+          geometry,
+          metadata,
+          pending.buffer,
+          pending.fileName,
+          pending.autoSlice
+        );
+      } catch (err) {
+        set({
+          isLoadingMesh: false,
+          errorMessage: err instanceof Error ? err.message : String(err),
+          statusMessage: 'Error al procesar el modelo 3D',
+        });
+      }
+    },
+
+    cancelPendingMeshRepair: () => {
+      const pending = get().pendingMeshRepair;
+      if (!pending) return;
+
+      cancelPendingMeshLoad(pending.meshId);
+      const activeName = get().meshFileName;
+      set({
+        pendingMeshRepair: null,
+        isLoadingMesh: false,
+        statusMessage: activeName
+          ? `Modelo '${activeName}' activo`
+          : 'Carga un modelo 3D (.obj, .stl, .3mf, .ply) para comenzar',
+      });
     },
 
     runSlice: async () => {

@@ -86,6 +86,14 @@ export const ERROR_MESSAGES_ES: { [K in ErrorCode]: (p: ErrorParamsMap[K]) => st
   PROJECT_SLOTS_NO_DISCS_ALLOWED: () => 'La unión «Encaje por ranuras» no admite discos.',
   PROJECT_NONE_JOINT_NO_DISCS_ALLOWED: () => 'La unión «Sin separación» no admite discos.',
   PROJECT_SCHEMA_ISSUE: (p) => p.message,
+  PROJECT_DECALS_LIST_INVALID: () => "El archivo de proyecto no contiene una lista 'decals' válida.",
+  PROJECT_DECAL_ITEM_INVALID: (p) => `La imagen en la posición ${p.position} es inválida.`,
+  PROJECT_DECAL_FIELD_INVALID: (p) =>
+    `La imagen '${p.id}' tiene un valor inválido en '${p.field}'.`,
+
+  // Print / Tiling
+  PRINT_TILE_PAPER_TOO_SMALL: (p) =>
+    `El tamaño de papel (${p.paperW} x ${p.paperH} mm) es demasiado pequeño para margen ${p.margin} mm y traslape ${p.overlap} mm.`,
 
   // Build & Joints
   BUILD_TECHNIQUE_REQUIRED: () => 'Selecciona una técnica de construcción.',
@@ -150,6 +158,8 @@ export const WARNING_MESSAGES_ES: { [K in WarningCode]: (p: WarningParamsMap[K])
     `Se eliminaron automáticamente ${p.count} triángulo(s) rebaba coplanar(es) no-manifold.`,
   WARN_MESH_WINDING_HARMONIZED: (p) =>
     `Se armonizó automáticamente la orientación de ${p.count} cara(s) con normales invertidas.`,
+  WARN_MESH_HOLES_FILLED: (p) =>
+    `Se cerraron automáticamente ${p.holes} hueco(s) abierto(s) (+${p.triangles} triángulos) para permitir el corte en todos los ejes.`,
   WARN_LOADER_IGNORED_LINES_OR_POINTS: (p) =>
     `Se omitieron ${p.count} objeto(s) de líneas/puntos que no forman parte de la malla triangular.`,
   WARN_LOADER_Y_UP_TO_Z_UP: () => 'Se ajustó la orientación del modelo de Y-up a Z-up.',

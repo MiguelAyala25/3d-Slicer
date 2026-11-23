@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { PARAM_BOUNDS } from './params';
 import { ValidationError } from './errors';
-import type { Axis, Disc } from '../types/sculpture';
+import type { Axis, Disc, SerializedImageDecal } from '../types/sculpture';
 import type { WaffleDistributionMethod } from './waffle/types';
 
 /**
@@ -301,4 +301,57 @@ export function validateDiscsJointParams(jParamsRaw: unknown): ValidatedDiscsJoi
   }
 
   return parsed.data;
+}
+
+const SerializedDecalSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string(),
+  imageKey: z.string().min(1),
+  pxW: z.number().positive(),
+  pxH: z.number().positive(),
+  centerX: z.number().finite(),
+  centerZ: z.number().finite(),
+  widthMm: z.number().positive(),
+  heightMm: z.number().positive(),
+  rotationDeg: z.number().finite(),
+  mode: z.enum(['plane', 'surface']),
+  plateIndex: z.number().int().nonnegative().optional(),
+  order: z.number().finite(),
+  visible: z.boolean(),
+  embeddedDataUrl: z.string().min(1).optional(),
+});
+
+export function validateAndParseDecals(
+  rawDecals: unknown,
+  maxPlates: number
+): SerializedImageDecal[] {
+  if (!Array.isArray(rawDecals)) {
+    throw new ValidationError('PROJECT_DECALS_LIST_INVALID', {});
+  }
+  const decals: SerializedImageDecal[] = [];
+  for (let i = 0; i < rawDecals.length; i++) {
+    const item = rawDecals[i];
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new ValidationError('PROJECT_DECAL_ITEM_INVALID', { position: i });
+    }
+    const parsed = SerializedDecalSchema.safeParse(item);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const field = issue.path.length > 0 ? String(issue.path[0]) : 'decal';
+      const id =
+        typeof (item as Record<string, unknown>).id === 'string'
+          ? String((item as Record<string, unknown>).id)
+          : `#${i}`;
+      throw new ValidationError('PROJECT_DECAL_FIELD_INVALID', { id, field });
+    }
+    const d = parsed.data;
+    if (d.plateIndex !== undefined && d.plateIndex >= maxPlates) {
+      throw new ValidationError('PROJECT_DECAL_FIELD_INVALID', {
+        id: d.id,
+        field: 'plateIndex',
+      });
+    }
+    decals.push(d);
+  }
+  return decals;
 }

@@ -8,8 +8,18 @@ import {
 } from '@tarikjabiri/dxf';
 import JSZip from 'jszip';
 import { estimateTextWidth } from './labelMetrics';
+import {
+  computeRegistrationMarks,
+  mirrorSheetLayoutHorizontal,
+} from './printLayout';
 import { generateSheetSvg } from './svgExporter';
 import type { Point2D, SheetLayout } from '../types/sculpture';
+
+export interface DxfExportOptions {
+  includeRegistrationMarks?: boolean;
+  mirrorHorizontal?: boolean;
+  omitEngravedPlateLabels?: boolean;
+}
 
 function addDxfClosedPolyline(
   dxf: DxfWriter,
@@ -57,7 +67,7 @@ function addDxfDashedCircle(
 
 function addDxfCenteredText(
   dxf: DxfWriter,
-  layerName: 'GRABADO',
+  layerName: 'GRABADO' | 'REGISTRO',
   cx: number,
   cy: number,
   height: number,
@@ -76,7 +86,13 @@ function addDxfCenteredText(
  * con $INSUNITS = 4 (mm) y $MEASUREMENT = 1 (métrico) para que AutoCAD, LightBurn,
  * LibreCAD, RDWorks e Inkscape honren la escala 1:1 en milímetros.
  */
-export function generateSheetDxf(sheet: SheetLayout): string {
+export function generateSheetDxf(
+  rawSheet: SheetLayout,
+  options?: DxfExportOptions
+): string {
+  const sheet = options?.mirrorHorizontal
+    ? mirrorSheetLayoutHorizontal(rawSheet)
+    : rawSheet;
   const dxf = new DxfWriter();
   dxf.setUnits(Units.Millimeters);
   dxf.setVariable('$ACADVER', { 1: 'AC1015' });
@@ -86,6 +102,9 @@ export function generateSheetDxf(sheet: SheetLayout): string {
 
   dxf.addLayer('CORTE', Colors.Red, 'CONTINUOUS');
   dxf.addLayer('GRABADO', Colors.Blue, 'CONTINUOUS');
+  if (options?.includeRegistrationMarks) {
+    dxf.addLayer('REGISTRO', Colors.Green, 'CONTINUOUS');
+  }
 
   // Placas (contornos en geometría nominal sin offset de kerf; la compensación
   // de kerf en contornos la realiza la máquina/software de corte — ver README.md, sección "Kerf")
@@ -121,14 +140,18 @@ export function generateSheetDxf(sheet: SheetLayout): string {
       }
     }
 
-    addDxfCenteredText(
-      dxf,
-      'GRABADO',
-      plate.labelX,
-      plate.labelY,
-      plate.labelSize,
-      plate.labelText
-    );
+    const skipLabel = Boolean(options?.omitEngravedPlateLabels);
+
+    if (!skipLabel) {
+      addDxfCenteredText(
+        dxf,
+        'GRABADO',
+        plate.labelX,
+        plate.labelY,
+        plate.labelSize,
+        plate.labelText
+      );
+    }
 
     if (plate.slotLabels) {
       for (const slotLbl of plate.slotLabels) {
@@ -178,6 +201,45 @@ export function generateSheetDxf(sheet: SheetLayout): string {
     });
     const lblSize = Math.max(1.5, Math.min(3.5, disc.diameter * 0.18));
     addDxfCenteredText(dxf, 'GRABADO', disc.x, disc.y, lblSize, disc.label);
+  }
+
+  if (options?.includeRegistrationMarks) {
+    const marks = computeRegistrationMarks(
+      sheet.width,
+      sheet.height,
+      sheet.margin,
+      Boolean(options.mirrorHorizontal)
+    );
+    for (const m of marks) {
+      dxf.addLine(
+        point3d(m.x - m.armRadius, m.y, 0),
+        point3d(m.x + m.armRadius, m.y, 0),
+        { layerName: 'REGISTRO' }
+      );
+      dxf.addLine(
+        point3d(m.x, m.y - m.armRadius, 0),
+        point3d(m.x, m.y + m.armRadius, 0),
+        { layerName: 'REGISTRO' }
+      );
+      dxf.addCircle(point3d(m.x, m.y, 0), m.circleRadius, {
+        layerName: 'REGISTRO',
+      });
+      if (m.isOrigin) {
+        const dirX = m.x < sheet.width * 0.5 ? 1 : -1;
+        const dirY = m.y < sheet.height * 0.5 ? 1 : -1;
+        dxf.addCircle(point3d(m.x, m.y, 0), m.circleRadius * 1.45, {
+          layerName: 'REGISTRO',
+        });
+        addDxfCenteredText(
+          dxf,
+          'REGISTRO',
+          m.x + dirX * (m.armRadius + 3.2),
+          m.y + dirY * (m.armRadius + 1.5),
+          2.2,
+          '0,0'
+        );
+      }
+    }
   }
 
   return dxf.stringify();

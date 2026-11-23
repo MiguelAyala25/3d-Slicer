@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { affineApply } from '../core/affine2d';
 import { generateSheetLayouts } from '../core/layout';
 import { generateDiscsLayouts } from '../core/joints/discs/discLayout';
 import { GLYPH_WIDTH_RATIO, estimateTextWidth } from '../core/labelMetrics';
@@ -394,6 +395,74 @@ describe('layout engine (layout.ts)', () => {
             expect(plate.labelX + halfW).toBeLessThanOrEqual(plate.xOffset + plate.width);
             expect(plate.labelY - halfH).toBeGreaterThanOrEqual(plate.yOffset);
             expect(plate.labelY + halfH).toBeLessThanOrEqual(plate.yOffset + plate.height);
+          }
+        }
+      }
+    });
+
+    it('records exact plate-to-sheet sheetTransform for both default and rotated/optimized layouts', () => {
+      const asymSlice: SliceResult = {
+        plates: [
+          [
+            {
+              exterior: [
+                [-10, -5],
+                [30, -5],
+                [30, 15],
+                [-10, 15],
+              ],
+              holes: [],
+              area: 800,
+            },
+          ],
+          [
+            {
+              exterior: [
+                [-5, -25],
+                [10, -25],
+                [10, 20],
+                [-5, 20],
+              ],
+              holes: [],
+              area: 675,
+            },
+          ],
+        ],
+        zPositions: [0, 3],
+        scaleFactor: 1,
+        scaledBounds: [[-10, -25], [30, 20]],
+        scaledHeight: 6,
+        warnings: [],
+      };
+
+      for (const optimizeLayout of [false, true]) {
+        const sheets = generateSheetLayouts(asymSlice, {
+          ...DEFAULT_PARAMS,
+          plates: 2,
+          sheetW: 60,
+          sheetH: 150,
+          sheetMargin: 5,
+          partGap: 4,
+          optimizeLayout,
+        });
+
+        for (const sheet of sheets) {
+          for (const placed of sheet.plates) {
+            expect(placed.sheetTransform).toBeDefined();
+            const rawPlate = asymSlice.plates[placed.plateIndex];
+            expect(rawPlate.length).toBe(placed.polygons.length);
+            for (let pi = 0; pi < rawPlate.length; pi++) {
+              for (let vi = 0; vi < rawPlate[pi].exterior.length; vi++) {
+                const rawPt = rawPlate[pi].exterior[vi];
+                const expectedSheetPt: [number, number] = [
+                  placed.polygons[pi].exterior[vi][0] + placed.xOffset,
+                  placed.polygons[pi].exterior[vi][1] + placed.yOffset,
+                ];
+                const mapped = affineApply(placed.sheetTransform!, rawPt);
+                expect(mapped[0]).toBeCloseTo(expectedSheetPt[0], 3);
+                expect(mapped[1]).toBeCloseTo(expectedSheetPt[1], 3);
+              }
+            }
           }
         }
       }

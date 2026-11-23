@@ -21,6 +21,50 @@ function loadFixtureArrayBuffer(name: string): ArrayBuffer {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 }
 
+function buildBinaryStlBuffer(positions: Float32Array): ArrayBuffer {
+  const triCount = Math.floor(positions.length / 9);
+  const ab = new ArrayBuffer(84 + triCount * 50);
+  const view = new DataView(ab);
+  view.setUint32(80, triCount, true);
+  for (let t = 0; t < triCount; t++) {
+    const off = 84 + t * 50;
+    for (let v = 0; v < 9; v++) {
+      view.setFloat32(off + 12 + v * 4, positions[t * 9 + v], true);
+    }
+  }
+  return ab;
+}
+
+function createOpenBottomBoxPositions(): Float32Array {
+  const p = [
+    [-10, -10, -10],
+    [10, -10, -10],
+    [10, 10, -10],
+    [-10, 10, -10],
+    [-10, -10, 10],
+    [10, -10, 10],
+    [10, 10, 10],
+    [-10, 10, 10],
+  ];
+  // 5 faces (missing bottom -Z) -> 10 triangles
+  const tris = [
+    [4, 5, 6], [4, 6, 7], // Top (+Z)
+    [0, 1, 5], [0, 5, 4], // Front (-Y)
+    [2, 3, 7], [2, 7, 6], // Back (+Y)
+    [0, 4, 7], [0, 7, 3], // Left (-X)
+    [1, 2, 6], [1, 6, 5], // Right (+X)
+  ];
+  const arr = new Float32Array(tris.length * 9);
+  tris.forEach((tri, t) => {
+    tri.forEach((vi, k) => {
+      arr[t * 9 + k * 3] = p[vi][0];
+      arr[t * 9 + k * 3 + 1] = p[vi][1];
+      arr[t * 9 + k * 3 + 2] = p[vi][2];
+    });
+  });
+  return arr;
+}
+
 describe('useSculptureStore Characterization Tests (M1 / C7-4 & C7-5)', () => {
   const originalRunSlice = useSculptureStore.getState().runSlice;
   let runSliceSpy: ReturnType<typeof vi.fn<() => Promise<void>>>;
@@ -50,6 +94,7 @@ describe('useSculptureStore Characterization Tests (M1 / C7-4 & C7-5)', () => {
       meshGeometry: null,
       meshMetadata: null,
       meshFileName: null,
+      pendingMeshRepair: null,
       sliceResult: null,
       isSlicing: false,
       isLoadingMesh: false,
@@ -363,5 +408,56 @@ describe('useSculptureStore Characterization Tests (M1 / C7-4 & C7-5)', () => {
     // Re-opening modal keeps confirmation false until re-confirmed
     useSculptureStore.getState().openSheetPreviewModal();
     expect(useSculptureStore.getState().exportAnywayConfirmed).toBe(false);
+  });
+
+  it('7. On-load mesh health check prompts for repair on defective mesh and supports repair, skip, and cancel', async () => {
+    // 1. Clean mesh loads immediately without prompting
+    const cleanBuf = loadFixtureArrayBuffer('test_l_block.obj');
+    await useSculptureStore.getState().loadMeshArrayBuffer(cleanBuf, 'test_l_block.obj', true);
+    expect(useSculptureStore.getState().pendingMeshRepair).toBeNull();
+    expect(useSculptureStore.getState().meshFileName).toBe('test_l_block.obj');
+
+    // 2. Defective open-bottom mesh pauses with pendingMeshRepair while keeping previous mesh intact
+    const openBoxStlBuf = buildBinaryStlBuffer(createOpenBottomBoxPositions());
+    await useSculptureStore.getState().loadMeshArrayBuffer(openBoxStlBuf, 'open_scan.stl', true);
+
+    const pending = useSculptureStore.getState().pendingMeshRepair;
+    expect(pending).not.toBeNull();
+    expect(pending!.diagnosis.hasRepairableIssues).toBe(true);
+    expect(pending!.diagnosis.openHoleLoopCount).toBe(1);
+    expect(pending!.diagnosis.estimatedCapTriangles).toBe(2);
+    expect(useSculptureStore.getState().meshFileName).toBe('test_l_block.obj');
+
+    // 3. Canceling keeps previous clean mesh untouched
+    useSculptureStore.getState().cancelPendingMeshRepair();
+    expect(useSculptureStore.getState().pendingMeshRepair).toBeNull();
+    expect(useSculptureStore.getState().meshFileName).toBe('test_l_block.obj');
+
+    // 4. Repairing and loading caps the hole cleanly with 0 empty plates
+    await useSculptureStore.getState().loadMeshArrayBuffer(openBoxStlBuf, 'open_scan.stl', true);
+    await useSculptureStore.getState().resolvePendingMeshRepair({
+      fillHoles: true,
+      pruneFlaps: true,
+      harmonizeWinding: true,
+    });
+    expect(useSculptureStore.getState().pendingMeshRepair).toBeNull();
+    expect(useSculptureStore.getState().meshFileName).toBe('open_scan.stl');
+    expect(useSculptureStore.getState().meshMetadata?.isWatertight).toBe(true);
+    expect(useSculptureStore.getState().meshMetadata?.filledHoleCount).toBe(1);
+    const sliceRes = useSculptureStore.getState().sliceResult;
+    expect(sliceRes).not.toBeNull();
+    expect(sliceRes!.plates.every((p) => p.length > 0)).toBe(true);
+
+    // 5. Loading without repair leaves raw defects intact
+    await useSculptureStore.getState().loadMeshArrayBuffer(openBoxStlBuf, 'open_scan_raw.stl', true);
+    await useSculptureStore.getState().resolvePendingMeshRepair({
+      fillHoles: false,
+      pruneFlaps: false,
+      harmonizeWinding: false,
+    });
+    expect(useSculptureStore.getState().meshFileName).toBe('open_scan_raw.stl');
+    expect(useSculptureStore.getState().meshMetadata?.isWatertight).toBe(false);
+    expect(useSculptureStore.getState().meshMetadata?.openEdgeCount).toBeGreaterThan(0);
+    expect(useSculptureStore.getState().meshMetadata?.filledHoleCount).toBe(0);
   });
 });

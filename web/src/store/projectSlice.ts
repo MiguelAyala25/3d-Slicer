@@ -1,6 +1,8 @@
 import type { StateCreator } from 'zustand';
 import {
+  blobToDataUrl,
   clearAutosaveStorage,
+  loadImageBlobFromIndexedDB,
   loadMeshBufferFromIndexedDB,
   loadProjectFromLocalStorage,
   saveProjectToLocalStorage,
@@ -18,7 +20,11 @@ import {
   horizontalExtentsForUpAxis,
 } from '../core/sizing';
 import type { WaffleParams } from '../core/waffle/types';
-import type { SculptureParams } from '../types/sculpture';
+import type {
+  ImageDecal,
+  SculptureParams,
+  SerializedImageDecal,
+} from '../types/sculpture';
 import { clearAutoSliceTimer } from './workerClient';
 import type { SculptureStore } from './useSculptureStore';
 
@@ -36,6 +42,7 @@ export interface ProjectActions {
   restoreAutosaveSession: () => Promise<void>;
   discardAutosaveSession: () => Promise<void>;
   exportProjectJsonString: () => string;
+  exportProjectJsonWithImages: (embedImages: boolean) => Promise<string>;
   importProjectFromParsed: (
     parsed: ParsedProjectData,
     forceAdapt?: boolean
@@ -48,7 +55,7 @@ export function persistAutosaveIfLoaded(
   state: Pick<
     SculptureStore,
     'meshGeometry' | 'meshFileName' | 'params' | 'discs' | 'build' | 'waffleParams'
-  >,
+  > & { decals?: ImageDecal[] },
   waffleParamsOverride?: WaffleParams,
   includeWaffleParams = true
 ): void {
@@ -58,7 +65,8 @@ export function persistAutosaveIfLoaded(
       state.discs,
       state.meshFileName,
       state.build,
-      includeWaffleParams ? (waffleParamsOverride ?? state.waffleParams) : undefined
+      includeWaffleParams ? (waffleParamsOverride ?? state.waffleParams) : undefined,
+      state.decals
     );
   }
 }
@@ -102,7 +110,15 @@ export const createProjectSlice: StateCreator<
         await get().loadMeshArrayBuffer(
           meshRecord.buffer,
           meshRecord.fileName,
-          false
+          false,
+          {
+            promptIfNeedsRepair: false,
+            repairOptions: {
+              fillHoles: true,
+              pruneFlaps: true,
+              harmonizeWinding: true,
+            },
+          }
         );
       } else {
         set({ isLoadingMesh: false });
@@ -142,13 +158,19 @@ export const createProjectSlice: StateCreator<
       await get().importProjectFromParsed(
         {
           version:
-            snapshot.build.jointId === 'none' || snapshot.build.techniqueId === 'waffle'
+            snapshot.decals && snapshot.decals.length > 0
               ? '2.0'
-              : '1.0',
+              : snapshot.build.jointId === 'none' ||
+                  snapshot.build.techniqueId === 'waffle'
+                ? '2.0'
+                : '1.0',
           params: snapshot.params,
           discs: snapshot.discs,
           build: snapshot.build,
           waffleParams: healedWaffleParams,
+          ...(snapshot.decals && snapshot.decals.length > 0
+            ? { decals: snapshot.decals }
+            : {}),
         },
         true
       );
@@ -172,8 +194,40 @@ export const createProjectSlice: StateCreator<
   },
 
   exportProjectJsonString: () => {
-    const { params, discs, build, waffleParams } = get();
-    return serializeProject(params, build, discs, waffleParams);
+    const { params, discs, build, waffleParams, decals } = get();
+    return serializeProject(params, build, discs, waffleParams, decals);
+  },
+
+  exportProjectJsonWithImages: async (embedImages) => {
+    const { params, discs, build, waffleParams, decals, decalObjectUrls } = get();
+    if (!embedImages || decals.length === 0) {
+      return serializeProject(params, build, discs, waffleParams, decals);
+    }
+    const enriched: SerializedImageDecal[] = await Promise.all(
+      decals.map(async (d) => {
+        const memUrl = decalObjectUrls[d.imageKey];
+        if (memUrl && memUrl.startsWith('data:')) {
+          return { ...d, embeddedDataUrl: memUrl };
+        }
+        const stored = await loadImageBlobFromIndexedDB(d.imageKey);
+        if (stored) {
+          const embeddedDataUrl = await blobToDataUrl(stored.blob);
+          return { ...d, embeddedDataUrl };
+        }
+        if (memUrl && memUrl.startsWith('blob:')) {
+          try {
+            const res = await fetch(memUrl);
+            const blob = await res.blob();
+            const embeddedDataUrl = await blobToDataUrl(blob);
+            return { ...d, embeddedDataUrl };
+          } catch {
+            // Fallback sin imagen embebida si el blob ya no está disponible
+          }
+        }
+        return { ...d };
+      })
+    );
+    return serializeProject(params, build, discs, waffleParams, enriched);
   },
 
   importProjectFromParsed: async (parsed, forceAdapt = false) => {
@@ -233,7 +287,6 @@ export const createProjectSlice: StateCreator<
         canUndo: manager.canUndo(),
         canRedo: manager.canRedo(),
         selectedDiscId: null,
-        statusMessage: 'Proyecto cargado correctamente',
       });
     } else {
       manager.loadDiscsFromProject([]);
@@ -242,9 +295,34 @@ export const createProjectSlice: StateCreator<
         canUndo: false,
         canRedo: false,
         selectedDiscId: null,
+      });
+    }
+
+    if (parsed.decals && parsed.decals.length > 0) {
+      const cleanDecals: ImageDecal[] = parsed.decals.map((d) => {
+        const { embeddedDataUrl: _ignored, ...rest } = d;
+        void _ignored;
+        return rest;
+      });
+      set({
+        decals: cleanDecals,
+        selectedDecalId: cleanDecals[0]?.id ?? null,
+      });
+      const { missingCount } = await get().restoreDecalAssets(parsed.decals);
+      set({
+        statusMessage:
+          missingCount > 0
+            ? `Proyecto cargado (${missingCount} imagen(es) no encontrada(s) en caché local)`
+            : 'Proyecto cargado correctamente',
+      });
+    } else {
+      set({
+        decals: [],
+        selectedDecalId: null,
         statusMessage: 'Proyecto cargado correctamente',
       });
     }
+
     return { needsConfirmation: false };
   },
 });

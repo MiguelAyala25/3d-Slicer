@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { SlidersHorizontal } from 'lucide-react';
 import { MaterialSection } from './inspector/MaterialSection';
 import { ModelSection } from './inspector/ModelSection';
+import { ImagesSection } from './inspector/ImagesSection';
 import { ResultSection } from './inspector/ResultSection';
 import { TechniqueSection } from './inspector/TechniqueSection';
 
@@ -44,6 +45,7 @@ export function RightInspector({ className = '' }: RightInspectorProps) {
         <MaterialSection />
         <ModelSection />
         <TechniqueSection />
+        <ImagesSection />
         <ResultSection />
       </aside>
     </>

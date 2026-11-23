@@ -646,4 +646,90 @@ test.describe('Sculpture Studio E2E Acceptance Suite', () => {
     await expect(warning).toBeVisible();
     await expect(warning).toContainText('Dimensiones inusuales');
   });
+
+  test('15. Add discs works on Eje X and Eje Y across front, backface, and isometric views', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await loadMeshAndSlice(page, { technique: 'stacked', joint: 'discs' });
+
+    const canvas = page.locator('canvas');
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    if (!box) return;
+
+    const centerX = box.x + box.width / 2;
+    const centerY = box.y + box.height / 2;
+
+    const waitTwoFrames = () =>
+      page.evaluate(
+        () =>
+          new Promise<void>((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+          )
+      );
+
+    // Enable add discs mode
+    await page.click('[data-testid="toggle-add-discs"]');
+
+    // --- Axis X ---
+    await page.click('button:has-text("Eje X")');
+    await page.waitForFunction(() => {
+      const s = (window as any).__SCULPTURE_STORE__?.getState();
+      return s && s.lastSliceAxis === 'x' && !s.isSlicing;
+    });
+    await expect(page.getByTestId('total-discs-count')).toHaveText('0');
+
+    // Right view ('3', camera at +X facing the front of X-axis plates) -> click center
+    await page.keyboard.press('3');
+    await waitTwoFrames();
+    await page.mouse.click(centerX, centerY);
+
+    await expect(page.getByText(/Disco #\d+ Ø/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('total-discs-count')).toHaveText('2');
+    await expect(page.locator('[role="alert"]')).not.toBeVisible();
+
+    // --- Axis Y ---
+    await page.click('button:has-text("Eje Y")');
+    await page.waitForFunction(() => {
+      const s = (window as any).__SCULPTURE_STORE__?.getState();
+      return s && s.lastSliceAxis === 'y' && !s.isSlicing;
+    });
+    await expect(page.getByTestId('total-discs-count')).toHaveText('0');
+
+    // On test_l_block.obj along Y, floor 8 (plates 8 and 9) spans the full horizontal bar covering (0, 0)
+    await page.evaluate(() => {
+      (window as any).__SCULPTURE_STORE__?.getState().setActiveFloor(8);
+    });
+    await expect(page.locator('text=Piso 8')).toBeVisible();
+
+    // Front view ('1', camera at -Y facing the backface of Y-axis plates) -> click center
+    await page.keyboard.press('1');
+    await waitTwoFrames();
+    await page.mouse.click(centerX, centerY);
+
+    await expect(page.getByText(/Disco #\d+ Ø/)).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('total-discs-count')).toHaveText('1');
+    await expect(page.locator('[role="alert"]')).not.toBeVisible();
+
+    const yDisc = await page.evaluate(() => {
+      const discs = (window as any).__SCULPTURE_STORE__?.getState().discs ?? [];
+      return discs[0] ?? null;
+    });
+    expect(yDisc).not.toBeNull();
+    expect(Math.abs(yDisc.x)).toBeLessThan(2);
+    expect(Math.abs(yDisc.y)).toBeLessThan(2);
+
+    // Isometric view ('0') on floor 7 (which also covers the full horizontal bar): click slightly above center
+    await page.evaluate(() => {
+      (window as any).__SCULPTURE_STORE__?.getState().setActiveFloor(7);
+    });
+    await expect(page.locator('text=Piso 7')).toBeVisible();
+    await page.keyboard.press('0');
+    await waitTwoFrames();
+    await page.mouse.click(centerX, centerY - 40);
+
+    await expect(page.getByTestId('total-discs-count')).toHaveText('3');
+    await expect(page.locator('[role="alert"]')).not.toBeVisible();
+  });
 });

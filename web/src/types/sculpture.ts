@@ -19,6 +19,7 @@ export interface SculptureParams {
 export type CoreParams = Omit<SculptureParams, 'discDiameter' | 'engraveClearance'>;
 
 export type Point2D = [number, number];
+export type Affine2D = [number, number, number, number, number, number];
 
 import type { WaffleParams, WaffleSliceResult } from '../core/waffle/types';
 
@@ -64,6 +65,26 @@ export interface SliceResult {
   warnings: SliceWarning[];
 }
 
+export interface MeshRepairOptions {
+  fillHoles?: boolean;
+  pruneFlaps?: boolean;
+  harmonizeWinding?: boolean;
+}
+
+export interface MeshRepairDiagnosis {
+  fileName: string;
+  vertexCount: number;
+  faceCount: number;
+  openEdgeCount: number;
+  openHoleLoopCount: number;
+  estimatedCapTriangles: number;
+  nonManifoldEdgeCount: number;
+  prunableFlapCount: number;
+  inconsistentWindingEdgeCount: number;
+  invertedFaceEstimate: number;
+  hasRepairableIssues: boolean;
+}
+
 export interface MeshMetadata {
   fileName: string;
   vertexCount: number;
@@ -78,6 +99,8 @@ export interface MeshMetadata {
   openComponentCount: number;
   prunedFlapCount?: number;
   harmonizedFaceCount?: number;
+  filledHoleCount?: number;
+  addedCapTriangles?: number;
   unitScaleApplied: number;
   warnings: string[];
 }
@@ -104,6 +127,7 @@ export interface PlacedPlate {
   labelY: number;               // Centro Y de etiqueta en coordenadas de hoja (mm CAD)
   labelSize: number;
   labelOutside: boolean;
+  sheetTransform?: Affine2D;    // Transformación afín 2D de placa original (mm) -> hoja (mm)
 }
 
 export interface PlacedDisc {
@@ -167,6 +191,20 @@ export type WorkerRequest =
       buffer: ArrayBuffer;
       fileName: string;
       upOrientation?: 'y-up' | 'z-up' | 'auto';
+      fillHoles?: boolean;
+      pruneFlaps?: boolean;
+      harmonizeWinding?: boolean;
+      checkBeforeRepair?: boolean;
+    }
+  | {
+      type: 'COMPLETE_LOAD_MESH';
+      jobId: number;
+      meshId: number;
+      repairOptions: MeshRepairOptions;
+    }
+  | {
+      type: 'CANCEL_PENDING_LOAD';
+      meshId: number;
     }
   | {
       type: 'SET_MESH';
@@ -188,6 +226,12 @@ export type WorkerRequest =
     };
 
 export type WorkerResponse =
+  | {
+      type: 'LOAD_MESH_NEEDS_REPAIR';
+      jobId: number;
+      meshId: number;
+      diagnosis: MeshRepairDiagnosis;
+    }
   | {
       type: 'LOAD_MESH_SUCCESS';
       jobId: number;
@@ -227,3 +271,66 @@ export type WorkerResponse =
       meshId: number;
       error: string;
     };
+
+export type DecalProjectionMode = 'plane' | 'surface';
+
+export interface ImageDecal {
+  id: string;
+  name: string;
+  imageKey: string;
+  pxW: number;
+  pxH: number;
+  centerX: number;
+  centerZ: number;
+  widthMm: number;
+  heightMm: number;
+  rotationDeg: number;
+  mode: DecalProjectionMode;
+  plateIndex?: number;
+  order: number;
+  visible: boolean;
+}
+
+export interface SerializedImageDecal extends ImageDecal {
+  embeddedDataUrl?: string;
+}
+
+export interface DecalRegion {
+  decalId: string;
+  imageKey: string;
+  pxW: number;
+  pxH: number;
+  plateIndex: number;
+  order: number;
+  previewClip: PolygonWithHoles[];
+  printClip: PolygonWithHoles[];
+  imageToPlate: Affine2D;
+}
+
+export type PrintTechnique = 'uv' | 'adhesive-film';
+export type PrintFormat = 'svg' | 'png' | 'both';
+export type PlateLabelPrintMode = 'print' | 'engrave' | 'none';
+export type PaperPresetId = 'letter' | 'tabloid' | 'a4' | 'a3' | 'custom';
+export type TileOrientation = 'auto' | 'portrait' | 'landscape';
+
+export interface PrintTilingConfig {
+  enabled: boolean;
+  preset: PaperPresetId;
+  customW: number;
+  customH: number;
+  orientation: TileOrientation;
+  overlapMm: number;
+  printerMarginMm: number;
+}
+
+export interface PrintExportConfig {
+  enabled: boolean;
+  technique: PrintTechnique;
+  format: PrintFormat;
+  dpi: number;
+  bleedMm: number;
+  includeRegistrationMarks: boolean;
+  mirrorPrint: boolean;
+  plateLabelMode: PlateLabelPrintMode;
+  tiling: PrintTilingConfig;
+}

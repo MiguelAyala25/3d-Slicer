@@ -115,6 +115,7 @@ function buildCombPlate(
     labelSize: 2.5,
     labelOutside: false,
     slotLabels,
+    sheetTransform: [1, 0, 0, 1, xOffset, yOffset],
   };
 }
 

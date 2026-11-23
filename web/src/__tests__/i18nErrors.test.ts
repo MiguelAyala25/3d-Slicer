@@ -84,6 +84,11 @@ describe('i18n and typed errors (C12 / M6)', () => {
       PROJECT_SLOTS_NO_DISCS_ALLOWED: {},
       PROJECT_NONE_JOINT_NO_DISCS_ALLOWED: {},
       PROJECT_SCHEMA_ISSUE: { message: 'Custom schema error' },
+      PROJECT_DECALS_LIST_INVALID: {},
+      PROJECT_DECAL_ITEM_INVALID: { position: 0 },
+      PROJECT_DECAL_FIELD_INVALID: { id: 'd1', field: 'widthMm' },
+
+      PRINT_TILE_PAPER_TOO_SMALL: { paperW: 50, paperH: 50, margin: 20, overlap: 15 },
 
       BUILD_TECHNIQUE_REQUIRED: {},
       BUILD_UNKNOWN_TECHNIQUE: { id: 'origami' },
@@ -140,6 +145,7 @@ describe('i18n and typed errors (C12 / M6)', () => {
       WARN_MESH_INVERTED_NORMALS_FIXED: { count: 2 },
       WARN_MESH_FLAPS_PRUNED: { count: 4 },
       WARN_MESH_WINDING_HARMONIZED: { count: 12 },
+      WARN_MESH_HOLES_FILLED: { holes: 1, triangles: 12 },
       WARN_LOADER_IGNORED_LINES_OR_POINTS: { count: 3 },
       WARN_LOADER_Y_UP_TO_Z_UP: {},
       WARN_LOADER_3MF_UNIT_SCALE: { scale: 10 },

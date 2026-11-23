@@ -4,6 +4,10 @@ import * as THREE from 'three';
 import { isPointOnPlate } from '../../../core/joints/discs/discGeometry';
 import { useSculptureStore } from '../../../store/useSculptureStore';
 import type { Disc } from '../../../types/sculpture';
+import {
+  getSliceGroupRotation,
+  intersectRayWithSlicePlane,
+} from '../../viewport/sliceAxisTransform';
 
 interface DragState {
   discId: number;
@@ -30,28 +34,14 @@ export function InteractiveDiscsView() {
   const selectDisc = useSculptureStore((s) => s.selectDisc);
   const commitDiscMove = useSculptureStore((s) => s.commitDiscMove);
 
-  const groupRotation = useMemo<[number, number, number]>(() => {
-    if (lastSliceAxis === 'x') {
-      return [0, Math.PI * 0.5, 0];
-    }
-    if (lastSliceAxis === 'y') {
-      return [-Math.PI * 0.5, 0, 0];
-    }
-    return [0, 0, 0];
-  }, [lastSliceAxis]);
+  const groupRotation = useMemo(
+    () => getSliceGroupRotation(lastSliceAxis),
+    [lastSliceAxis]
+  );
 
   const controls = useThree((s) => s.controls as { enabled?: boolean } | null);
   const dragRef = useRef<DragState | null>(null);
   const discGroupRefs = useRef<Map<number, THREE.Group>>(new Map());
-
-  // Plano matemático en Z_top de la placa activa para colocación y arrastre sin interferencia de placas translúcidas
-  const activeMathPlane = useMemo(() => {
-    if (!sliceResult || activeFloor >= sliceResult.zPositions.length) {
-      return new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
-    }
-    const zTop = sliceResult.zPositions[activeFloor] + thickness * 0.5;
-    return new THREE.Plane(new THREE.Vector3(0, 0, 1), -zTop);
-  }, [sliceResult, activeFloor, thickness]);
 
   if (!sliceResult) return null;
 
@@ -66,10 +56,10 @@ export function InteractiveDiscsView() {
     if (e.button !== 0 || e.altKey) return;
     if (e.delta > 5) return;
     if (dragRef.current) return;
-    const hit = new THREE.Vector3();
-    if (e.ray.intersectPlane(activeMathPlane, hit)) {
+    const hit = intersectRayWithSlicePlane(e.ray, lastSliceAxis, activeZTop);
+    if (hit) {
       e.stopPropagation();
-      addDiscAtActiveFloor(hit.x, hit.y);
+      addDiscAtActiveFloor(hit[0], hit[1]);
     }
   };
 
@@ -104,16 +94,18 @@ export function InteractiveDiscsView() {
     if (!drag) return;
     e.stopPropagation();
 
-    const hit = new THREE.Vector3();
-    if (!e.ray.intersectPlane(activeMathPlane, hit)) return;
+    const dragZTop =
+      (sliceResult.zPositions[drag.gapIndex] ?? 0) + thickness * 0.5;
+    const hit = intersectRayWithSlicePlane(e.ray, lastSliceAxis, dragZTop);
+    if (!hit) return;
 
     // Mover el disco suavemente siguiendo el cursor sobre la placa activa sin barrera ni fuerza repulsiva
     const activePlate = sliceResult.plates[drag.gapIndex];
-    if (activePlate && isPointOnPlate(hit.x, hit.y, activePlate, 2.0)) {
-      drag.currentX = hit.x;
-      drag.currentY = hit.y;
-      drag.meshGroup.position.x = hit.x;
-      drag.meshGroup.position.y = hit.y;
+    if (activePlate && isPointOnPlate(hit[0], hit[1], activePlate, 2.0)) {
+      drag.currentX = hit[0];
+      drag.currentY = hit[1];
+      drag.meshGroup.position.x = hit[0];
+      drag.meshGroup.position.y = hit[1];
     }
   };
 
@@ -122,6 +114,7 @@ export function InteractiveDiscsView() {
     if (!drag) return;
     e.stopPropagation();
 
+    (e.target as HTMLElement | null)?.releasePointerCapture?.(e.pointerId);
     if (controls && 'enabled' in controls) {
       controls.enabled = true;
     }
@@ -139,22 +132,30 @@ export function InteractiveDiscsView() {
   const [[minX, minY], [maxX, maxY]] = sliceResult.scaledBounds;
   const planeW = Math.max(500, (maxX - minX) * 3);
   const planeH = Math.max(500, (maxY - minY) * 3);
+  const planeCenterX = (minX + maxX) * 0.5;
+  const planeCenterY = (minY + maxY) * 0.5;
 
   return (
     <group
       rotation={groupRotation}
       onPointerMove={handleGlobalPointerMove}
       onPointerUp={handleGlobalPointerUp}
+      onPointerCancel={handleGlobalPointerUp}
     >
       {/* Plano receptor en Z_top activo SOLO cuando modeAddDiscs === true (en modo selección no responde) */}
       {modeAddDiscs && canPlaceOnActiveFloor && (
         <mesh
           name="disc-placement-plane"
-          position={[0, 0, activeZTop]}
+          position={[planeCenterX, planeCenterY, activeZTop]}
           onClick={handlePlaneClick}
         >
           <planeGeometry args={[planeW, planeH]} />
-          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          <meshBasicMaterial
+            transparent
+            opacity={0}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+          />
         </mesh>
       )}
 
@@ -176,6 +177,9 @@ export function InteractiveDiscsView() {
               else discGroupRefs.current.delete(disc.id);
             }}
             position={[disc.x, disc.y, zCenter]}
+            onClick={(e) => {
+              if (isCurrentGap && e.button === 0) e.stopPropagation();
+            }}
             onPointerDown={(e) => handleDiscPointerDown(e, disc)}
           >
             {/* Cilindro orientado a lo largo de +Z (rotado +90° en X desde el cilindro Y-up de Three.js) */}

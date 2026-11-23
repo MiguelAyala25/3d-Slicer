@@ -1,10 +1,13 @@
 import * as THREE from 'three';
-import { loadMeshFromBuffer } from '../core/meshLoader';
+import { parseRawMeshFromBuffer } from '../core/meshLoader';
+import { diagnoseGeometry, normalizeAndValidateGeometry } from '../core/meshRepair';
 import { sliceMesh } from '../core/slicer';
 import { sliceWaffleMesh } from '../core/waffle/waffleSlicer';
 import type { WaffleParams, WaffleSliceResult } from '../core/waffle/types';
 import type {
   MeshMetadata,
+  MeshRepairDiagnosis,
+  MeshRepairOptions,
   SculptureParams,
   SliceResult,
   WorkerRequest,
@@ -14,8 +17,17 @@ import type {
 export const AUTO_SLICE_DEBOUNCE_MS = 350;
 
 let workerInstance: Worker | null = null;
-let currentMeshId = 0;
+let nextMeshId = 0;
+let activeMeshId = 0;
 let latestJobId = 0;
+
+let pendingSyncLoad: {
+  meshId: number;
+  rawGeometry: THREE.BufferGeometry;
+  fileName: string;
+  unitScaleApplied: number;
+  loaderWarnings: string[];
+} | null = null;
 
 let autoSliceTimer: ReturnType<typeof setTimeout> | null = null;
 let isWorkerExecuting = false;
@@ -82,60 +94,216 @@ if (typeof window !== 'undefined') {
   getOrCreateWorker();
 }
 
-export async function loadMeshWithWorkerOrFallback(
+export type LoadMeshOutcome =
+  | {
+      status: 'loaded';
+      meshId: number;
+      geometry: THREE.BufferGeometry;
+      metadata: MeshMetadata;
+    }
+  | {
+      status: 'needs-repair';
+      meshId: number;
+      diagnosis: MeshRepairDiagnosis;
+    };
+
+function buildGeometryFromPositions(positions: Float32Array): THREE.BufferGeometry {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.computeVertexNormals();
+  geometry.computeBoundingBox();
+  return geometry;
+}
+
+function sendWorkerLoadRequest(
+  worker: Worker,
+  jobId: number,
+  meshId: number,
+  req: WorkerRequest
+): Promise<LoadMeshOutcome> {
+  return new Promise<LoadMeshOutcome>((resolve, reject) => {
+    const onMsg = (evt: MessageEvent<WorkerResponse>) => {
+      const msg = evt.data;
+      if (msg.jobId !== jobId) return;
+      worker.removeEventListener('message', onMsg);
+      worker.removeEventListener('error', onErr);
+      if (msg.type === 'LOAD_MESH_SUCCESS') {
+        activeMeshId = meshId;
+        resolve({
+          status: 'loaded',
+          meshId,
+          geometry: buildGeometryFromPositions(msg.positions),
+          metadata: msg.metadata,
+        });
+      } else if (msg.type === 'LOAD_MESH_NEEDS_REPAIR') {
+        resolve({
+          status: 'needs-repair',
+          meshId,
+          diagnosis: msg.diagnosis,
+        });
+      } else if (msg.type === 'LOAD_MESH_ERROR') {
+        reject(new Error(msg.error));
+      }
+    };
+    const onErr = (e: ErrorEvent) => {
+      worker.removeEventListener('message', onMsg);
+      worker.removeEventListener('error', onErr);
+      reject(new Error(e.message || 'Error en el worker de carga'));
+    };
+    worker.addEventListener('message', onMsg);
+    worker.addEventListener('error', onErr);
+    worker.postMessage(req);
+  });
+}
+
+function clearPendingSyncLoad(): void {
+  if (pendingSyncLoad) {
+    pendingSyncLoad.rawGeometry.dispose();
+    pendingSyncLoad = null;
+  }
+}
+
+export async function loadMeshWithCheckOrFallback(
   buffer: ArrayBuffer,
   fileName: string,
-  upOrientation: 'y-up' | undefined
-): Promise<{ geometry: THREE.BufferGeometry; metadata: MeshMetadata }> {
-  currentMeshId += 1;
-  const meshId = currentMeshId;
+  options?: {
+    upOrientation?: 'y-up';
+    checkBeforeRepair?: boolean;
+    repairOptions?: MeshRepairOptions;
+  }
+): Promise<LoadMeshOutcome> {
+  nextMeshId += 1;
+  const meshId = nextMeshId;
   const worker = getOrCreateWorker();
+  const upOrientation = options?.upOrientation;
+  const checkBeforeRepair = options?.checkBeforeRepair ?? false;
+  const repairOptions = options?.repairOptions;
 
   if (worker) {
     latestJobId += 1;
     const jobId = latestJobId;
-    const outcome = await new Promise<{ positions: Float32Array; metadata: MeshMetadata }>(
-      (resolve, reject) => {
-        const onMsg = (evt: MessageEvent<WorkerResponse>) => {
-          const msg = evt.data;
-          if (msg.jobId !== jobId) return;
-          worker.removeEventListener('message', onMsg);
-          worker.removeEventListener('error', onErr);
-          if (msg.type === 'LOAD_MESH_SUCCESS') {
-            resolve({ positions: msg.positions, metadata: msg.metadata });
-          } else if (msg.type === 'LOAD_MESH_ERROR') {
-            reject(new Error(msg.error));
-          }
-        };
-        const onErr = (e: ErrorEvent) => {
-          worker.removeEventListener('message', onMsg);
-          worker.removeEventListener('error', onErr);
-          reject(new Error(e.message || 'Error en el worker de carga'));
-        };
-        worker.addEventListener('message', onMsg);
-        worker.addEventListener('error', onErr);
-
-        const req: WorkerRequest = {
-          type: 'LOAD_MESH',
-          jobId,
-          meshId,
-          buffer,
-          fileName,
-          upOrientation,
-        };
-        worker.postMessage(req);
-      }
-    );
-
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(outcome.positions, 3));
-    geometry.computeVertexNormals();
-    geometry.computeBoundingBox();
-    return { geometry, metadata: outcome.metadata };
+    const req: WorkerRequest = {
+      type: 'LOAD_MESH',
+      jobId,
+      meshId,
+      buffer,
+      fileName,
+      upOrientation,
+      fillHoles: repairOptions?.fillHoles,
+      pruneFlaps: repairOptions?.pruneFlaps,
+      harmonizeWinding: repairOptions?.harmonizeWinding,
+      checkBeforeRepair,
+    };
+    return sendWorkerLoadRequest(worker, jobId, meshId, req);
   }
 
   // Fallback síncrono para tests en Vitest / Node
-  return loadMeshFromBuffer(buffer, fileName, { upOrientation });
+  clearPendingSyncLoad();
+  let rawGeometry: THREE.BufferGeometry | null = null;
+  try {
+    const parsed = parseRawMeshFromBuffer(buffer, fileName, { upOrientation });
+    rawGeometry = parsed.rawGeometry;
+
+    if (checkBeforeRepair) {
+      const diagnosis = diagnoseGeometry(rawGeometry, fileName);
+      if (diagnosis.hasRepairableIssues) {
+        pendingSyncLoad = {
+          meshId,
+          rawGeometry,
+          fileName,
+          unitScaleApplied: parsed.unitScaleApplied,
+          loaderWarnings: parsed.loaderWarnings,
+        };
+        rawGeometry = null;
+        return { status: 'needs-repair', meshId, diagnosis };
+      }
+    }
+
+    const { geometry, metadata } = normalizeAndValidateGeometry(
+      rawGeometry,
+      fileName,
+      parsed.unitScaleApplied,
+      parsed.loaderWarnings,
+      repairOptions
+    );
+    rawGeometry.dispose();
+    rawGeometry = null;
+    activeMeshId = meshId;
+    return { status: 'loaded', meshId, geometry, metadata };
+  } catch (err) {
+    if (rawGeometry) rawGeometry.dispose();
+    throw err;
+  }
+}
+
+export async function completePendingMeshLoad(
+  meshId: number,
+  repairOptions: MeshRepairOptions
+): Promise<{ geometry: THREE.BufferGeometry; metadata: MeshMetadata }> {
+  const worker = getOrCreateWorker();
+  if (worker) {
+    latestJobId += 1;
+    const jobId = latestJobId;
+    const outcome = await sendWorkerLoadRequest(worker, jobId, meshId, {
+      type: 'COMPLETE_LOAD_MESH',
+      jobId,
+      meshId,
+      repairOptions,
+    });
+    if (outcome.status !== 'loaded') {
+      throw new Error('Respuesta inesperada al completar la carga de la malla.');
+    }
+    return { geometry: outcome.geometry, metadata: outcome.metadata };
+  }
+
+  const pending = pendingSyncLoad;
+  if (!pending || pending.meshId !== meshId) {
+    throw new Error('No hay una carga pendiente para completar la reparación.');
+  }
+  pendingSyncLoad = null;
+  try {
+    const { geometry, metadata } = normalizeAndValidateGeometry(
+      pending.rawGeometry,
+      pending.fileName,
+      pending.unitScaleApplied,
+      pending.loaderWarnings,
+      repairOptions
+    );
+    pending.rawGeometry.dispose();
+    activeMeshId = meshId;
+    return { geometry, metadata };
+  } catch (err) {
+    pending.rawGeometry.dispose();
+    throw err;
+  }
+}
+
+export function cancelPendingMeshLoad(meshId: number): void {
+  const worker = getOrCreateWorker();
+  if (worker) {
+    worker.postMessage({ type: 'CANCEL_PENDING_LOAD', meshId } satisfies WorkerRequest);
+    return;
+  }
+  if (pendingSyncLoad?.meshId === meshId) {
+    clearPendingSyncLoad();
+  }
+}
+
+export async function loadMeshWithWorkerOrFallback(
+  buffer: ArrayBuffer,
+  fileName: string,
+  upOrientation: 'y-up' | undefined,
+  fillHoles = false
+): Promise<{ geometry: THREE.BufferGeometry; metadata: MeshMetadata }> {
+  const outcome = await loadMeshWithCheckOrFallback(buffer, fileName, {
+    upOrientation,
+    checkBeforeRepair: false,
+    repairOptions: { fillHoles },
+  });
+  if (outcome.status !== 'loaded') {
+    throw new Error('Unexpected repair prompt when checkBeforeRepair is disabled');
+  }
+  return { geometry: outcome.geometry, metadata: outcome.metadata };
 }
 
 export async function runSliceJob(opts: {
@@ -149,7 +317,7 @@ export async function runSliceJob(opts: {
 
   latestJobId += 1;
   const jobId = latestJobId;
-  const meshId = currentMeshId;
+  const meshId = activeMeshId;
 
   const worker = getOrCreateWorker();
   if (worker) {

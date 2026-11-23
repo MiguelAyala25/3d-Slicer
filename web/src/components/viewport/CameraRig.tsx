@@ -45,6 +45,14 @@ export function CameraRig() {
     camera.far = Math.max(3000, span * 15);
     camera.updateProjectionMatrix();
 
+    // Vaciar cualquier inercia (sphericalDelta / panOffset) de OrbitControls antes de alinear el preset
+    const controls = controlsRef.current;
+    const prevDamping = controls?.enableDamping ?? true;
+    if (controls) {
+      controls.enableDamping = false;
+      controls.update();
+    }
+
     // Evitar colinealidad con up=(0,0,1) en vistas Top y Bottom
     if (preset === 'top') {
       camera.up.set(0, 1, 0);
@@ -61,9 +69,10 @@ export function CameraRig() {
       else camera.position.set(cx + dist * 0.75, cy - dist * 0.75, cz + dist * 0.65);
     }
 
-    if (controlsRef.current) {
-      controlsRef.current.target.set(cx, cy, cz);
-      controlsRef.current.update();
+    if (controls) {
+      controls.target.set(cx, cy, cz);
+      controls.update();
+      controls.enableDamping = prevDamping;
     }
   }, [preset, trigger, sliceResult, waffleResult, build.techniqueId, meshMetadata, camera]);
 

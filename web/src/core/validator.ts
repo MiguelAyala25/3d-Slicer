@@ -7,5 +7,7 @@ export {
 } from './paramValidation';
 export {
   MAX_TRIANGLES,
+  diagnoseGeometry,
   normalizeAndValidateGeometry,
+  type NormalizeMeshOptions,
 } from './meshRepair';

@@ -62,7 +62,15 @@
         "labelX": 33,
         "labelY": 5,
         "labelSize": 4,
-        "labelOutside": true
+        "labelOutside": true,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          33,
+          33
+        ]
       },
       {
         "plateIndex": 1,
@@ -126,7 +134,15 @@
         "labelX": 84.00000000000001,
         "labelY": 5,
         "labelSize": 4,
-        "labelOutside": true
+        "labelOutside": true,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          84,
+          33
+        ]
       },
       {
         "plateIndex": 2,
@@ -181,7 +197,15 @@
         "labelX": 135.00000000000003,
         "labelY": 5,
         "labelSize": 4,
-        "labelOutside": true
+        "labelOutside": true,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          135,
+          33
+        ]
       },
       {
         "plateIndex": 3,
@@ -226,7 +250,15 @@
         "labelX": 186.00000000000003,
         "labelY": 5,
         "labelSize": 4,
-        "labelOutside": true
+        "labelOutside": true,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          186,
+          33
+        ]
       },
       {
         "plateIndex": 4,
@@ -271,7 +303,15 @@
         "labelX": 237.00000000000003,
         "labelY": 5,
         "labelSize": 4,
-        "labelOutside": true
+        "labelOutside": true,
+        "sheetTransform": [
+          1,
+          0,
+          0,
+          1,
+          237,
+          33
+        ]
       }
     ],
     "discs": [],

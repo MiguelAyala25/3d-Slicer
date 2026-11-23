@@ -4,9 +4,10 @@ import { validateBuildParams } from './build/validateBuild';
 import { DEFAULT_PARAMS } from './params';
 import { validateParams, ValidationError } from './validator';
 import { UI_TEXTS_ES } from '../i18n/es';
-import type { Axis, Disc, SculptureParams } from '../types/sculpture';
+import type { Axis, Disc, SculptureParams, SerializedImageDecal } from '../types/sculpture';
 import type { WaffleParams } from './waffle/types';
 import {
+  validateAndParseDecals,
   validateAndParseDiscs,
   validateMaterialSection,
   validateStackedTechniqueParams,
@@ -22,6 +23,7 @@ export interface ParsedProjectData {
   discs: Disc[];
   build: BuildConfig;
   waffleParams?: WaffleParams;
+  decals?: SerializedImageDecal[];
 }
 
 export function formatCanonicalFloat(n: number): string {
@@ -30,8 +32,12 @@ export function formatCanonicalFloat(n: number): string {
 
 export function projectFormatFor(
   build: BuildConfig,
-  params: SculptureParams
+  params: SculptureParams,
+  decals?: readonly SerializedImageDecal[]
 ): '1.0' | '2.0' {
+  if (decals && decals.length > 0) {
+    return '2.0';
+  }
   if (
     build.techniqueId === 'stacked' &&
     build.jointId === 'discs' &&
@@ -85,7 +91,8 @@ function serializeProject2(
   params: SculptureParams,
   build: BuildConfig,
   discs: Disc[],
-  waffleParams?: WaffleParams
+  waffleParams?: WaffleParams,
+  decals?: readonly SerializedImageDecal[]
 ): string {
   const lines: string[] = [
     '{',
@@ -160,12 +167,15 @@ function serializeProject2(
       '  }'
     );
   } else {
+    const stackedTechLines = [
+      `      "plates": ${params.plates},`,
+      `      "axis": "${params.axis}"`,
+    ];
     lines.push(
       '  "technique": {',
       `    "id": "${build.techniqueId}",`,
       '    "params": {',
-      `      "plates": ${params.plates},`,
-      `      "axis": "${params.axis}"`,
+      ...stackedTechLines,
       '    }',
       '  },',
       '  "joint": {',
@@ -200,6 +210,15 @@ function serializeProject2(
     lines.push('  }');
   }
 
+  if (decals && decals.length > 0) {
+    lines[lines.length - 1] += ',';
+    const serializedDecals = JSON.stringify(decals, null, 2)
+      .split('\n')
+      .map((line, idx) => (idx === 0 ? line : `  ${line}`))
+      .join('\n');
+    lines.push(`  "decals": ${serializedDecals}`);
+  }
+
   lines.push('}');
   return lines.join('\n');
 }
@@ -208,13 +227,14 @@ export function serializeProject(
   params: SculptureParams,
   build: BuildConfig,
   discs: Disc[],
-  waffleParams?: WaffleParams
+  waffleParams?: WaffleParams,
+  decals?: readonly SerializedImageDecal[]
 ): string {
-  const version = projectFormatFor(build, params);
+  const version = projectFormatFor(build, params, decals);
   if (version === '1.0') {
     return serializeProjectJson(params, discs);
   }
-  return serializeProject2(params, build, discs, waffleParams);
+  return serializeProject2(params, build, discs, waffleParams, decals);
 }
 
 export function parseProjectJson(
@@ -266,7 +286,7 @@ export function parseProjectJson(
   }
 
   // Versión 2.0
-  const allowedRootKeys = ['version', 'material', 'technique', 'joint'];
+  const allowedRootKeys = ['version', 'material', 'technique', 'joint', 'decals'];
   for (const k of ['material', 'technique', 'joint']) {
     if (!(k in obj)) {
       throw new ValidationError('PROJECT_MISSING_REQUIRED_FIELD', { field: k });
@@ -451,12 +471,18 @@ export function parseProjectJson(
     discs = validateAndParseDiscs(joint.discs, params.plates);
   }
 
+  let decals: SerializedImageDecal[] | undefined;
+  if ('decals' in obj && obj.decals !== undefined) {
+    decals = validateAndParseDecals(obj.decals, params.plates);
+  }
+
   return {
     version: '2.0',
     params,
     discs,
     build,
     waffleParams: parsedWaffleParams,
+    ...(decals && decals.length > 0 ? { decals } : {}),
   };
 }
 

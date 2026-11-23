@@ -1,8 +1,15 @@
 import { estimateTextWidth } from './labelMetrics';
+import {
+  computeRegistrationMarks,
+  mirrorSheetLayoutHorizontal,
+} from './printLayout';
 import type { Point2D, SheetLayout } from '../types/sculpture';
 
 export interface SvgExportOptions {
   includeReference?: boolean; // Bordes de hoja, margen y etiquetas de retazo
+  includeRegistrationMarks?: boolean;
+  mirrorHorizontal?: boolean;
+  omitEngravedPlateLabels?: boolean;
 }
 
 function fmt(n: number): string {
@@ -37,15 +44,20 @@ function renderCadText(
 }
 
 export function generateSheetSvg(
-  sheet: SheetLayout,
+  rawSheet: SheetLayout,
   options: SvgExportOptions = { includeReference: true }
 ): string {
+  const sheet = options.mirrorHorizontal
+    ? mirrorSheetLayoutHorizontal(rawSheet)
+    : rawSheet;
   const W = sheet.width;
   const H = sheet.height;
   const M = sheet.margin;
   const includeRef = options.includeReference ?? true;
+  const includeReg = options.includeRegistrationMarks ?? false;
 
   const refElements: string[] = [];
+  const regElements: string[] = [];
   const engraveElements: string[] = [];
   const cutElements: string[] = [];
 
@@ -100,15 +112,19 @@ export function generateSheetSvg(
       );
     }
 
-    engraveElements.push(
-      renderCadText(
-        plate.labelX,
-        plate.labelY,
-        plate.labelSize,
-        '#0000FF',
-        plate.labelText
-      )
-    );
+    const skipLabel = Boolean(options.omitEngravedPlateLabels);
+
+    if (!skipLabel) {
+      engraveElements.push(
+        renderCadText(
+          plate.labelX,
+          plate.labelY,
+          plate.labelSize,
+          '#0000FF',
+          plate.labelText
+        )
+      );
+    }
 
     if (plate.slotLabels) {
       for (const slotLbl of plate.slotLabels) {
@@ -157,12 +173,45 @@ export function generateSheetSvg(
     );
   }
 
+  if (includeReg) {
+    const marks = computeRegistrationMarks(
+      W,
+      H,
+      M,
+      Boolean(options.mirrorHorizontal)
+    );
+    for (const m of marks) {
+      regElements.push(
+        `<line x1="${fmt(m.x - m.armRadius)}" y1="${fmt(m.y)}" x2="${fmt(m.x + m.armRadius)}" y2="${fmt(m.y)}" stroke="#00AA00" stroke-width="0.25" />`,
+        `<line x1="${fmt(m.x)}" y1="${fmt(m.y - m.armRadius)}" x2="${fmt(m.x)}" y2="${fmt(m.y + m.armRadius)}" stroke="#00AA00" stroke-width="0.25" />`,
+        `<circle cx="${fmt(m.x)}" cy="${fmt(m.y)}" r="${fmt(m.circleRadius)}" fill="none" stroke="#00AA00" stroke-width="0.25" />`
+      );
+      if (m.isOrigin) {
+        const dirX = m.x < W * 0.5 ? 1 : -1;
+        const dirY = m.y < H * 0.5 ? 1 : -1;
+        regElements.push(
+          `<circle cx="${fmt(m.x)}" cy="${fmt(m.y)}" r="${fmt(m.circleRadius * 1.45)}" fill="none" stroke="#00AA00" stroke-width="0.2" />`,
+          renderCadText(
+            m.x + dirX * (m.armRadius + 3.2),
+            m.y + dirY * (m.armRadius + 1.5),
+            2.2,
+            '#00AA00',
+            '0,0'
+          )
+        );
+      }
+    }
+  }
+
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
     `<svg xmlns="http://www.w3.org/2000/svg" width="${fmt(W)}mm" height="${fmt(H)}mm" viewBox="0 0 ${fmt(W)} ${fmt(H)}">`,
     `  <g id="cad-frame" transform="translate(0, ${fmt(H)}) scale(1, -1)">`,
     includeRef
       ? `    <g id="referencia">\n      ${refElements.join('\n      ')}\n    </g>`
+      : '',
+    includeReg
+      ? `    <g id="registro">\n      ${regElements.join('\n      ')}\n    </g>`
       : '',
     `    <g id="grabado">`,
     `      ${engraveElements.join('\n      ')}`,

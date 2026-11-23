@@ -1,7 +1,14 @@
+import type * as THREE from 'three';
 import { AxisSliceCache, sliceMeshFromCache } from '../core/slicer';
 import { getWaffleAxesConfig, sliceWaffleFromCaches } from '../core/waffle';
-import { loadMeshFromBuffer } from '../core/meshLoader';
-import type { Axis, WorkerRequest, WorkerResponse } from '../types/sculpture';
+import { parseRawMeshFromBuffer } from '../core/meshLoader';
+import { diagnoseGeometry, normalizeAndValidateGeometry } from '../core/meshRepair';
+import type {
+  Axis,
+  MeshRepairOptions,
+  WorkerRequest,
+  WorkerResponse,
+} from '../types/sculpture';
 
 export type PostMessageFn = (response: WorkerResponse, transfer?: Transferable[]) => void;
 
@@ -9,6 +16,13 @@ export class SlicerWorkerHost {
   private currentMeshId = -1;
   private rawPositions: Float32Array | null = null;
   private axisCaches: Partial<Record<Axis, AxisSliceCache>> = {};
+  private pendingLoad: {
+    meshId: number;
+    rawGeometry: THREE.BufferGeometry;
+    fileName: string;
+    unitScaleApplied: number;
+    loaderWarnings: string[];
+  } | null = null;
 
   private pendingSliceMsg: Extract<WorkerRequest, { type: 'SLICE' | 'SLICE_WAFFLE' }> | null = null;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -23,14 +37,33 @@ export class SlicerWorkerHost {
     return this.rawPositions;
   }
 
+  private clearPendingLoad(): void {
+    if (this.pendingLoad) {
+      this.pendingLoad.rawGeometry.dispose();
+      this.pendingLoad = null;
+    }
+  }
+
   public handleMessage(msg: WorkerRequest): void {
     if (msg.type === 'LOAD_MESH') {
-      this.cancelPendingSlice();
       this.handleLoadMesh(msg);
       return;
     }
 
+    if (msg.type === 'COMPLETE_LOAD_MESH') {
+      this.handleCompleteLoadMesh(msg);
+      return;
+    }
+
+    if (msg.type === 'CANCEL_PENDING_LOAD') {
+      if (this.pendingLoad?.meshId === msg.meshId) {
+        this.clearPendingLoad();
+      }
+      return;
+    }
+
     if (msg.type === 'SET_MESH') {
+      this.clearPendingLoad();
       this.cancelPendingSlice();
       this.currentMeshId = msg.meshId;
       this.rawPositions = msg.positions;
@@ -95,33 +128,101 @@ export class SlicerWorkerHost {
     }
   }
 
+  private commitParsedMesh(
+    jobId: number,
+    meshId: number,
+    rawGeometry: THREE.BufferGeometry,
+    fileName: string,
+    unitScaleApplied: number,
+    loaderWarnings: string[],
+    repairOptions: MeshRepairOptions,
+    t0: number
+  ): void {
+    this.cancelPendingSlice();
+    const { geometry, metadata } = normalizeAndValidateGeometry(
+      rawGeometry,
+      fileName,
+      unitScaleApplied,
+      loaderWarnings,
+      repairOptions
+    );
+    rawGeometry.dispose();
+
+    const posAttr = geometry.getAttribute('position');
+    const positions = posAttr.array as Float32Array;
+
+    this.currentMeshId = meshId;
+    this.rawPositions = positions;
+    this.axisCaches = {};
+    const durationMs = performance.now() - t0;
+
+    const transferPositions = new Float32Array(positions);
+
+    const resp: WorkerResponse = {
+      type: 'LOAD_MESH_SUCCESS',
+      jobId,
+      meshId,
+      positions: transferPositions,
+      metadata,
+      durationMs,
+    };
+    this.postMessageFn(resp, [transferPositions.buffer]);
+  }
+
   private handleLoadMesh(msg: Extract<WorkerRequest, { type: 'LOAD_MESH' }>): void {
-    const { jobId, meshId, buffer, fileName, upOrientation } = msg;
+    const {
+      jobId,
+      meshId,
+      buffer,
+      fileName,
+      upOrientation,
+      fillHoles,
+      pruneFlaps,
+      harmonizeWinding,
+      checkBeforeRepair,
+    } = msg;
+    this.clearPendingLoad();
+    let rawGeometry: THREE.BufferGeometry | null = null;
     try {
       const t0 = performance.now();
-      const { geometry, metadata } = loadMeshFromBuffer(buffer, fileName, {
-        upOrientation,
-      });
-      const posAttr = geometry.getAttribute('position');
-      const positions = posAttr.array as Float32Array;
+      const parsed = parseRawMeshFromBuffer(buffer, fileName, { upOrientation });
+      rawGeometry = parsed.rawGeometry;
 
-      this.currentMeshId = meshId;
-      this.rawPositions = positions;
-      this.axisCaches = {};
-      const durationMs = performance.now() - t0;
+      if (checkBeforeRepair) {
+        const diagnosis = diagnoseGeometry(rawGeometry, fileName);
+        if (diagnosis.hasRepairableIssues) {
+          this.pendingLoad = {
+            meshId,
+            rawGeometry,
+            fileName,
+            unitScaleApplied: parsed.unitScaleApplied,
+            loaderWarnings: parsed.loaderWarnings,
+          };
+          rawGeometry = null;
+          this.postMessageFn({
+            type: 'LOAD_MESH_NEEDS_REPAIR',
+            jobId,
+            meshId,
+            diagnosis,
+          });
+          return;
+        }
+      }
 
-      const transferPositions = new Float32Array(positions);
-
-      const resp: WorkerResponse = {
-        type: 'LOAD_MESH_SUCCESS',
+      const geomToCommit = rawGeometry;
+      rawGeometry = null;
+      this.commitParsedMesh(
         jobId,
         meshId,
-        positions: transferPositions,
-        metadata,
-        durationMs,
-      };
-      this.postMessageFn(resp, [transferPositions.buffer]);
+        geomToCommit,
+        fileName,
+        parsed.unitScaleApplied,
+        parsed.loaderWarnings,
+        { fillHoles, pruneFlaps, harmonizeWinding },
+        t0
+      );
     } catch (err) {
+      if (rawGeometry) rawGeometry.dispose();
       const resp: WorkerResponse = {
         type: 'LOAD_MESH_ERROR',
         jobId,
@@ -129,6 +230,44 @@ export class SlicerWorkerHost {
         error: err instanceof Error ? err.message : String(err),
       };
       this.postMessageFn(resp);
+    }
+  }
+
+  private handleCompleteLoadMesh(
+    msg: Extract<WorkerRequest, { type: 'COMPLETE_LOAD_MESH' }>
+  ): void {
+    const { jobId, meshId, repairOptions } = msg;
+    const pending = this.pendingLoad;
+    if (!pending || pending.meshId !== meshId) {
+      this.postMessageFn({
+        type: 'LOAD_MESH_ERROR',
+        jobId,
+        meshId,
+        error: 'No hay una carga pendiente para completar la reparación.',
+      });
+      return;
+    }
+
+    this.pendingLoad = null;
+    try {
+      this.commitParsedMesh(
+        jobId,
+        meshId,
+        pending.rawGeometry,
+        pending.fileName,
+        pending.unitScaleApplied,
+        pending.loaderWarnings,
+        repairOptions,
+        performance.now()
+      );
+    } catch (err) {
+      pending.rawGeometry.dispose();
+      this.postMessageFn({
+        type: 'LOAD_MESH_ERROR',
+        jobId,
+        meshId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

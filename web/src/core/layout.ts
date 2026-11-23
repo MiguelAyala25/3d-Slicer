@@ -1,10 +1,17 @@
 import {
+  affineCompose,
+  affineLocalRot90,
+  affineRound,
+  affineTranslate,
+} from './affine2d';
+import {
   distanceToPolygonBoundary,
   pointInPolygonWithHoles,
 } from './geometry2d';
 import { estimateTextWidth } from './labelMetrics';
 import { validateParams, ValidationError } from './validator';
 import type {
+  Affine2D,
   CoreParams,
   PlacedPlate,
   PlateContour,
@@ -135,7 +142,9 @@ export function rotatePlateLocal90(
  * Ordena piezas por altura descendente (First-Fit Decreasing / FFD) para acomodo en estantes,
  * manteniendo intacto el identificador / plateIndex original.
  */
-export function orderPlatesForPacking<T extends { plateIndex: number; width: number; height: number }>(
+export function orderPlatesForPacking<
+  T extends { plateIndex: number; width: number; height: number }
+>(
   items: readonly T[]
 ): T[] {
   return [...items].sort((a, b) => {
@@ -367,6 +376,7 @@ export function generateSheetLayouts(
     height: number;
     polygons: PolygonWithHoles[];
     discs: PlateEngraveDisc[];
+    localTransform: Affine2D;
   }
 
   const rawCandidates: PlateCandidate[] = [];
@@ -379,6 +389,7 @@ export function generateSheetLayouts(
     let w = bounds.maxX - bounds.minX;
     let h = bounds.maxY - bounds.minY;
 
+    let localTransform = affineTranslate(-bounds.minX, -bounds.minY);
     let localPolys = shiftPlatePolygons(platePolys, -bounds.minX, -bounds.minY);
     let localDiscs: PlateEngraveDisc[] =
       hooks?.plateEngraveMarks(i, bounds.minX, bounds.minY) ?? [];
@@ -388,6 +399,7 @@ export function generateSheetLayouts(
 
     if (!fitsNormal) {
       if (fitsRotated) {
+        localTransform = affineCompose(affineLocalRot90(h), localTransform);
         const rot = rotatePlateLocal90(localPolys, localDiscs, undefined, w, h);
         localPolys = rot.polygons;
         localDiscs = rot.discs;
@@ -405,6 +417,7 @@ export function generateSheetLayouts(
         );
       }
     } else if (shouldOptimize && fitsRotated && h > w) {
+      localTransform = affineCompose(affineLocalRot90(h), localTransform);
       const rot = rotatePlateLocal90(localPolys, localDiscs, undefined, w, h);
       localPolys = rot.polygons;
       localDiscs = rot.discs;
@@ -418,6 +431,7 @@ export function generateSheetLayouts(
       height: h,
       polygons: localPolys,
       discs: localDiscs,
+      localTransform,
     });
   }
 
@@ -444,11 +458,13 @@ export function generateSheetLayouts(
     let h = cand.height;
     let localPolys = cand.polygons;
     let localDiscs = cand.discs;
+    let localTransform = cand.localTransform;
 
     if (shouldOptimize && isWithinUsableArea(h, w, params)) {
       const fitsCurrentRowNormal = cursorX + w <= maxX;
       const fitsCurrentRowRotated = cursorX + h <= maxX && cursorY + w <= maxY;
       if (!fitsCurrentRowNormal && fitsCurrentRowRotated && cursorX > margin) {
+        localTransform = affineCompose(affineLocalRot90(h), localTransform);
         const rot = rotatePlateLocal90(localPolys, localDiscs, undefined, w, h);
         localPolys = rot.polygons;
         localDiscs = rot.discs;
@@ -465,6 +481,7 @@ export function generateSheetLayouts(
 
     if (cursorY + h > maxY) {
       if (shouldOptimize && isWithinUsableArea(h, w, params) && cursorY + w <= maxY) {
+        localTransform = affineCompose(affineLocalRot90(h), localTransform);
         const rot = rotatePlateLocal90(localPolys, localDiscs, undefined, w, h);
         localPolys = rot.polygons;
         localDiscs = rot.discs;
@@ -499,6 +516,11 @@ export function generateSheetLayouts(
       plateYOffset
     );
 
+    const sheetTransform = affineRound(
+      affineCompose(affineTranslate(cursorX, plateYOffset), localTransform),
+      6
+    );
+
     const placed: PlacedPlate = {
       plateIndex: cand.plateIndex,
       xOffset: cursorX,
@@ -512,6 +534,7 @@ export function generateSheetLayouts(
       labelY: finalLabel.labelY,
       labelSize: finalLabel.labelSize,
       labelOutside: finalLabel.labelOutside,
+      sheetTransform,
     };
 
     currentSheet.plates.push(placed);
@@ -697,6 +720,7 @@ export function generateWaffleSheetLayouts(
     height: number;
     polygons: PolygonWithHoles[];
     slotLabels: SlotLabel[];
+    localTransform: Affine2D;
   }
 
   const rawCandidates: WaffleCandidate[] = [];
@@ -707,6 +731,7 @@ export function generateWaffleSheetLayouts(
     let w = bounds.maxU - bounds.minU;
     let h = bounds.maxV - bounds.minV;
 
+    let localTransform = affineTranslate(-bounds.minU, -bounds.minV);
     let localPolys = shiftPlatePolygons(section.polygons, -bounds.minU, -bounds.minV);
     let localSlotLabels = section.slotLabels ?? [];
 
@@ -715,6 +740,7 @@ export function generateWaffleSheetLayouts(
 
     if (!fitsNormal) {
       if (fitsRotated) {
+        localTransform = affineCompose(affineLocalRot90(h), localTransform);
         const rot = rotatePlateLocal90(localPolys, [], localSlotLabels, w, h);
         localPolys = rot.polygons;
         localSlotLabels = rot.slotLabels;
@@ -732,6 +758,7 @@ export function generateWaffleSheetLayouts(
         );
       }
     } else if (shouldOptimize && fitsRotated && h > w) {
+      localTransform = affineCompose(affineLocalRot90(h), localTransform);
       const rot = rotatePlateLocal90(localPolys, [], localSlotLabels, w, h);
       localPolys = rot.polygons;
       localSlotLabels = rot.slotLabels;
@@ -746,6 +773,7 @@ export function generateWaffleSheetLayouts(
       height: h,
       polygons: localPolys,
       slotLabels: localSlotLabels,
+      localTransform,
     });
   }
 
@@ -772,11 +800,13 @@ export function generateWaffleSheetLayouts(
     let h = cand.height;
     let localPolys = cand.polygons;
     let localSlotLabels = cand.slotLabels;
+    let localTransform = cand.localTransform;
 
     if (shouldOptimize && isWithinUsableArea(h, w, params)) {
       const fitsCurrentRowNormal = cursorX + w <= maxX;
       const fitsCurrentRowRotated = cursorX + h <= maxX && cursorY + w <= maxY;
       if (!fitsCurrentRowNormal && fitsCurrentRowRotated && cursorX > margin) {
+        localTransform = affineCompose(affineLocalRot90(h), localTransform);
         const rot = rotatePlateLocal90(localPolys, [], localSlotLabels, w, h);
         localPolys = rot.polygons;
         localSlotLabels = rot.slotLabels;
@@ -793,6 +823,7 @@ export function generateWaffleSheetLayouts(
 
     if (cursorY + h > maxY) {
       if (shouldOptimize && isWithinUsableArea(h, w, params) && cursorY + w <= maxY) {
+        localTransform = affineCompose(affineLocalRot90(h), localTransform);
         const rot = rotatePlateLocal90(localPolys, [], localSlotLabels, w, h);
         localPolys = rot.polygons;
         localSlotLabels = rot.slotLabels;
@@ -835,6 +866,11 @@ export function generateWaffleSheetLayouts(
       fontSize: lbl.fontSize,
     }));
 
+    const sheetTransform = affineRound(
+      affineCompose(affineTranslate(cursorX, plateYOffset), localTransform),
+      6
+    );
+
     const placed: PlacedPlate = {
       plateIndex: cand.plateIndex,
       xOffset: cursorX,
@@ -849,6 +885,7 @@ export function generateWaffleSheetLayouts(
       labelSize: finalLabel.labelSize,
       labelOutside: finalLabel.labelOutside,
       slotLabels: placedSlotLabels,
+      sheetTransform,
     };
 
     currentSheet.plates.push(placed);

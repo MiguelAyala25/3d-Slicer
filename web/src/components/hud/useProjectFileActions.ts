@@ -12,12 +12,13 @@ export function useProjectFileActions() {
   const meshMetadata = useSculptureStore((s) => s.meshMetadata);
   const meshGeometry = useSculptureStore((s) => s.meshGeometry);
   const params = useSculptureStore((s) => s.params);
+  const decals = useSculptureStore((s) => s.decals);
   const pendingAutosave = useSculptureStore((s) => s.pendingAutosave);
   const isLoadingMesh = useSculptureStore((s) => s.isLoadingMesh);
   const isSlicing = useSculptureStore((s) => s.isSlicing);
   const loadMeshArrayBuffer = useSculptureStore((s) => s.loadMeshArrayBuffer);
-  const exportProjectJsonString = useSculptureStore(
-    (s) => s.exportProjectJsonString
+  const exportProjectJsonWithImages = useSculptureStore(
+    (s) => s.exportProjectJsonWithImages
   );
   const importProjectFromParsed = useSculptureStore(
     (s) => s.importProjectFromParsed
@@ -81,9 +82,15 @@ export function useProjectFileActions() {
     }
   };
 
-  const handleSaveProject = () => {
+  const handleSaveProject = async () => {
     try {
-      const json = exportProjectJsonString();
+      const embedImages =
+        decals.length > 0
+          ? window.confirm(
+              '¿Incrustar las imágenes dentro del archivo JSON para que sea portable? (Cancelar guarda solo las referencias locales)'
+            )
+          : false;
+      const json = await exportProjectJsonWithImages(embedImages);
       const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
